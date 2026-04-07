@@ -184,6 +184,77 @@ fn test_function_pointer_types_exist() {
     let _: Option<vkGetInstanceProcAddr> = None;
 }
 
+#[test]
+fn test_function_pointer_signatures_match_spec() {
+    // Verify that generated function pointer typedefs have the exact
+    // signatures specified in the Vulkan API. We do this by assigning
+    // stub functions with the expected signatures to the typedefs.
+    // This catches regressions in parameter ordering, parameter types,
+    // calling convention, and return type.
+
+    // vkCreateInstance: VkResult vkCreateInstance(
+    //     const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*)
+    unsafe extern "system" fn create_instance_stub(
+        _create_info: *const VkInstanceCreateInfo,
+        _allocator: *const VkAllocationCallbacks,
+        _instance: *mut VkInstance,
+    ) -> VkResult {
+        VkResult::SUCCESS
+    }
+    let _f: vkCreateInstance = create_instance_stub;
+
+    // vkDestroyInstance: void vkDestroyInstance(VkInstance, const VkAllocationCallbacks*)
+    unsafe extern "system" fn destroy_instance_stub(
+        _instance: VkInstance,
+        _allocator: *const VkAllocationCallbacks,
+    ) {
+    }
+    let _f: vkDestroyInstance = destroy_instance_stub;
+
+    // vkEnumeratePhysicalDevices
+    unsafe extern "system" fn enum_phys_stub(
+        _instance: VkInstance,
+        _count: *mut u32,
+        _devices: *mut VkPhysicalDevice,
+    ) -> VkResult {
+        VkResult::SUCCESS
+    }
+    let _f: vkEnumeratePhysicalDevices = enum_phys_stub;
+
+    // vkEnumerateInstanceVersion: VkResult vkEnumerateInstanceVersion(uint32_t*)
+    unsafe extern "system" fn enum_version_stub(_version: *mut u32) -> VkResult {
+        VkResult::SUCCESS
+    }
+    let _f: vkEnumerateInstanceVersion = enum_version_stub;
+}
+
+#[test]
+fn test_dispatch_tables_have_required_fields() {
+    // VkEntryDispatchTable must contain the global Vulkan functions
+    let entry: VkEntryDispatchTable = unsafe { std::mem::zeroed() };
+    let _ = entry.vkCreateInstance;
+    let _ = entry.vkEnumerateInstanceLayerProperties;
+    let _ = entry.vkEnumerateInstanceExtensionProperties;
+    let _ = entry.vkEnumerateInstanceVersion;
+
+    // VkInstanceDispatchTable must contain instance-level functions
+    let inst: VkInstanceDispatchTable = unsafe { std::mem::zeroed() };
+    let _ = inst.vkDestroyInstance;
+    let _ = inst.vkEnumeratePhysicalDevices;
+    let _ = inst.vkGetPhysicalDeviceProperties;
+    let _ = inst.vkGetPhysicalDeviceMemoryProperties;
+    let _ = inst.vkGetPhysicalDeviceQueueFamilyProperties;
+    let _ = inst.vkCreateDevice;
+
+    // VkDeviceDispatchTable must contain device-level functions
+    let dev: VkDeviceDispatchTable = unsafe { std::mem::zeroed() };
+    let _ = dev.vkDestroyDevice;
+    let _ = dev.vkGetDeviceQueue;
+    let _ = dev.vkCreateBuffer;
+    let _ = dev.vkAllocateMemory;
+    let _ = dev.vkCreateCommandPool;
+}
+
 // ============================================================================
 // Dispatch table tests
 // ============================================================================
@@ -246,6 +317,60 @@ fn test_clear_value_is_union() {
 fn test_null_handle() {
     // VK_NULL_HANDLE should be 0, derived from vk.xml
     assert_eq!(VK_NULL_HANDLE, 0u64);
+}
+
+// ============================================================================
+// Struct layout assertions
+// ============================================================================
+
+#[test]
+fn test_vk_application_info_size_matches_spec() {
+    // VkApplicationInfo per the Vulkan spec is:
+    //   VkStructureType    sType;             // 4 bytes (i32)
+    //   const void*        pNext;             // 8 bytes on 64-bit
+    //   const char*        pApplicationName;  // 8
+    //   uint32_t           applicationVersion;// 4
+    //   const char*        pEngineName;       // 8
+    //   uint32_t           engineVersion;     // 4
+    //   uint32_t           apiVersion;        // 4
+    // With C alignment, this is 48 bytes on 64-bit platforms.
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(std::mem::size_of::<VkApplicationInfo>(), 48);
+
+    // Independent of pointer width, alignment must be at least 8
+    // (it contains pointers).
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(std::mem::align_of::<VkApplicationInfo>(), 8);
+}
+
+#[test]
+fn test_vk_extent_3d_layout() {
+    // VkExtent3D is { uint32_t width, height, depth } — 12 bytes, aligned to 4
+    assert_eq!(std::mem::size_of::<VkExtent3D>(), 12);
+    assert_eq!(std::mem::align_of::<VkExtent3D>(), 4);
+
+    let e = VkExtent3D {
+        width: 1024,
+        height: 768,
+        depth: 1,
+    };
+    assert_eq!(e.width, 1024);
+    assert_eq!(e.height, 768);
+    assert_eq!(e.depth, 1);
+}
+
+#[test]
+fn test_vk_offset_2d_layout() {
+    // VkOffset2D is { int32_t x, y } — 8 bytes
+    assert_eq!(std::mem::size_of::<VkOffset2D>(), 8);
+    assert_eq!(std::mem::align_of::<VkOffset2D>(), 4);
+}
+
+#[test]
+fn test_vk_rect_2d_layout() {
+    // VkRect2D is { VkOffset2D offset; VkExtent2D extent; }
+    // offset = 8 bytes, extent (uint32_t x 2) = 8 bytes, total 16
+    assert_eq!(std::mem::size_of::<VkRect2D>(), 16);
 }
 
 // ============================================================================

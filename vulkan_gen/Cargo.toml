@@ -2,9 +2,15 @@
 name = "vulkan_gen"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Eric Evans <ciresnave@gmail.com>"]
 license = "MIT OR Apache-2.0"
+description = "Vulkan XML specification parser and Rust binding generator. Used internally by the spock crate, but reusable as a standalone code generator."
+keywords = ["vulkan", "codegen", "bindings", "xml", "ffi"]
+categories = ["development-tools", "parser-implementations", "graphics"]
 repository = "https://github.com/ciresnave/spock"
+homepage = "https://github.com/ciresnave/spock"
+documentation = "https://docs.rs/vulkan_gen"
 
 [dependencies]
 roxmltree = "0.21"

@@ -58,17 +58,18 @@ impl FunctionGenerator {
 
         sig.push_str(&params.join(", "));
 
-        // Defensive return type mapping
+        // Return type mapping. C `void` becomes Rust `()`, not `c_void`
+        // (which is an opaque type, not a unit return value).
         let raw_ret = func_def.return_type.trim();
-        let return_type = if raw_ret.is_empty() {
-            "c_void".to_string()
+        let return_type = if raw_ret.is_empty() || raw_ret == "void" {
+            "()".to_string()
         } else {
             match raw_ret {
                 "const" | "fn" => "*mut c_void".to_string(),
                 other => {
                     let mapped = self.simple_map_param_type(other);
-                    if mapped.is_empty() {
-                        "*mut c_void".to_string()
+                    if mapped.is_empty() || mapped == "c_void" {
+                        "()".to_string()
                     } else {
                         mapped
                     }

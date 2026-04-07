@@ -2,13 +2,16 @@
 name = "spock"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "Complete raw Vulkan API bindings for Rust, generated entirely from the official Vulkan XML specification"
+description = "Raw Vulkan API bindings generated entirely from the official vk.xml specification. Supports any Vulkan version from 1.2.175 onward — swap vk.xml and rebuild."
 keywords = ["vulkan", "graphics", "gpu", "rendering", "ffi"]
 categories = ["graphics", "api-bindings", "rendering", "external-ffi-bindings"]
 readme = "../README.md"
 repository = "https://github.com/ciresnave/spock"
+homepage = "https://github.com/ciresnave/spock"
+documentation = "https://docs.rs/spock"
 
 [features]
 default = ["build-support"]

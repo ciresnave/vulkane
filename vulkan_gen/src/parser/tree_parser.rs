@@ -241,7 +241,7 @@ fn parse_struct_or_union(node: roxmltree::Node, category: &str, spec: &mut Vulka
         spec.structs.push(VulkanStruct {
             name,
             category: category.to_string(),
-            comment: attr(node, "comment"),
+            comment: comment_or_child(node),
             returnedonly: attr(node, "returnedonly"),
             structextends: attr(node, "structextends"),
             allowduplicate: attr(node, "allowduplicate"),
@@ -289,7 +289,7 @@ fn parse_struct_or_union(node: roxmltree::Node, category: &str, spec: &mut Vulka
     spec.structs.push(VulkanStruct {
         name,
         category: category.to_string(),
-        comment: attr(node, "comment"),
+        comment: comment_or_child(node),
         returnedonly: attr(node, "returnedonly"),
         structextends: attr(node, "structextends"),
         allowduplicate: attr(node, "allowduplicate"),
@@ -428,7 +428,7 @@ fn parse_general_type(node: roxmltree::Node, category: &str, spec: &mut VulkanSp
         objtypeenum: attr(node, "objtypeenum"),
         alias: attr(node, "alias"),
         deprecated: attr(node, "deprecated"),
-        comment: attr(node, "comment"),
+        comment: comment_or_child(node),
         raw_content: raw_xml_content(node),
         type_references: type_refs,
         is_alias,

@@ -1,20 +1,37 @@
-//! Helpers for converting `VkResult` into Rust's `Result` type.
+//! Ergonomic conversion of `VkResult` into Rust's `Result` type.
 //!
-//! Vulkan functions return `VkResult` codes where `SUCCESS` (0) means success
-//! and any other value indicates either a non-fatal status (positive values)
-//! or an error (negative values). These helpers make it easy to use Rust's
-//! `?` operator with Vulkan calls.
+//! Vulkan functions return a `VkResult` enum where:
 //!
-//! # Example
+//! - `SUCCESS` (0) means the call completed.
+//! - **Positive** values are non-fatal status codes (`NOT_READY`, `TIMEOUT`,
+//!   `INCOMPLETE`, `SUBOPTIMAL_KHR`, etc.) — the call did something useful but
+//!   not necessarily what you asked for.
+//! - **Negative** values are errors (`ERROR_OUT_OF_HOST_MEMORY`, `ERROR_DEVICE_LOST`,
+//!   etc.) — the call failed and any output parameters are invalid.
+//!
+//! Spock provides:
+//!
+//! - The [`VkResultExt`] extension trait, with `into_result()`, `is_success()`,
+//!   and `is_error()` methods.
+//! - A `std::error::Error` implementation for [`VkResult`] so you can use `?`
+//!   in functions returning `Result<_, Box<dyn Error>>`.
+//! - The [`vk_check!`] macro for one-line Vulkan call validation.
+//!
+//! `into_result()` only treats `SUCCESS` as `Ok`. If you need to distinguish
+//! between non-fatal status codes (like `INCOMPLETE`) and outright errors,
+//! use the raw `VkResult` value directly.
+//!
+//! # Example: propagating errors with `?`
 //!
 //! ```ignore
 //! use spock::raw::bindings::*;
-//! use spock::raw::result::VkResultExt;
+//! use spock::raw::VkResultExt;
 //!
-//! unsafe fn create_instance(create_fn: vkCreateInstance) -> Result<VkInstance, VkResult> {
+//! fn create_instance(entry: &VkEntryDispatchTable) -> Result<VkInstance, Box<dyn std::error::Error>> {
 //!     let info = VkInstanceCreateInfo::default();
-//!     let mut instance = std::ptr::null_mut();
-//!     create_fn(&info, std::ptr::null(), &mut instance).into_result()?;
+//!     let mut instance: VkInstance = std::ptr::null_mut();
+//!     let create = entry.vkCreateInstance.ok_or("vkCreateInstance not loaded")?;
+//!     unsafe { create(&info, std::ptr::null(), &mut instance) }.into_result()?;
 //!     Ok(instance)
 //! }
 //! ```
