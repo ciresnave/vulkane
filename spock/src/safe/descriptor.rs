@@ -12,7 +12,7 @@
 //! which is in turn part of the [`ComputePipeline`](super::ComputePipeline).
 
 use super::device::DeviceInner;
-use super::image::{ImageLayout, ImageView};
+use super::image::{ImageLayout, ImageView, Sampler};
 use super::{Buffer, Device, Error, Result, check};
 use crate::raw::bindings::*;
 use std::sync::Arc;
@@ -29,6 +29,10 @@ impl DescriptorType {
     pub const STORAGE_BUFFER: Self = Self(VkDescriptorType::DESCRIPTOR_TYPE_STORAGE_BUFFER);
     pub const UNIFORM_BUFFER: Self = Self(VkDescriptorType::DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     pub const STORAGE_IMAGE: Self = Self(VkDescriptorType::DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    pub const COMBINED_IMAGE_SAMPLER: Self =
+        Self(VkDescriptorType::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    pub const SAMPLED_IMAGE: Self = Self(VkDescriptorType::DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    pub const SAMPLER: Self = Self(VkDescriptorType::DESCRIPTOR_TYPE_SAMPLER);
 }
 
 /// Which pipeline stages may access a descriptor.
@@ -275,6 +279,48 @@ impl DescriptorSet {
         };
 
         // Safety: handle is valid, write/info live for the duration of the call.
+        unsafe { update(self.device.handle, 1, &write, 0, std::ptr::null()) };
+    }
+
+    /// Update one binding in this set to point at a (sampler, image
+    /// view, layout) triple, suitable for a `COMBINED_IMAGE_SAMPLER`
+    /// descriptor binding. The shader sees both the sampler and the
+    /// sampled image at the same binding number — this is the
+    /// OpenGL-style "texture2D" binding.
+    ///
+    /// `image_layout` is the layout the shader will see when it
+    /// samples the image; typically
+    /// [`ImageLayout::SHADER_READ_ONLY_OPTIMAL`](super::ImageLayout::SHADER_READ_ONLY_OPTIMAL).
+    pub fn write_combined_image_sampler(
+        &self,
+        binding: u32,
+        sampler: &Sampler,
+        view: &ImageView,
+        image_layout: ImageLayout,
+    ) {
+        let update = self
+            .device
+            .dispatch
+            .vkUpdateDescriptorSets
+            .expect("vkUpdateDescriptorSets is required by Vulkan 1.0");
+
+        let info = VkDescriptorImageInfo {
+            sampler: sampler.handle,
+            imageView: view.handle,
+            imageLayout: image_layout.0,
+        };
+
+        let write = VkWriteDescriptorSet {
+            sType: VkStructureType::STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            dstSet: self.handle,
+            dstBinding: binding,
+            descriptorCount: 1,
+            descriptorType: VkDescriptorType::DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            pImageInfo: &info,
+            ..Default::default()
+        };
+
+        // Safety: handle is valid; write/info live for the duration of the call.
         unsafe { update(self.device.handle, 1, &write, 0, std::ptr::null()) };
     }
 
