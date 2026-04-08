@@ -16,6 +16,11 @@ pub struct PhysicalDevice {
     pub(crate) handle: VkPhysicalDevice,
 }
 
+// Safety: VkPhysicalDevice is documented by the Vulkan spec as safe to
+// share between threads. The InstanceInner is already Send + Sync.
+unsafe impl Send for PhysicalDevice {}
+unsafe impl Sync for PhysicalDevice {}
+
 impl PhysicalDevice {
     pub(crate) fn new(instance: Arc<InstanceInner>, handle: VkPhysicalDevice) -> Self {
         Self { instance, handle }
@@ -225,6 +230,46 @@ impl PhysicalDevice {
         raw.into_iter()
             .map(|r| CooperativeMatrixProperties { raw: r })
             .collect()
+    }
+
+    /// Query per-heap memory budget via `VK_EXT_memory_budget`.
+    ///
+    /// `VK_EXT_memory_budget` lets the driver report a soft per-heap
+    /// "budget" the application should respect — exceeding it isn't an
+    /// error, but the driver may start swapping or evicting if it's
+    /// repeatedly violated. The reported `usage` is the driver's estimate
+    /// of how many bytes are currently allocated from each heap.
+    ///
+    /// Returns `None` if `vkGetPhysicalDeviceMemoryProperties2` is not
+    /// loaded (Vulkan 1.0 without `VK_KHR_get_physical_device_properties2`)
+    /// — the call always returns *something* useful when the loader has
+    /// `vkGetPhysicalDeviceMemoryProperties2` available, but the budget
+    /// numbers will only be meaningful when `VK_EXT_memory_budget` is
+    /// enabled at instance creation time.
+    pub fn memory_budget(&self) -> Option<MemoryBudget> {
+        let get2 = self
+            .instance
+            .dispatch
+            .vkGetPhysicalDeviceMemoryProperties2?;
+
+        // Build a chain: VkPhysicalDeviceMemoryProperties2 -> budget.
+        let mut budget = VkPhysicalDeviceMemoryBudgetPropertiesEXT {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
+            ..Default::default()
+        };
+        let mut props2 = VkPhysicalDeviceMemoryProperties2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
+            pNext: &mut budget as *mut _ as *mut _,
+            ..Default::default()
+        };
+        // Safety: handle is valid; outputs live for the call.
+        unsafe { get2(self.handle, &mut props2) };
+
+        Some(MemoryBudget {
+            heap_count: props2.memoryProperties.memoryHeapCount,
+            budget: budget.heapBudget,
+            usage: budget.heapUsage,
+        })
     }
 
     /// The number of nanoseconds per timestamp tick on this device.
@@ -459,6 +504,30 @@ impl MemoryHeapFlags {
 
     pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0
+    }
+}
+
+/// Per-heap memory budget snapshot from `VK_EXT_memory_budget`.
+///
+/// `budget[i]` is the soft cap the driver suggests respecting for heap
+/// `i`; `usage[i]` is the driver's estimate of currently-allocated bytes.
+/// Both arrays are length `heap_count`. Heap indices in this struct match
+/// the indices returned by [`PhysicalDevice::memory_properties`].
+#[derive(Debug, Clone)]
+pub struct MemoryBudget {
+    pub heap_count: u32,
+    pub budget: [u64; 16],
+    pub usage: [u64; 16],
+}
+
+impl MemoryBudget {
+    /// Total budget summed across all heaps.
+    pub fn total_budget(&self) -> u64 {
+        self.budget[..self.heap_count as usize].iter().sum()
+    }
+    /// Total usage summed across all heaps.
+    pub fn total_usage(&self) -> u64 {
+        self.usage[..self.heap_count as usize].iter().sum()
     }
 }
 

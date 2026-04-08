@@ -186,6 +186,8 @@ pub struct Allocator {
 
 struct AllocatorInner {
     device: Arc<DeviceInner>,
+    /// Kept for budget queries via VK_EXT_memory_budget.
+    physical: PhysicalDevice,
     /// Cached `VkPhysicalDeviceMemoryProperties` so we don't re-query.
     memory_properties: VkPhysicalDeviceMemoryProperties,
     /// One pool per memory type. None until first use.
@@ -305,6 +307,7 @@ impl Allocator {
         Ok(Self {
             inner: Arc::new(AllocatorInner {
                 device: Arc::clone(&device.inner),
+                physical: physical.clone(),
                 memory_properties: props,
                 pools: Mutex::new(PoolState {
                     pools,
@@ -327,18 +330,24 @@ impl Allocator {
         self.inner.pools.lock().unwrap().statistics
     }
 
-    /// Try to query `VK_EXT_memory_budget` per-heap budgets. Returns the
-    /// total reported budget across all heaps, or `None` if the extension
-    /// isn't enabled.
-    pub fn query_budget(&self) -> Option<HeapBudgets> {
-        let _ = self;
-        // VK_EXT_memory_budget needs vkGetPhysicalDeviceMemoryProperties2
-        // plus the extension to be enabled at instance creation time. We
-        // don't have a handle to the physical device here, so we expose a
-        // simpler "memory_properties.heap_count" snapshot for callers who
-        // just want to know the total heap sizes.
-        // (A more flexible budget query lives on PhysicalDevice itself.)
-        None
+    /// Query the per-heap memory budget via `VK_EXT_memory_budget`.
+    ///
+    /// Returns `None` only when `vkGetPhysicalDeviceMemoryProperties2`
+    /// is not loaded (Vulkan 1.0 without
+    /// `VK_KHR_get_physical_device_properties2`). The budget/usage values
+    /// inside the returned [`crate::safe::MemoryBudget`] are only
+    /// meaningful when `VK_EXT_memory_budget` was enabled at instance
+    /// creation time, but the heap-count and structural shape are always
+    /// usable.
+    pub fn query_budget(&self) -> Option<crate::safe::MemoryBudget> {
+        self.inner.physical.memory_budget()
+    }
+
+    /// Returns the cached `PhysicalDevice` this allocator was created
+    /// with. Useful for follow-up queries that the allocator does not
+    /// proxy directly.
+    pub fn physical_device(&self) -> &PhysicalDevice {
+        &self.inner.physical
     }
 
     /// Free a previously returned allocation. The user is responsible for
@@ -789,10 +798,3 @@ impl Drop for AllocatorInner {
     }
 }
 
-/// Per-heap budget snapshot from `VK_EXT_memory_budget`.
-#[derive(Debug, Clone)]
-pub struct HeapBudgets {
-    pub heap_count: u32,
-    pub budget: [u64; 16],
-    pub usage: [u64; 16],
-}

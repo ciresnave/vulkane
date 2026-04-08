@@ -2045,6 +2045,29 @@ fn test_buffer_device_address_returns_or_skips() {
 }
 
 #[test]
+fn test_memory_budget_query_succeeds_or_skips() {
+    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let Some(budget) = physical.memory_budget() else {
+        eprintln!("SKIP: vkGetPhysicalDeviceMemoryProperties2 not loaded");
+        return;
+    };
+    // The structure is valid even if VK_EXT_memory_budget wasn't enabled
+    // — the heap_count comes from the Vulkan-1.0-mandatory memory props,
+    // and the budget/usage values just stay zero. We just assert the
+    // structural shape here; meaningful budget reads require enabling
+    // the extension at instance creation time.
+    assert!(budget.heap_count > 0);
+    println!(
+        "Memory heaps: {}; total budget reported: {} bytes (0 if extension not enabled)",
+        budget.heap_count,
+        budget.total_budget()
+    );
+}
+
+#[test]
 fn test_cooperative_matrix_properties_query_succeeds_or_empty() {
     let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
         eprintln!("SKIP: no Vulkan ICD");

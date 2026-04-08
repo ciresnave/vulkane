@@ -91,7 +91,7 @@ mod shader;
 mod sync;
 
 pub use allocator::{
-    Allocation, AllocationCreateInfo, AllocationStatistics, AllocationUsage, Allocator, HeapBudgets,
+    Allocation, AllocationCreateInfo, AllocationStatistics, AllocationUsage, Allocator,
 };
 pub use buffer::{Buffer, BufferCreateInfo, BufferUsage};
 pub use command::{BufferCopy, CommandBuffer, CommandBufferRecording, CommandPool};
@@ -115,8 +115,9 @@ pub use instance::{
 };
 pub use memory::{DeviceMemory, MappedMemory, MemoryPropertyFlags};
 pub use physical::{
-    CooperativeMatrixProperties, MemoryHeap, MemoryHeapFlags, MemoryType, PhysicalDevice,
-    PhysicalDeviceProperties, PhysicalDeviceType, QueueFamilyProperties, QueueFlags,
+    CooperativeMatrixProperties, MemoryBudget, MemoryHeap, MemoryHeapFlags, MemoryType,
+    PhysicalDevice, PhysicalDeviceProperties, PhysicalDeviceType, QueueFamilyProperties,
+    QueueFlags,
 };
 pub use pipeline::{
     ComputePipeline, PipelineCache, PipelineLayout, PushConstantRange, SpecializationConstants,
