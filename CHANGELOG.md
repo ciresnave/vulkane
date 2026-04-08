@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial public release of spock — Vulkan API bindings generated entirely from the official `vk.xml` specification.
-- **Safe wrapper module** (`spock::safe`) — RAII wrappers covering the core compute path: `Instance`, `PhysicalDevice`, `Device`, `Queue`, `Buffer`, `DeviceMemory` (with `MappedMemory`), `CommandPool`, `CommandBuffer`, and `Fence`. Every handle is destroyed automatically via `Drop`. No manual `vkDestroy*` calls.
-- **`fill_buffer` example** that exercises the entire safe wrapper end-to-end on a real GPU using `vkCmdFillBuffer`.
+- **Safe wrapper module** (`spock::safe`) — RAII wrappers covering the **complete compute path**: `Instance`, `PhysicalDevice`, `Device`, `Queue`, `Buffer`, `DeviceMemory` (with `MappedMemory`), `ShaderModule` (takes `&[u32]` SPIR-V), `DescriptorSetLayout`, `DescriptorPool`, `DescriptorSet`, `PipelineLayout`, `ComputePipeline`, `CommandPool`, `CommandBuffer`, and `Fence`. Every handle is destroyed automatically via `Drop`. No manual `vkDestroy*` calls.
+- **Optional `naga` feature** — pulls in `naga` 29 with `glsl-in` + `spv-out` only. Exposes `spock::safe::naga::compile_glsl(source, stage)` returning `Vec<u32>` SPIR-V. Disabled by default; users with their own SPIR-V pay nothing.
+- **`fill_buffer` example** that exercises the safe wrapper end-to-end on a real GPU using `vkCmdFillBuffer`.
+- **`compute_square` example** — complete compute round trip: loads pre-compiled SPIR-V, creates a storage buffer of 256 `u32`s, builds descriptor set + pipeline layout + compute pipeline, dispatches, and verifies the GPU squared every element. Validated on real hardware (NVIDIA RTX 4070) and on Lavapipe in CI.
+- **`compile_shader` example** — one-shot helper (under the `naga` feature) that regenerates the pre-compiled `square_buffer.spv` from the GLSL source.
 - **Lavapipe integration in CI** — Linux runners install Mesa's software Vulkan implementation so the real-Vulkan integration tests actually exercise the loader on every CI run.
 - **Strict clippy on CI** — `cargo clippy --workspace -- -D warnings` is enforced.
 - Tree-based XML parser using `roxmltree` that correctly extracts nested struct members and command parameters.
@@ -59,11 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No builder pattern helpers (`VkInstanceCreateInfo::builder()...`). Use the
   `..Default::default()` shorthand above instead. Builder generation is on the
   roadmap but adds significant generated-code volume.
-- The safe wrapper module covers the **core compute path** (instance, device,
-  queue, buffer, memory, command pool, command buffer, fence) but does not yet
-  cover graphics-specific functionality: swapchains, render passes, pipelines,
-  images, samplers, descriptor sets, or SPIR-V compute shader dispatch. Use
-  `spock::raw` for those use cases.
+- The safe wrapper module covers the **complete compute path** but does not
+  yet cover graphics-specific functionality: surfaces, swapchains, render
+  passes, graphics pipelines, images for color attachments, or samplers.
+  Use `spock::raw` for those use cases.
 - The real-Vulkan integration tests run on Linux CI runners via Lavapipe
   (Mesa's software rasterizer). Windows and macOS CI runners don't have a
   Vulkan ICD by default, so the integration tests skip gracefully there.

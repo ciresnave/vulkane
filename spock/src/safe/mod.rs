@@ -75,11 +75,12 @@ mod memory;
 pub mod naga;
 mod physical;
 mod pipeline;
+mod query;
 mod shader;
 mod sync;
 
 pub use buffer::{Buffer, BufferCreateInfo, BufferUsage};
-pub use command::{CommandBuffer, CommandBufferRecording, CommandPool};
+pub use command::{BufferCopy, CommandBuffer, CommandBufferRecording, CommandPool};
 pub use descriptor::{
     DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorType, ShaderStageFlags,
@@ -91,7 +92,8 @@ pub use physical::{
     MemoryHeap, MemoryHeapFlags, MemoryType, PhysicalDevice, PhysicalDeviceProperties,
     PhysicalDeviceType, QueueFamilyProperties, QueueFlags,
 };
-pub use pipeline::{ComputePipeline, PipelineLayout};
+pub use pipeline::{ComputePipeline, PipelineLayout, PushConstantRange, SpecializationConstants};
+pub use query::{PipelineStatisticsFlags, QueryPool, QueryType};
 pub use shader::ShaderModule;
 pub use sync::Fence;
 

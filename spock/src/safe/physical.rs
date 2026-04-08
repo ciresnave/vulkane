@@ -92,6 +92,71 @@ impl PhysicalDevice {
             .map(|(i, _)| i as u32)
     }
 
+    /// Find a "dedicated" compute queue family — one that supports
+    /// `COMPUTE` but **not** `GRAPHICS`. On modern NVIDIA / AMD GPUs this
+    /// returns the async-compute queue family, which can run compute work
+    /// concurrently with the universal graphics+compute queue.
+    ///
+    /// If no dedicated compute family exists (most integrated GPUs and
+    /// software rasterizers fall in this bucket), this falls back to the
+    /// first family that supports `COMPUTE` at all — i.e. the same answer
+    /// as `find_queue_family(QueueFlags::COMPUTE)`. Returns `None` only when
+    /// the device exposes no compute-capable queues, which should not
+    /// happen on any conformant Vulkan implementation.
+    pub fn find_dedicated_compute_queue(&self) -> Option<u32> {
+        let families = self.queue_family_properties();
+        // Prefer compute-without-graphics.
+        for (i, qf) in families.iter().enumerate() {
+            let flags = qf.queue_flags();
+            if flags.contains(QueueFlags::COMPUTE) && !flags.contains(QueueFlags::GRAPHICS) {
+                return Some(i as u32);
+            }
+        }
+        // Fallback: any compute queue.
+        for (i, qf) in families.iter().enumerate() {
+            if qf.queue_flags().contains(QueueFlags::COMPUTE) {
+                return Some(i as u32);
+            }
+        }
+        None
+    }
+
+    /// Find a "dedicated" transfer queue family — one that supports
+    /// `TRANSFER` but **not** `GRAPHICS` or `COMPUTE`. On discrete GPUs
+    /// this is typically the DMA / copy engine and is the right place to
+    /// run staging-buffer uploads concurrently with compute work.
+    ///
+    /// Falls back to `find_queue_family(QueueFlags::TRANSFER)` (which the
+    /// Vulkan spec guarantees succeeds for any graphics-or-compute family).
+    pub fn find_dedicated_transfer_queue(&self) -> Option<u32> {
+        let families = self.queue_family_properties();
+        for (i, qf) in families.iter().enumerate() {
+            let flags = qf.queue_flags();
+            if flags.contains(QueueFlags::TRANSFER)
+                && !flags.contains(QueueFlags::GRAPHICS)
+                && !flags.contains(QueueFlags::COMPUTE)
+            {
+                return Some(i as u32);
+            }
+        }
+        for (i, qf) in families.iter().enumerate() {
+            if qf.queue_flags().contains(QueueFlags::TRANSFER) {
+                return Some(i as u32);
+            }
+        }
+        None
+    }
+
+    /// The number of nanoseconds per timestamp tick on this device.
+    ///
+    /// `vkCmdWriteTimestamp` writes a `u64` count of implementation-defined
+    /// ticks; multiply by this value to get nanoseconds. Returns `0.0` on
+    /// devices that do not support timestamps at all (which is rare — most
+    /// modern GPUs do).
+    pub fn timestamp_period(&self) -> f32 {
+        self.properties().timestamp_period()
+    }
+
     /// Find the index of the first memory type that has all the required
     /// property flags AND is allowed by the memory_type_bits mask.
     ///
@@ -143,6 +208,18 @@ impl PhysicalDeviceProperties {
     /// The kind of physical device (discrete GPU, integrated, virtual, CPU, ...).
     pub fn device_type(&self) -> PhysicalDeviceType {
         PhysicalDeviceType(self.raw.deviceType)
+    }
+
+    /// Number of nanoseconds per timestamp tick. See
+    /// [`PhysicalDevice::timestamp_period`].
+    pub fn timestamp_period(&self) -> f32 {
+        self.raw.limits.timestampPeriod
+    }
+
+    /// Maximum push constant size in bytes guaranteed by this device.
+    /// Vulkan guarantees at least 128 bytes; most desktop GPUs report 256.
+    pub fn max_push_constants_size(&self) -> u32 {
+        self.raw.limits.maxPushConstantsSize
     }
 
     /// Human-readable device name.

@@ -1,11 +1,23 @@
 //! Safe wrapper for `VkCommandPool` and `VkCommandBuffer`.
 
-use super::descriptor::DescriptorSet;
+use super::descriptor::{DescriptorSet, ShaderStageFlags};
 use super::device::DeviceInner;
 use super::pipeline::{ComputePipeline, PipelineLayout};
+use super::query::QueryPool;
 use super::{Buffer, Device, Error, Result, check};
 use crate::raw::bindings::*;
 use std::sync::Arc;
+
+/// One source -> destination region for [`CommandBufferRecording::copy_buffer`].
+#[derive(Debug, Clone, Copy)]
+pub struct BufferCopy {
+    /// Byte offset in the source buffer.
+    pub src_offset: u64,
+    /// Byte offset in the destination buffer.
+    pub dst_offset: u64,
+    /// Number of bytes to copy.
+    pub size: u64,
+}
 
 /// A safe wrapper around `VkCommandPool`.
 ///
@@ -232,6 +244,138 @@ impl<'a> CommandBufferRecording<'a> {
                 group_count_z,
             )
         };
+    }
+
+    /// Record `vkCmdDispatchIndirect`: read the workgroup count from a
+    /// buffer at runtime.
+    ///
+    /// `buffer` must be a `INDIRECT_BUFFER` and at `offset` must contain a
+    /// `VkDispatchIndirectCommand` (three `u32`s: x, y, z workgroup counts).
+    /// The buffer is read on the GPU at dispatch time, so the host can pass
+    /// counts that another shader wrote earlier in the same submission.
+    pub fn dispatch_indirect(&mut self, buffer: &Buffer, offset: u64) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdDispatchIndirect
+            .expect("vkCmdDispatchIndirect is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, buffer handle is
+        // valid and contains a VkDispatchIndirectCommand at the given offset
+        // (caller's responsibility).
+        unsafe { cmd(self.buffer.handle, buffer.handle, offset) };
+    }
+
+    /// Record `vkCmdCopyBuffer`: copy one or more byte regions from `src`
+    /// to `dst`. Both buffers must have appropriate transfer usage flags.
+    ///
+    /// At least one region must be supplied.
+    pub fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer, regions: &[BufferCopy]) {
+        debug_assert!(
+            !regions.is_empty(),
+            "vkCmdCopyBuffer requires at least one region"
+        );
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdCopyBuffer
+            .expect("vkCmdCopyBuffer is required by Vulkan 1.0");
+
+        let raw: Vec<VkBufferCopy> = regions
+            .iter()
+            .map(|r| VkBufferCopy {
+                srcOffset: r.src_offset,
+                dstOffset: r.dst_offset,
+                size: r.size,
+            })
+            .collect();
+
+        // Safety: command buffer is in recording state, buffer handles are
+        // valid, raw outlives the call.
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                src.handle,
+                dst.handle,
+                raw.len() as u32,
+                raw.as_ptr(),
+            )
+        };
+    }
+
+    /// Record `vkCmdPushConstants`: copy the `bytes` slice into the push
+    /// constant range starting at `offset` in pipeline layout `layout` for
+    /// the given shader `stages`.
+    ///
+    /// `offset` and `bytes.len()` must both be multiples of 4 and must lie
+    /// entirely within a push constant range declared in `layout` for the
+    /// given stages.
+    pub fn push_constants(
+        &mut self,
+        layout: &PipelineLayout,
+        stages: ShaderStageFlags,
+        offset: u32,
+        bytes: &[u8],
+    ) {
+        debug_assert!(
+            offset % 4 == 0,
+            "push constant offset must be a multiple of 4"
+        );
+        debug_assert!(
+            bytes.len() % 4 == 0,
+            "push constant size must be a multiple of 4"
+        );
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdPushConstants
+            .expect("vkCmdPushConstants is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, layout is valid,
+        // bytes lives for the duration of the call.
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                layout.handle,
+                stages.0,
+                offset,
+                bytes.len() as u32,
+                bytes.as_ptr() as *const _,
+            )
+        };
+    }
+
+    /// Record `vkCmdResetQueryPool`: reset all queries in `pool` in the
+    /// given range to the unavailable state. Must be called before any
+    /// query in the range is used in this submission.
+    pub fn reset_query_pool(&mut self, pool: &QueryPool, first_query: u32, query_count: u32) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdResetQueryPool
+            .expect("vkCmdResetQueryPool is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, pool handle is valid.
+        unsafe { cmd(self.buffer.handle, pool.handle, first_query, query_count) };
+    }
+
+    /// Record `vkCmdWriteTimestamp`: write the current pipeline-stage
+    /// timestamp into the given query slot.
+    ///
+    /// `pipeline_stage` should be a single `VK_PIPELINE_STAGE_*` bit (e.g.
+    /// `0x00000001` = TOP_OF_PIPE, `0x00002000` = BOTTOM_OF_PIPE,
+    /// `0x00000800` = COMPUTE_SHADER).
+    pub fn write_timestamp(&mut self, pipeline_stage: u32, pool: &QueryPool, query: u32) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdWriteTimestamp
+            .expect("vkCmdWriteTimestamp is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, pool is valid,
+        // query slot must be in bounds (caller's responsibility).
+        unsafe { cmd(self.buffer.handle, pipeline_stage, pool.handle, query) };
     }
 
     /// Record a global memory barrier between two pipeline stages.
