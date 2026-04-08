@@ -5,8 +5,9 @@
 
 use spock::safe::{
     ApiVersion, Buffer, BufferCopy, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
-    DescriptorPool, DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorType, DeviceCreateInfo, DeviceMemory, Fence, Instance, InstanceCreateInfo,
+    DEBUG_UTILS_EXTENSION, DebugMessage, DebugMessageSeverity, DescriptorPool, DescriptorPoolSize,
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo,
+    DeviceMemory, Fence, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER,
     MemoryPropertyFlags, PipelineLayout, PipelineStatisticsFlags, PushConstantRange, QueryPool,
     QueueCreateInfo, QueueFlags, ShaderModule, ShaderStageFlags, SpecializationConstants,
 };
@@ -70,6 +71,7 @@ fn test_safe_device_creation_and_drop() {
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .expect("device creation should succeed");
 
@@ -107,6 +109,7 @@ fn test_safe_buffer_with_host_visible_memory() {
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .unwrap();
 
@@ -181,6 +184,7 @@ fn test_safe_full_gpu_round_trip() {
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .unwrap();
     let queue = device.get_queue(queue_family, 0);
@@ -292,6 +296,7 @@ fn test_shader_module_from_spirv_bytes() {
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .unwrap();
 
@@ -327,6 +332,7 @@ fn test_compute_pipeline_full_dispatch() {
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .unwrap();
     let queue = device.get_queue(queue_family, 0);
@@ -454,6 +460,7 @@ fn try_init_compute() -> Option<(
                 queue_family_index: queue_family,
                 queue_priorities: vec![1.0],
             }],
+            ..Default::default()
         })
         .ok()?;
     let queue = device.get_queue(queue_family, 0);
@@ -1006,4 +1013,198 @@ fn test_uniform_buffer_descriptor_round_trip() {
     let dset = pool.allocate(&set_layout).unwrap();
     dset.write_buffer(0, DescriptorType::UNIFORM_BUFFER, &buffer, 0, 64);
     assert!(dset.raw() != 0);
+}
+
+// ---------------------------------------------------------------------------
+// Validation layer + debug utils + extension/layer enable lists tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_debug_message_severity_label_and_bits() {
+    assert_eq!(DebugMessageSeverity::ERROR.label(), "ERROR");
+    assert_eq!(DebugMessageSeverity::WARNING.label(), "WARN");
+    assert_eq!(DebugMessageSeverity::INFO.label(), "INFO");
+    assert_eq!(DebugMessageSeverity::VERBOSE.label(), "VERBOSE");
+
+    let combined = DebugMessageSeverity::WARNING_AND_ABOVE;
+    assert!(combined.contains(DebugMessageSeverity::ERROR));
+    assert!(combined.contains(DebugMessageSeverity::WARNING));
+    assert!(!combined.contains(DebugMessageSeverity::INFO));
+
+    let all = DebugMessageSeverity::ALL;
+    assert!(all.contains(DebugMessageSeverity::VERBOSE));
+    assert!(all.contains(DebugMessageSeverity::ERROR));
+}
+
+#[test]
+fn test_enumerate_layer_properties_succeeds_or_skips() {
+    let layers = match Instance::enumerate_layer_properties() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("SKIP: cannot load Vulkan library: {e}");
+            return;
+        }
+    };
+    // The list MAY be empty on some systems (no layers installed).
+    // We just assert that every entry has a non-empty name when present.
+    for l in &layers {
+        let n = l.name();
+        assert!(!n.is_empty(), "layer name should not be empty");
+        // spec_version should be a valid api version (major >= 1).
+        assert!(l.spec_version().major() >= 1);
+    }
+    println!("Found {} instance layer(s)", layers.len());
+}
+
+#[test]
+fn test_enumerate_instance_extension_properties() {
+    let exts = match Instance::enumerate_extension_properties() {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("SKIP: cannot load Vulkan library: {e}");
+            return;
+        }
+    };
+    // Conformant Vulkan implementations always expose at least one
+    // instance extension (VK_KHR_get_physical_device_properties2 on
+    // Vulkan 1.0 implementations, or many more on 1.1+).
+    assert!(!exts.is_empty(), "expected at least one instance extension");
+    for e in &exts {
+        assert!(!e.name().is_empty());
+    }
+}
+
+#[test]
+fn test_physical_device_enumerate_extension_properties() {
+    let Some((_inst, physical, _dev, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let exts = physical.enumerate_extension_properties().unwrap();
+    // Lavapipe and every conformant ICD expose at least a handful of
+    // device extensions; just assert names look sane.
+    for e in &exts {
+        assert!(!e.name().is_empty());
+    }
+}
+
+#[test]
+fn test_instance_with_no_layers_or_extensions() {
+    // Building an instance with empty enable lists must succeed
+    // (it's the default behaviour).
+    let info = InstanceCreateInfo {
+        application_name: Some("spock-empty-lists"),
+        enabled_layers: &[],
+        enabled_extensions: &[],
+        ..InstanceCreateInfo::default()
+    };
+    if let Ok(_inst) = Instance::new(info) {
+        // OK.
+    } else {
+        eprintln!("SKIP: no Vulkan ICD");
+    }
+}
+
+#[test]
+fn test_instance_with_unknown_layer_fails_cleanly() {
+    let info = InstanceCreateInfo {
+        application_name: Some("spock-bad-layer"),
+        enabled_layers: &["VK_LAYER_THIS_DOES_NOT_EXIST_zzz"],
+        ..InstanceCreateInfo::default()
+    };
+    let result = Instance::new(info);
+    // We can't be sure no Vulkan ICD is present here. If the loader is
+    // present we expect ERROR_LAYER_NOT_PRESENT (or similar). If the
+    // loader is missing entirely we get LibraryLoad — also acceptable.
+    match result {
+        Ok(_) => panic!("loader should not have accepted a fake layer"),
+        Err(e) => {
+            // Just print it; either Vk(LayerNotPresent) or LibraryLoad.
+            eprintln!("OK: enabling fake layer rejected with: {e}");
+        }
+    }
+}
+
+#[test]
+fn test_instance_with_validation_when_available() {
+    // If the validation layer is installed and the debug-utils extension
+    // is available, build an instance with the convenience constructor and
+    // verify our callback fires when we trigger a validation error.
+    let layers = match Instance::enumerate_layer_properties() {
+        Ok(l) => l,
+        Err(_) => {
+            eprintln!("SKIP: no Vulkan loader");
+            return;
+        }
+    };
+    if !layers.iter().any(|l| l.name() == KHRONOS_VALIDATION_LAYER) {
+        eprintln!("SKIP: validation layer not installed");
+        return;
+    }
+    let exts = Instance::enumerate_extension_properties().unwrap();
+    if !exts.iter().any(|e| e.name() == DEBUG_UTILS_EXTENSION) {
+        eprintln!("SKIP: debug utils extension not present");
+        return;
+    }
+
+    use std::sync::Arc as StdArc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let counter = StdArc::new(AtomicUsize::new(0));
+    let counter_cb = StdArc::clone(&counter);
+
+    let info = InstanceCreateInfo {
+        application_name: Some("spock-validation"),
+        enabled_layers: &[KHRONOS_VALIDATION_LAYER],
+        enabled_extensions: &[DEBUG_UTILS_EXTENSION],
+        debug_callback: Some(Box::new(move |msg: &DebugMessage<'_>| {
+            // Only count WARN/ERROR so we don't spam on every INFO.
+            if msg.severity.contains(DebugMessageSeverity::WARNING)
+                || msg.severity.contains(DebugMessageSeverity::ERROR)
+            {
+                counter_cb.fetch_add(1, Ordering::Relaxed);
+            }
+        })),
+        ..InstanceCreateInfo::default()
+    };
+
+    let instance = match Instance::new(info) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("SKIP: validation instance creation failed: {e}");
+            return;
+        }
+    };
+
+    // The act of *creating* the instance with VK_EXT_debug_utils enabled
+    // is enough to assert the messenger plumbing is wired correctly. We
+    // don't try to provoke a validation error here because trying to
+    // misuse Vulkan from inside the safe wrapper requires Either dropping
+    // to raw bindings (out of scope for this test) or relying on the
+    // layer's own startup messages, which vary by version.
+    //
+    // Just touch the counter to silence the unused-Send warning and drop.
+    let _ = counter.load(Ordering::Relaxed);
+    drop(instance);
+}
+
+#[test]
+fn test_instance_validation_constructor_when_available() {
+    // The InstanceCreateInfo::validation() convenience should produce a
+    // working instance when validation is available, or fail cleanly
+    // otherwise. Either outcome is acceptable here — we just want to
+    // verify the constructor path compiles and runs.
+    let layers = Instance::enumerate_layer_properties().ok();
+    let has_validation = layers
+        .as_ref()
+        .map(|ls| ls.iter().any(|l| l.name() == KHRONOS_VALIDATION_LAYER))
+        .unwrap_or(false);
+
+    if !has_validation {
+        eprintln!("SKIP: validation layer not installed");
+        return;
+    }
+    match Instance::new(InstanceCreateInfo::validation()) {
+        Ok(_inst) => {}
+        Err(e) => eprintln!("validation() constructor returned err: {e}"),
+    }
 }

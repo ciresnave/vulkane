@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`fill_buffer` example** that exercises the safe wrapper end-to-end on a real GPU using `vkCmdFillBuffer`.
 - **`compute_square` example** — complete compute round trip: loads pre-compiled SPIR-V, creates a storage buffer of 256 `u32`s, builds descriptor set + pipeline layout + compute pipeline, dispatches, and verifies the GPU squared every element. Validated on real hardware (NVIDIA RTX 4070) and on Lavapipe in CI.
 - **`compile_shader` example** — one-shot helper (under the `naga` feature) that regenerates the pre-compiled `square_buffer.spv` from the GLSL source.
+- **Validation layers + debug-utils messenger** — `InstanceCreateInfo::validation()` convenience enables `VK_LAYER_KHRONOS_validation` and `VK_EXT_debug_utils` together with a default `eprintln!`-style callback. For finer control, set `enabled_layers`, `enabled_extensions`, and `debug_callback` directly. The callback is invoked from a Rust closure (`Box<dyn Fn(&DebugMessage) + Send + Sync>`); the FFI plumbing (trampoline + leaked-box user-data) is handled internally and the messenger is destroyed automatically on `Instance` drop.
+- **Instance / device extension and layer enable lists** on `InstanceCreateInfo` (`enabled_layers`, `enabled_extensions`) and `DeviceCreateInfo` (`enabled_extensions`).
+- **Layer / extension enumeration** — `Instance::enumerate_layer_properties()`, `Instance::enumerate_extension_properties()`, and `PhysicalDevice::enumerate_extension_properties()` for runtime introspection of what the loader exposes before requesting it.
+- **Compute essentials**:
+  - **Push constants** — `PushConstantRange`, `PipelineLayout::with_push_constants`, and `CommandBufferRecording::push_constants` for the cheapest possible per-dispatch parameter passing.
+  - **Specialization constants** — `SpecializationConstants` typed builder (`add_u32` / `add_i32` / `add_f32` / `add_bool`) and `ComputePipeline::with_specialization`. Lets shaders bake in workgroup sizes, unroll factors, dtype switches at pipeline creation time.
+  - **Buffer-to-buffer copy** (`copy_buffer`) and `BufferCopy` region struct, enabling the staging-buffer pattern (`HOST_VISIBLE` upload → `DEVICE_LOCAL` copy).
+  - **Indirect dispatch** (`dispatch_indirect`) — workgroup count read from a GPU buffer at dispatch time.
+  - **Query pools** — `QueryPool::timestamps`, `QueryPool::pipeline_statistics`, `get_results_u64`, plus `reset_query_pool` and `write_timestamp` on the recording API.
+  - **`PhysicalDevice::find_dedicated_compute_queue` / `find_dedicated_transfer_queue`** — prefer compute-without-graphics (async compute on NV/AMD) and transfer-without-compute (DMA engines on discrete GPUs), with sensible fallbacks.
+  - **`PhysicalDevice::timestamp_period`** for converting GPU ticks to nanoseconds, and **`PhysicalDeviceProperties::max_push_constants_size`**.
 - **Lavapipe integration in CI** — Linux runners install Mesa's software Vulkan implementation so the real-Vulkan integration tests actually exercise the loader on every CI run.
 - **Strict clippy on CI** — `cargo clippy --workspace -- -D warnings` is enforced.
 - Tree-based XML parser using `roxmltree` that correctly extracts nested struct members and command parameters.

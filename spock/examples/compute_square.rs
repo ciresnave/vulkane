@@ -83,6 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             queue_family_index,
             queue_priorities: vec![1.0],
         }],
+        ..Default::default()
     })?;
     let queue = device.get_queue(queue_family_index, 0);
     println!("[OK] Created VkDevice with compute queue");

@@ -1,7 +1,7 @@
 //! Safe wrapper for `VkPhysicalDevice`.
 
-use super::instance::{ApiVersion, InstanceInner};
-use super::{Device, DeviceCreateInfo, Error, Result};
+use super::instance::{ApiVersion, ExtensionProperties, InstanceInner};
+use super::{Device, DeviceCreateInfo, Error, Result, check};
 use crate::raw::bindings::*;
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -81,6 +81,33 @@ impl PhysicalDevice {
     /// Create a logical [`Device`] from this physical device.
     pub fn create_device(&self, info: DeviceCreateInfo<'_>) -> Result<Device> {
         Device::new(self, info)
+    }
+
+    /// Enumerate the device-level extensions exposed by this physical device.
+    pub fn enumerate_extension_properties(&self) -> Result<Vec<ExtensionProperties>> {
+        let enumerate = self
+            .instance
+            .dispatch
+            .vkEnumerateDeviceExtensionProperties
+            .ok_or(Error::MissingFunction(
+                "vkEnumerateDeviceExtensionProperties",
+            ))?;
+
+        let mut count: u32 = 0;
+        // Safety: count query, output ptr is null. Layer name null = core extensions.
+        check(unsafe {
+            enumerate(
+                self.handle,
+                std::ptr::null(),
+                &mut count,
+                std::ptr::null_mut(),
+            )
+        })?;
+        let mut raw: Vec<VkExtensionProperties> =
+            vec![unsafe { std::mem::zeroed() }; count as usize];
+        // Safety: raw has space for `count` elements.
+        check(unsafe { enumerate(self.handle, std::ptr::null(), &mut count, raw.as_mut_ptr()) })?;
+        Ok(raw.into_iter().map(ExtensionProperties::from_raw).collect())
     }
 
     /// Find the index of the first queue family that supports the given flags.

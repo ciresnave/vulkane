@@ -4,6 +4,7 @@ use super::physical::PhysicalDevice;
 use super::{Error, Result, check};
 use crate::raw::VulkanLibrary;
 use crate::raw::bindings::*;
+use std::ffi::{CString, c_char};
 use std::sync::Arc;
 
 /// Parameters for creating a single device queue.
@@ -21,6 +22,9 @@ pub struct QueueCreateInfo {
 pub struct DeviceCreateInfo<'a> {
     /// One or more queues to create from queue families.
     pub queue_create_infos: &'a [QueueCreateInfo],
+    /// Names of device extensions to enable. Each must be one that
+    /// [`PhysicalDevice::enumerate_extension_properties`] reports as available.
+    pub enabled_extensions: &'a [&'a str],
 }
 
 // `&[T]` does implement `Default` (returns an empty slice), so technically
@@ -31,6 +35,7 @@ impl<'a> Default for DeviceCreateInfo<'a> {
     fn default() -> Self {
         Self {
             queue_create_infos: &[],
+            enabled_extensions: &[],
         }
     }
 }
@@ -94,10 +99,28 @@ impl Device {
             });
         }
 
+        // Owned CString vectors for extension names — kept alive across the
+        // create call.
+        let ext_cstrings: Vec<CString> = info
+            .enabled_extensions
+            .iter()
+            .map(|s| CString::new(*s))
+            .collect::<std::result::Result<_, _>>()?;
+        let ext_ptrs: Vec<*mut c_char> = ext_cstrings
+            .iter()
+            .map(|s| s.as_ptr() as *mut c_char)
+            .collect();
+
         let create_info = VkDeviceCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             queueCreateInfoCount: raw_infos.len() as u32,
             pQueueCreateInfos: raw_infos.as_ptr(),
+            enabledExtensionCount: ext_ptrs.len() as u32,
+            ppEnabledExtensionNames: if ext_ptrs.is_empty() {
+                std::ptr::null()
+            } else {
+                ext_ptrs.as_ptr()
+            },
             ..Default::default()
         };
 

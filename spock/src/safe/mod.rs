@@ -49,9 +49,8 @@
 //! let instance = Instance::new(InstanceCreateInfo {
 //!     application_name: Some("my-app"),
 //!     application_version: ApiVersion::new(0, 0, 1, 0),
-//!     engine_name: None,
-//!     engine_version: ApiVersion::new(0, 0, 1, 0),
 //!     api_version: ApiVersion::V1_0,
+//!     ..InstanceCreateInfo::default()
 //! })?;
 //!
 //! let physical_devices = instance.enumerate_physical_devices()?;
@@ -67,6 +66,7 @@ use crate::raw::bindings::VkResult;
 
 mod buffer;
 mod command;
+mod debug;
 mod descriptor;
 mod device;
 mod instance;
@@ -81,12 +81,18 @@ mod sync;
 
 pub use buffer::{Buffer, BufferCreateInfo, BufferUsage};
 pub use command::{BufferCopy, CommandBuffer, CommandBufferRecording, CommandPool};
+pub use debug::{
+    DebugCallback, DebugMessage, DebugMessageSeverity, DebugMessageType, default_callback,
+};
 pub use descriptor::{
     DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorType, ShaderStageFlags,
 };
 pub use device::{Device, DeviceCreateInfo, Queue, QueueCreateInfo};
-pub use instance::{ApiVersion, Instance, InstanceCreateInfo};
+pub use instance::{
+    ApiVersion, DEBUG_UTILS_EXTENSION, ExtensionProperties, Instance, InstanceCreateInfo,
+    KHRONOS_VALIDATION_LAYER, LayerProperties,
+};
 pub use memory::{DeviceMemory, MappedMemory, MemoryPropertyFlags};
 pub use physical::{
     MemoryHeap, MemoryHeapFlags, MemoryType, PhysicalDevice, PhysicalDeviceProperties,
