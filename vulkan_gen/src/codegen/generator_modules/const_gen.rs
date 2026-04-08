@@ -306,8 +306,6 @@ impl GeneratorModule for ConstantGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
 
     #[test]
     fn test_constant_generation() {

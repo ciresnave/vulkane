@@ -104,9 +104,9 @@ unsafe fn create_instance(
     let app_info = VkApplicationInfo {
         sType: VkStructureType::STRUCTURE_TYPE_APPLICATION_INFO,
         pNext: std::ptr::null(),
-        pApplicationName: app_name.as_ptr() as *const i8,
+        pApplicationName: app_name.as_ptr(),
         applicationVersion: vk_make_api_version(0, 0, 1, 0),
-        pEngineName: engine_name.as_ptr() as *const i8,
+        pEngineName: engine_name.as_ptr(),
         engineVersion: vk_make_api_version(0, 0, 1, 0),
         apiVersion: VK_API_VERSION_1_0,
     };
@@ -233,8 +233,6 @@ unsafe fn create_logical_device(
     };
 
     let mut device: VkDevice = std::ptr::null_mut();
-    unsafe { create(phys, &device_create, std::ptr::null(), &mut device) }
-        .into_result()
-        .map_err(|e| e)?;
+    unsafe { create(phys, &device_create, std::ptr::null(), &mut device) }.into_result()?;
     Ok(device)
 }

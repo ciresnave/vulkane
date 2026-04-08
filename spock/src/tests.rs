@@ -141,7 +141,7 @@ fn test_vk_api_version_extraction() {
 #[test]
 fn test_vk_header_version_exists() {
     // VK_HEADER_VERSION should be parsed from vk.xml, not hardcoded
-    assert!(VK_HEADER_VERSION > 0);
+    const _: () = assert!(VK_HEADER_VERSION > 0);
 }
 
 #[test]
@@ -160,11 +160,11 @@ fn test_version_roundtrip() {
 
 #[test]
 fn test_constants_exist() {
-    assert!(VK_MAX_PHYSICAL_DEVICE_NAME_SIZE > 0);
-    assert!(VK_MAX_EXTENSION_NAME_SIZE > 0);
-    assert!(VK_UUID_SIZE > 0);
-    assert!(VK_MAX_MEMORY_TYPES > 0);
-    assert!(VK_MAX_MEMORY_HEAPS > 0);
+    const _: () = assert!(VK_MAX_PHYSICAL_DEVICE_NAME_SIZE > 0);
+    const _: () = assert!(VK_MAX_EXTENSION_NAME_SIZE > 0);
+    const _: () = assert!(VK_UUID_SIZE > 0);
+    const _: () = assert!(VK_MAX_MEMORY_TYPES > 0);
+    const _: () = assert!(VK_MAX_MEMORY_HEAPS > 0);
 }
 
 // ============================================================================
@@ -452,4 +452,70 @@ fn test_bitmask_flags_combinable() {
     let flags: VkBufferUsageFlagBits =
         BUFFER_USAGE_TRANSFER_SRC_BIT | BUFFER_USAGE_TRANSFER_DST_BIT;
     assert!(flags != 0);
+}
+
+// ============================================================================
+// Generator quality regression tests
+// ============================================================================
+
+/// Read the generated `vulkan_bindings.rs` and assert that the
+/// generator emitted **zero** `// TODO:` placeholders. Each TODO line
+/// indicates a Vulkan macro / type / member the generator gave up on
+/// translating, which leaks into the public API as either silent
+/// missing functionality or noisy commented-out C source.
+#[test]
+fn test_generated_bindings_have_zero_todo_lines() {
+    let path = env!("SPOCK_GENERATED_BINDINGS");
+    let content = std::fs::read_to_string(path)
+        .expect("SPOCK_GENERATED_BINDINGS env var should point at the generated bindings file");
+    let mut offending: Vec<(usize, &str)> = Vec::new();
+    for (lineno, line) in content.lines().enumerate() {
+        if line.contains("// TODO:") || line.contains("// FIXME:") {
+            offending.push((lineno + 1, line.trim()));
+        }
+    }
+    assert!(
+        offending.is_empty(),
+        "generated bindings should contain zero TODO/FIXME lines, but found {} \
+         (this means the macro/type/member generator gave up on translating something \
+         — fix the generator or add a special case rather than letting the TODO ship). \
+         First 10 offending lines:\n{}",
+        offending.len(),
+        offending
+            .iter()
+            .take(10)
+            .map(|(n, l)| format!("  line {}: {}", n, l))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// Verify that `VK_HEADER_VERSION_COMPLETE` was translated by the
+/// macro generator's `VK_MAKE_API_VERSION` invocation translator (not
+/// dropped to the // TODO fallback). It should be a usable `pub const`
+/// equal to `vk_make_api_version(0, 1, header_minor, VK_HEADER_VERSION)`
+/// for whatever spec version vk.xml ships.
+#[test]
+fn test_vk_header_version_complete_is_usable_const() {
+    // The const itself must compile. Variant byte should be 0
+    // (desktop Vulkan profile, not Vulkan SC).
+    let v = VK_HEADER_VERSION_COMPLETE;
+    assert_eq!(
+        v >> 29,
+        0,
+        "VK_HEADER_VERSION_COMPLETE variant byte should be 0 for desktop Vulkan, got {}",
+        v >> 29
+    );
+
+    // The patch portion should equal VK_HEADER_VERSION (the 12-bit
+    // field at the bottom of the encoded version).
+    let patch = v & 0xFFF;
+    assert_eq!(
+        patch, VK_HEADER_VERSION,
+        "patch field of VK_HEADER_VERSION_COMPLETE should equal VK_HEADER_VERSION"
+    );
+
+    // Major must be at least 1 (this is Vulkan, not Vulkan 0).
+    let major = (v >> 22) & 0x7F;
+    assert!(major >= 1, "major version should be >= 1, got {}", major);
 }

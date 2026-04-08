@@ -50,6 +50,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate bindings
     vulkan_gen::generate_bindings(&xml_path, &output_path)?;
 
+    // Export the absolute path of the generated bindings file so
+    // integration tests can read it back as text and assert
+    // generator-quality invariants (e.g. zero `// TODO:` lines).
+    println!(
+        "cargo:rustc-env=SPOCK_GENERATED_BINDINGS={}",
+        output_path.display()
+    );
+
     println!("Generated Vulkan bindings from {}", xml_path.display());
 
     Ok(())
@@ -102,15 +110,13 @@ fn resolve_vk_xml(
 
     #[cfg(not(feature = "fetch-spec"))]
     {
-        Err(format!(
-            "vk.xml not found. Provide it via one of:\n\
+        Err("vk.xml not found. Provide it via one of:\n\
              \x20 1. Set VK_XML_PATH environment variable to the path of your vk.xml\n\
              \x20 2. Place the Vulkan-Docs repo at ../spec/registry/Vulkan-Docs/\n\
              \x20 3. Enable the `fetch-spec` feature to auto-download:\n\
              \x20    cargo build -p spock --features fetch-spec\n\
              \x20    VK_VERSION=1.3.250 cargo build -p spock --features fetch-spec"
-        )
-        .into())
+            .into())
     }
 }
 

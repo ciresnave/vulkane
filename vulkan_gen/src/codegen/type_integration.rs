@@ -109,36 +109,6 @@ pub enum TypeIntegrationError {
     ValidationError(String),
 }
 
-/// Check compatibility between parsing and generation modules
-pub fn validate_type_compatibility() -> bool {
-    log_info("Validating shared type integration across modules...");
-
-    // This function is a high-level validation entry point
-    // It will perform basic compatibility checks and return a boolean
-    // For more detailed validation, use the other functions in this module
-
-    // Validate that all required type structures are properly defined
-    let validation_succeeded = true;
-
-    // Check that all required data structures exist and are compatible
-    // These are compile-time checks that the required types are available
-    let _type_check = TypeData { types: Vec::new() };
-    let _struct_check = StructData {
-        structs: Vec::new(),
-    };
-    let _enum_check = EnumData { enums: Vec::new() };
-    // TODO: Re-enable when generator metadata is available
-    // let _metadata_check = crate::vulkan_gen::generator::GeneratorMetadata {
-    //     defined_types: Vec::new(),
-    //     used_types: Vec::new(),
-    //     has_forward_declarations: false,
-    //     priority: 0,
-    // };
-
-    log_info("Type compatibility validation completed successfully");
-    validation_succeeded
-}
-
 /// Verify that all required intermediate files exist
 pub fn verify_intermediate_files(intermediate_dir: &Path) -> TypeIntegrationResult<()> {
     let required_files = [

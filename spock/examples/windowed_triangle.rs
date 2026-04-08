@@ -390,11 +390,7 @@ unsafe fn make_surface(
             Ok(unsafe { Surface::from_win32(instance, hinstance, hwnd) }?)
         }
         (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => Ok(unsafe {
-            Surface::from_wayland(
-                instance,
-                d.display.as_ptr() as *mut std::ffi::c_void,
-                w.surface.as_ptr() as *mut std::ffi::c_void,
-            )
+            Surface::from_wayland(instance, d.display.as_ptr(), w.surface.as_ptr())
         }?),
         (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(_)) => {
             Err("macOS Metal surface support requires creating a CAMetalLayer; not implemented in this example".into())

@@ -98,6 +98,21 @@ pub fn parse_vk_xml(xml_content: &str) -> Result<VulkanSpecification, String> {
     let mut spec = VulkanSpecification::default();
 
     for child in root.children().filter(|n| n.is_element()) {
+        // Top-level api-profile filter: any element tagged for a non-
+        // desktop Vulkan profile is skipped entirely. This catches
+        // <feature api="vulkansc"> blocks (which would otherwise
+        // contribute Vulkan SC core enum values to spock's enums) and
+        // any other top-level element that gets tagged in future
+        // vk.xml releases.
+        if let Some(api) = attr(child, "api") {
+            let included = api
+                .split(',')
+                .any(|s| matches!(s.trim(), "vulkan" | "vulkanbase"));
+            if !included {
+                continue;
+            }
+        }
+
         match child.tag_name().name() {
             "types" => parse_types_section(child, &mut spec),
             "enums" => parse_enums_block(child, &mut spec),
@@ -222,6 +237,22 @@ fn parse_types_section(types_node: roxmltree::Node, spec: &mut VulkanSpecificati
         .children()
         .filter(|n| n.is_element() && n.tag_name().name() == "type")
     {
+        // Filter on the `api` attribute the same way commands and
+        // struct members do — vk.xml ships some `<type>` definitions
+        // for both desktop Vulkan and Vulkan SC (Safety Critical),
+        // and the SC variants would otherwise leak into the generated
+        // bindings as duplicate or wrong definitions. Skip any type
+        // explicitly tagged with a non-desktop profile. Types with no
+        // `api` attribute apply universally and are kept.
+        if let Some(api) = attr(type_node, "api") {
+            let included = api
+                .split(',')
+                .any(|s| matches!(s.trim(), "vulkan" | "vulkanbase"));
+            if !included {
+                continue;
+            }
+        }
+
         let category = attr(type_node, "category").unwrap_or_default();
 
         match category.as_str() {
@@ -527,6 +558,18 @@ fn parse_commands_section(commands_node: roxmltree::Node, spec: &mut VulkanSpeci
         .children()
         .filter(|n| n.is_element() && n.tag_name().name() == "command")
     {
+        // Filter out commands explicitly tagged for a non-desktop API
+        // profile (Vulkan SC). The same filter applies symmetrically to
+        // <param> children inside parse_command.
+        if let Some(api) = attr(cmd_node, "api") {
+            let included = api
+                .split(',')
+                .any(|s| matches!(s.trim(), "vulkan" | "vulkanbase"));
+            if !included {
+                continue;
+            }
+        }
+
         // Skip duplicate commands (some appear twice for vulkan/vulkansc APIs)
         let name = cmd_node
             .children()
@@ -708,6 +751,17 @@ fn parse_require_block(node: roxmltree::Node, ext_number: &Option<String>) -> Ex
     let mut items = Vec::new();
 
     for child in node.children().filter(|n| n.is_element()) {
+        // Per-item api filter inside <require> blocks. Skip items
+        // explicitly tagged for non-desktop Vulkan profiles.
+        if let Some(api) = attr(child, "api") {
+            let included = api
+                .split(',')
+                .any(|s| matches!(s.trim(), "vulkan" | "vulkanbase"));
+            if !included {
+                continue;
+            }
+        }
+
         let tag = child.tag_name().name();
         let item_type = match tag {
             "command" => "command",

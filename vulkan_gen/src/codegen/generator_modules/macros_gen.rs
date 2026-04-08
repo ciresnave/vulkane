@@ -29,6 +29,15 @@ impl MacroGenerator {
             return String::new();
         }
 
+        // Skip Vulkan SC (Safety Critical) macros — vk.xml ships
+        // VKSC_API_VARIANT and VKSC_API_VERSION_1_0 unconditionally
+        // (no `api` attribute we can filter on at the parser level),
+        // but desktop Vulkan apps cannot use them. The clean solution
+        // is a name-based filter at the codegen entry point.
+        if macro_def.name.starts_with("VKSC_") {
+            return String::new();
+        }
+
         let mut code = String::new();
 
         // Clean HTML entities from the definition first
@@ -458,10 +467,24 @@ impl MacroGenerator {
             return None;
         }
 
-        // Handle VK_MAKE_API_VERSION(variant, major, minor, patch)
+        // Handle VK_MAKE_API_VERSION(variant, major, minor, patch) where
+        // every argument is a literal — fold it to a single integer
+        // value at codegen time.
         if value_clean.contains("VK_MAKE_API_VERSION") {
             if let Some(computed) = Self::eval_make_api_version(&value_clean) {
                 return Some(format!("pub const {}: u32 = {};\n", name, computed));
+            }
+            // Otherwise: try to translate it to a Rust const expression
+            // that defers evaluation until Rust compile time. This is
+            // the path VK_HEADER_VERSION_COMPLETE takes — its body is
+            // `VK_MAKE_API_VERSION(0, 1, 4, VK_HEADER_VERSION)` where
+            // VK_HEADER_VERSION is another const we emit, so the
+            // resulting Rust expression
+            //   vk_make_api_version(0, 1, 4, VK_HEADER_VERSION)
+            // is evaluated by `rustc` and remains correct as the
+            // spec version changes.
+            if let Some(rust_expr) = Self::translate_make_api_version_invocation(&value_clean) {
+                return Some(format!("pub const {}: u32 = {};\n", name, rust_expr));
             }
         }
 
@@ -476,6 +499,76 @@ impl MacroGenerator {
         }
 
         None
+    }
+
+    /// Translate a `VK_MAKE_API_VERSION(a, b, c, d)` invocation into a
+    /// Rust const-fn call expression. Each argument is allowed to be
+    /// either an integer literal or a Vulkan identifier (which will
+    /// resolve to another `pub const` at Rust compile time).
+    ///
+    /// Returns `None` if the expression doesn't match the pattern or
+    /// any argument fails the simple-token check (we deliberately
+    /// refuse arbitrary C expressions to keep this safe).
+    fn translate_make_api_version_invocation(expr: &str) -> Option<String> {
+        // Find the VK_MAKE_API_VERSION call site.
+        let call_start = expr.find("VK_MAKE_API_VERSION")?;
+        let after_name = &expr[call_start + "VK_MAKE_API_VERSION".len()..];
+        let open = after_name.find('(')?;
+        // Find the matching close paren by counting depth.
+        let mut depth = 0i32;
+        let mut close_idx: Option<usize> = None;
+        for (i, ch) in after_name[open..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_idx = Some(open + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close_idx?;
+        let args_str = &after_name[open + 1..close];
+
+        // Split the args naively on commas (no nested commas inside
+        // expected for a 4-arg version macro).
+        let args: Vec<&str> = args_str.split(',').collect();
+        if args.len() != 4 {
+            return None;
+        }
+
+        // Each arg must be either a decimal integer literal or a
+        // C identifier (alphanumeric + underscore, leading non-digit).
+        let mut rust_args: Vec<String> = Vec::new();
+        for arg in &args {
+            let trimmed = arg.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.chars().all(|c| c.is_ascii_digit()) {
+                rust_args.push(trimmed.to_string());
+                continue;
+            }
+            // Identifier: starts with letter/underscore, rest alphanumeric+underscore.
+            let mut chars = trimmed.chars();
+            let first = chars.next()?;
+            if !(first.is_ascii_alphabetic() || first == '_') {
+                return None;
+            }
+            if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return None;
+            }
+            // Ident — emit as-is so Rust resolves it to another `pub const`.
+            rust_args.push(trimmed.to_string());
+        }
+
+        Some(format!(
+            "vk_make_api_version({}, {}, {}, {})",
+            rust_args[0], rust_args[1], rust_args[2], rust_args[3]
+        ))
     }
 
     /// Try to transpile a C function-like macro into a Rust const fn.

@@ -395,7 +395,6 @@ impl Default for CodeAssembler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::generator_modules::*;
 
     #[test]
     fn test_dependency_resolution() {

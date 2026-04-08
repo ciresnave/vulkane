@@ -1697,7 +1697,7 @@ fn test_specialization_constants_baked_into_pipeline() {
     // ignored. Verify the build path works.
     let specs = SpecializationConstants::new()
         .add_u32(99, 1234)
-        .add_f32(100, 3.14);
+        .add_f32(100, 2.5);
     let pipe =
         ComputePipeline::with_specialization(&device, &layout, &shader, "main", &specs).unwrap();
     assert!(pipe.raw() != 0);
@@ -2086,7 +2086,7 @@ fn test_device_features_default_creates_normally() {
         eprintln!("SKIP: no Vulkan ICD");
         return;
     };
-    assert!(device.raw() != std::ptr::null_mut());
+    assert!(!device.raw().is_null());
 }
 
 #[test]

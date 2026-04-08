@@ -60,9 +60,9 @@ fn test_real_vulkan_loader() {
     let app_info = VkApplicationInfo {
         sType: VkStructureType::STRUCTURE_TYPE_APPLICATION_INFO,
         pNext: std::ptr::null(),
-        pApplicationName: app_name.as_ptr() as *const i8,
+        pApplicationName: app_name.as_ptr(),
         applicationVersion: vk_make_api_version(0, 0, 1, 0),
-        pEngineName: engine_name.as_ptr() as *const i8,
+        pEngineName: engine_name.as_ptr(),
         engineVersion: vk_make_api_version(0, 0, 1, 0),
         apiVersion: VK_API_VERSION_1_0,
     };
