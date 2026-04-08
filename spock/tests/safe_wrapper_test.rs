@@ -9,8 +9,9 @@ use spock::safe::{
     DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType,
     DeviceCreateInfo, DeviceMemory, Fence, Format, Image, Image2dCreateInfo, ImageBarrier,
     ImageLayout, ImageUsage, ImageView, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER,
-    MemoryPropertyFlags, PipelineLayout, PipelineStatisticsFlags, PushConstantRange, QueryPool,
-    QueueCreateInfo, QueueFlags, ShaderModule, ShaderStageFlags, SpecializationConstants,
+    MemoryPropertyFlags, PipelineCache, PipelineLayout, PipelineStatisticsFlags, PushConstantRange,
+    QueryPool, QueueCreateInfo, QueueFlags, Semaphore, SemaphoreKind, ShaderModule,
+    ShaderStageFlags, SignalSemaphore, SpecializationConstants, WaitSemaphore,
 };
 
 #[test]
@@ -1493,4 +1494,241 @@ fn test_storage_image_descriptor_wiring() {
     let dset = pool.allocate(&set_layout).unwrap();
     dset.write_storage_image(0, &view, ImageLayout::GENERAL);
     assert!(dset.raw() != 0);
+}
+
+// ---------------------------------------------------------------------------
+// Timeline semaphore + binary semaphore + pipeline cache + sync2 tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_binary_semaphore_creation_and_drop() {
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let s = Semaphore::binary(&device).unwrap();
+    assert_eq!(s.kind(), SemaphoreKind::Binary);
+    assert!(s.raw() != 0);
+}
+
+#[test]
+fn test_timeline_semaphore_host_signal_and_wait() {
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+
+    let sem = match Semaphore::timeline(&device, 5) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            return;
+        }
+    };
+    assert_eq!(sem.kind(), SemaphoreKind::Timeline);
+
+    // Initial value 5 should be readable.
+    assert_eq!(sem.current_value().unwrap(), 5);
+
+    // Signal to a higher value from the host.
+    sem.signal_value(10).unwrap();
+    assert_eq!(sem.current_value().unwrap(), 10);
+
+    // wait_value should return immediately because the value is already >= 10.
+    sem.wait_value(10, 0).unwrap();
+}
+
+#[test]
+fn test_timeline_semaphore_gpu_signal_then_host_wait() {
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let sem = match Semaphore::timeline(&device, 0) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            return;
+        }
+    };
+
+    // Submit an empty command buffer that signals the timeline to value 1.
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd.begin().unwrap();
+        rec.end().unwrap();
+    }
+    queue
+        .submit_with_sync(
+            &[&cmd],
+            &[],
+            &[SignalSemaphore {
+                semaphore: &sem,
+                value: 1,
+            }],
+            None,
+        )
+        .unwrap();
+
+    // Wait on the host for the GPU to reach value 1.
+    sem.wait_value(1, u64::MAX).unwrap();
+    assert!(sem.current_value().unwrap() >= 1);
+}
+
+#[test]
+fn test_timeline_semaphore_chained_dispatches() {
+    // Two-pass compute: pass A signals timeline to 1, pass B waits on
+    // value 1 before running. Validates that the safe wrapper threads the
+    // wait/signal correctly through submit_with_sync.
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let sem = match Semaphore::timeline(&device, 0) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            return;
+        }
+    };
+
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd_a = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd_a.begin().unwrap();
+        rec.end().unwrap();
+    }
+    let mut cmd_b = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd_b.begin().unwrap();
+        rec.end().unwrap();
+    }
+
+    // Pass A: signals timeline -> 1
+    queue
+        .submit_with_sync(
+            &[&cmd_a],
+            &[],
+            &[SignalSemaphore {
+                semaphore: &sem,
+                value: 1,
+            }],
+            None,
+        )
+        .unwrap();
+
+    // Pass B: waits on timeline >= 1, signals -> 2.
+    // VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT = 0x1
+    queue
+        .submit_with_sync(
+            &[&cmd_b],
+            &[WaitSemaphore {
+                semaphore: &sem,
+                value: 1,
+                dst_stage_mask: 0x1,
+            }],
+            &[SignalSemaphore {
+                semaphore: &sem,
+                value: 2,
+            }],
+            None,
+        )
+        .unwrap();
+
+    // Wait for the whole chain on the host.
+    sem.wait_value(2, u64::MAX).unwrap();
+    assert!(sem.current_value().unwrap() >= 2);
+}
+
+#[test]
+fn test_pipeline_cache_create_serialize_reuse() {
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+
+    // Create an empty cache, then serialize.
+    let cache_a = PipelineCache::new(&device).unwrap();
+    let bytes = cache_a.data().unwrap();
+    // The cache header alone is non-empty on every conformant
+    // implementation; if we got something, it should be at least the
+    // 16-byte VkPipelineCacheHeaderVersionOne header. (Some software
+    // implementations may return 0 for an empty cache; tolerate that
+    // case.)
+    println!("Pipeline cache (empty) -> {} bytes", bytes.len());
+
+    // Now reuse those bytes when constructing a second cache.
+    let cache_b = PipelineCache::with_data(&device, &bytes).unwrap();
+    assert!(cache_b.raw() != 0);
+}
+
+#[test]
+fn test_specialization_constants_baked_into_pipeline() {
+    // Validate that ComputePipeline::with_specialization runs end-to-end
+    // for a shader that doesn't actually consume any spec constants. The
+    // build path is the same with or without populated entries; this just
+    // exercises the code path that builds VkSpecializationInfo.
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let spv = std::fs::read(format!("{manifest_dir}/examples/shaders/square_buffer.spv")).unwrap();
+    let shader = ShaderModule::from_spirv_bytes(&device, &spv).unwrap();
+
+    let set_layout = DescriptorSetLayout::new(
+        &device,
+        &[DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+            stage_flags: ShaderStageFlags::COMPUTE,
+        }],
+    )
+    .unwrap();
+    let layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
+
+    // The shader doesn't reference any spec constants, but Vulkan accepts
+    // a non-empty SpecializationInfo with extra entries — they're simply
+    // ignored. Verify the build path works.
+    let specs = SpecializationConstants::new()
+        .add_u32(99, 1234)
+        .add_f32(100, 3.14);
+    let pipe =
+        ComputePipeline::with_specialization(&device, &layout, &shader, "main", &specs).unwrap();
+    assert!(pipe.raw() != 0);
+}
+
+#[test]
+fn test_sync2_memory_barrier_when_supported() {
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    let supported = {
+        let mut rec = cmd.begin().unwrap();
+        // VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT       = 0x800
+        // VK_PIPELINE_STAGE_2_HOST_BIT                 = 0x4000
+        // VK_ACCESS_2_SHADER_WRITE_BIT                 = 0x40
+        // VK_ACCESS_2_HOST_READ_BIT                    = 0x2000
+        let s2 = rec.memory_barrier2(0x800, 0x4000, 0x40, 0x2000);
+        rec.end().unwrap();
+        s2
+    };
+    match supported {
+        Ok(()) => {
+            // Sync2 supported — submit and verify completion.
+            let fence = Fence::new(&device).unwrap();
+            queue.submit(&[&cmd], Some(&fence)).unwrap();
+            fence.wait(u64::MAX).unwrap();
+        }
+        Err(e) => {
+            eprintln!("SKIP: sync2 not supported: {e}");
+        }
+    }
 }

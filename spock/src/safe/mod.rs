@@ -98,7 +98,9 @@ pub use descriptor::{
     DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorType, ShaderStageFlags,
 };
-pub use device::{Device, DeviceCreateInfo, Queue, QueueCreateInfo};
+pub use device::{
+    Device, DeviceCreateInfo, Queue, QueueCreateInfo, SignalSemaphore, WaitSemaphore,
+};
 pub use image::{
     BufferImageCopy, Format, Image, Image2dCreateInfo, ImageBarrier, ImageLayout, ImageUsage,
     ImageView,
@@ -112,10 +114,12 @@ pub use physical::{
     MemoryHeap, MemoryHeapFlags, MemoryType, PhysicalDevice, PhysicalDeviceProperties,
     PhysicalDeviceType, QueueFamilyProperties, QueueFlags,
 };
-pub use pipeline::{ComputePipeline, PipelineLayout, PushConstantRange, SpecializationConstants};
+pub use pipeline::{
+    ComputePipeline, PipelineCache, PipelineLayout, PushConstantRange, SpecializationConstants,
+};
 pub use query::{PipelineStatisticsFlags, QueryPool, QueryType};
 pub use shader::ShaderModule;
-pub use sync::Fence;
+pub use sync::{Fence, Semaphore, SemaphoreKind};
 
 /// Error type returned by all fallible operations in [`spock::safe`](crate::safe).
 #[derive(Debug)]

@@ -467,6 +467,98 @@ impl<'a> CommandBufferRecording<'a> {
         };
     }
 
+    /// Record a global memory barrier using `vkCmdPipelineBarrier2`
+    /// (Synchronization2 — Vulkan 1.3 core, or
+    /// `VK_KHR_synchronization2` on 1.1/1.2). Stage and access masks are
+    /// 64-bit (`VK_PIPELINE_STAGE_2_*` / `VK_ACCESS_2_*`).
+    ///
+    /// Sync2 is strictly more expressive than the legacy
+    /// [`memory_barrier`](Self::memory_barrier): it has explicit stage 2
+    /// bits for compute, transfer, and host that the legacy API leaves
+    /// implicit. Returns an error wrapping `MissingFunction` if the device
+    /// does not expose `vkCmdPipelineBarrier2`.
+    pub fn memory_barrier2(
+        &mut self,
+        src_stage: u64,
+        dst_stage: u64,
+        src_access: u64,
+        dst_access: u64,
+    ) -> Result<()> {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdPipelineBarrier2
+            .ok_or(Error::MissingFunction("vkCmdPipelineBarrier2"))?;
+
+        let mb = VkMemoryBarrier2 {
+            sType: VkStructureType::STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            srcStageMask: src_stage,
+            srcAccessMask: src_access,
+            dstStageMask: dst_stage,
+            dstAccessMask: dst_access,
+            ..Default::default()
+        };
+        let info = VkDependencyInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_DEPENDENCY_INFO,
+            memoryBarrierCount: 1,
+            pMemoryBarriers: &mb,
+            ..Default::default()
+        };
+        // Safety: command buffer is recording, info and mb live until end of call.
+        unsafe { cmd(self.buffer.handle, &info) };
+        Ok(())
+    }
+
+    /// Record an image memory barrier using `vkCmdPipelineBarrier2`
+    /// (Synchronization2). Same one-image, color-aspect, single-mip,
+    /// single-layer simplification as [`image_barrier`](Self::image_barrier).
+    /// Stage masks are 64-bit. See [`memory_barrier2`](Self::memory_barrier2)
+    /// for general notes.
+    pub fn image_barrier2(
+        &mut self,
+        src_stage: u64,
+        dst_stage: u64,
+        barrier: ImageBarrier<'_>,
+    ) -> Result<()> {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdPipelineBarrier2
+            .ok_or(Error::MissingFunction("vkCmdPipelineBarrier2"))?;
+
+        let ib = VkImageMemoryBarrier2 {
+            sType: VkStructureType::STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            srcStageMask: src_stage,
+            srcAccessMask: barrier.src_access as u64,
+            dstStageMask: dst_stage,
+            dstAccessMask: barrier.dst_access as u64,
+            oldLayout: barrier.old_layout.0,
+            newLayout: barrier.new_layout.0,
+            srcQueueFamilyIndex: !0u32,
+            dstQueueFamilyIndex: !0u32,
+            image: barrier.image.handle,
+            subresourceRange: VkImageSubresourceRange {
+                aspectMask: IMAGE_ASPECT_COLOR_BIT,
+                baseMipLevel: 0,
+                levelCount: 1,
+                baseArrayLayer: 0,
+                layerCount: 1,
+            },
+            ..Default::default()
+        };
+        let info = VkDependencyInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_DEPENDENCY_INFO,
+            imageMemoryBarrierCount: 1,
+            pImageMemoryBarriers: &ib,
+            ..Default::default()
+        };
+        // Safety: command buffer is recording, info and ib live until end of call.
+        unsafe { cmd(self.buffer.handle, &info) };
+        Ok(())
+    }
+
     /// Record `vkCmdCopyImageToBuffer`: copy bytes from one or more image
     /// regions into a buffer. The image must be in `TRANSFER_SRC_OPTIMAL`
     /// (or `GENERAL`) layout.

@@ -1,11 +1,35 @@
 //! Safe wrapper for `VkDevice` and `VkQueue`.
 
 use super::physical::PhysicalDevice;
+use super::sync::Semaphore;
 use super::{Error, Result, check};
 use crate::raw::VulkanLibrary;
 use crate::raw::bindings::*;
 use std::ffi::{CString, c_char};
 use std::sync::Arc;
+
+/// One semaphore wait in [`Queue::submit_with_sync`].
+///
+/// `value` is ignored for binary semaphores; for timeline semaphores it
+/// is the counter value the wait must reach before the submission may
+/// proceed. `dst_stage_mask` is the `VK_PIPELINE_STAGE_*` mask
+/// of stages that need to wait.
+#[derive(Clone, Copy)]
+pub struct WaitSemaphore<'a> {
+    pub semaphore: &'a Semaphore,
+    pub value: u64,
+    pub dst_stage_mask: u32,
+}
+
+/// One semaphore signal in [`Queue::submit_with_sync`].
+///
+/// `value` is ignored for binary semaphores; for timeline semaphores it
+/// is the counter value the submission writes when it completes.
+#[derive(Clone, Copy)]
+pub struct SignalSemaphore<'a> {
+    pub semaphore: &'a Semaphore,
+    pub value: u64,
+}
 
 /// Parameters for creating a single device queue.
 #[derive(Debug, Clone)]
@@ -209,9 +233,33 @@ impl Queue {
     }
 
     /// Submit one or more command buffers, optionally signaling a fence on completion.
+    ///
+    /// This is a convenience for the common case where no semaphores are
+    /// needed. Use [`submit_with_sync`](Self::submit_with_sync) when you
+    /// need to wait on or signal binary or timeline semaphores.
     pub fn submit(
         &self,
         command_buffers: &[&super::CommandBuffer],
+        signal_fence: Option<&super::Fence>,
+    ) -> Result<()> {
+        self.submit_with_sync(command_buffers, &[], &[], signal_fence)
+    }
+
+    /// Submit command buffers with explicit semaphore wait/signal lists.
+    ///
+    /// `wait_semaphores` is the set of semaphores the submission must wait
+    /// on before any commands begin (paired with their per-stage masks).
+    /// `signal_semaphores` is the set of semaphores the submission will
+    /// signal once all commands have completed.
+    ///
+    /// Both lists may freely mix binary and timeline semaphores. For
+    /// binary semaphores the `value` field is ignored; for timeline
+    /// semaphores it is the counter value waited-for or signaled.
+    pub fn submit_with_sync(
+        &self,
+        command_buffers: &[&super::CommandBuffer],
+        wait_semaphores: &[WaitSemaphore<'_>],
+        signal_semaphores: &[SignalSemaphore<'_>],
         signal_fence: Option<&super::Fence>,
     ) -> Result<()> {
         let submit = self
@@ -222,16 +270,77 @@ impl Queue {
 
         let raw_cmds: Vec<VkCommandBuffer> = command_buffers.iter().map(|c| c.raw()).collect();
 
+        let raw_wait: Vec<VkSemaphore> =
+            wait_semaphores.iter().map(|w| w.semaphore.raw()).collect();
+        let raw_wait_stages: Vec<u32> = wait_semaphores.iter().map(|w| w.dst_stage_mask).collect();
+        let raw_wait_values: Vec<u64> = wait_semaphores.iter().map(|w| w.value).collect();
+
+        let raw_signal: Vec<VkSemaphore> = signal_semaphores
+            .iter()
+            .map(|s| s.semaphore.raw())
+            .collect();
+        let raw_signal_values: Vec<u64> = signal_semaphores.iter().map(|s| s.value).collect();
+
+        // Build the timeline submit info chain. We always include it; for
+        // binary-only submits the per-semaphore values are ignored by the
+        // implementation. The pointers must outlive the submit call, so we
+        // bind them with explicit `let`.
+        let timeline_info = VkTimelineSemaphoreSubmitInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+            pNext: std::ptr::null(),
+            waitSemaphoreValueCount: raw_wait_values.len() as u32,
+            pWaitSemaphoreValues: if raw_wait_values.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_wait_values.as_ptr()
+            },
+            signalSemaphoreValueCount: raw_signal_values.len() as u32,
+            pSignalSemaphoreValues: if raw_signal_values.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_signal_values.as_ptr()
+            },
+        };
+
+        // If timeline semaphores aren't supported by the loaded device, we
+        // still pass the chain — the spec says implementations that don't
+        // recognise an unrecognised pNext chain entry must ignore it.
+        // (We could elide it for purely binary submits, but it's harmless.)
+        let p_next: *const std::ffi::c_void =
+            if self.device.dispatch.vkGetSemaphoreCounterValue.is_some() {
+                &timeline_info as *const _ as *const _
+            } else {
+                std::ptr::null()
+            };
+
         let submit_info = VkSubmitInfo {
             sType: VkStructureType::STRUCTURE_TYPE_SUBMIT_INFO,
+            pNext: p_next,
+            waitSemaphoreCount: raw_wait.len() as u32,
+            pWaitSemaphores: if raw_wait.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_wait.as_ptr()
+            },
+            pWaitDstStageMask: if raw_wait_stages.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_wait_stages.as_ptr()
+            },
             commandBufferCount: raw_cmds.len() as u32,
             pCommandBuffers: raw_cmds.as_ptr(),
-            ..Default::default()
+            signalSemaphoreCount: raw_signal.len() as u32,
+            pSignalSemaphores: if raw_signal.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_signal.as_ptr()
+            },
         };
 
         let fence_handle = signal_fence.map_or(0u64, super::Fence::raw);
 
-        // Safety: submit_info is valid for the call, raw_cmds outlives it.
+        // Safety: submit_info is valid for the call, all the Vec backing
+        // pointers outlive the call.
         check(unsafe { submit(self.handle, 1, &submit_info, fence_handle) })
     }
 

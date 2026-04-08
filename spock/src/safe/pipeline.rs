@@ -211,6 +211,115 @@ impl SpecializationConstants {
     }
 }
 
+/// A safe wrapper around `VkPipelineCache`.
+///
+/// Pipeline caches accelerate pipeline creation by storing the
+/// implementation-specific compiled blob and reusing it across runs and
+/// across pipelines that share state. The typical pattern:
+///
+/// 1. Load any previously serialized cache bytes from disk via
+///    [`PipelineCache::with_data`].
+/// 2. Pass the cache to all your pipeline creations via
+///    [`ComputePipeline::with_specialization_and_cache`].
+/// 3. Before exit, call [`PipelineCache::data`] and write the bytes back
+///    to disk.
+///
+/// The exact format is implementation-specific and may even change between
+/// driver versions; on driver mismatch the implementation simply ignores
+/// the supplied data and starts fresh, so it's safe to always pass any
+/// previously saved bytes.
+///
+/// The cache is destroyed automatically on drop.
+pub struct PipelineCache {
+    pub(crate) handle: VkPipelineCache,
+    pub(crate) device: Arc<DeviceInner>,
+}
+
+impl PipelineCache {
+    /// Create a new empty pipeline cache.
+    pub fn new(device: &Device) -> Result<Self> {
+        Self::with_data(device, &[])
+    }
+
+    /// Create a new pipeline cache pre-populated with `data` (typically
+    /// the bytes from a previous run's [`PipelineCache::data`] call).
+    pub fn with_data(device: &Device, data: &[u8]) -> Result<Self> {
+        let create = device
+            .inner
+            .dispatch
+            .vkCreatePipelineCache
+            .ok_or(Error::MissingFunction("vkCreatePipelineCache"))?;
+
+        let info = VkPipelineCacheCreateInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+            initialDataSize: data.len(),
+            pInitialData: if data.is_empty() {
+                std::ptr::null()
+            } else {
+                data.as_ptr() as *const _
+            },
+            ..Default::default()
+        };
+
+        let mut handle: VkPipelineCache = 0;
+        // Safety: info is valid for the call, data outlives it.
+        check(unsafe { create(device.inner.handle, &info, std::ptr::null(), &mut handle) })?;
+
+        Ok(Self {
+            handle,
+            device: Arc::clone(&device.inner),
+        })
+    }
+
+    /// Returns the raw `VkPipelineCache` handle.
+    pub fn raw(&self) -> VkPipelineCache {
+        self.handle
+    }
+
+    /// Serialize the cache contents into a fresh `Vec<u8>` suitable for
+    /// writing to disk.
+    pub fn data(&self) -> Result<Vec<u8>> {
+        let get = self
+            .device
+            .dispatch
+            .vkGetPipelineCacheData
+            .ok_or(Error::MissingFunction("vkGetPipelineCacheData"))?;
+
+        let mut size: usize = 0;
+        // Safety: count query, data ptr is null.
+        check(unsafe {
+            get(
+                self.device.handle,
+                self.handle,
+                &mut size,
+                std::ptr::null_mut(),
+            )
+        })?;
+
+        let mut bytes = vec![0u8; size];
+        // Safety: bytes has space for `size` bytes.
+        check(unsafe {
+            get(
+                self.device.handle,
+                self.handle,
+                &mut size,
+                bytes.as_mut_ptr() as *mut _,
+            )
+        })?;
+        bytes.truncate(size);
+        Ok(bytes)
+    }
+}
+
+impl Drop for PipelineCache {
+    fn drop(&mut self) {
+        if let Some(destroy) = self.device.dispatch.vkDestroyPipelineCache {
+            // Safety: handle is valid; we are the sole owner.
+            unsafe { destroy(self.device.handle, self.handle, std::ptr::null()) };
+        }
+    }
+}
+
 /// A safe wrapper around a compute `VkPipeline`.
 ///
 /// Compute pipelines bundle a single compute shader stage with a pipeline
@@ -254,6 +363,28 @@ impl ComputePipeline {
         entry_point: &str,
         specialization: &SpecializationConstants,
     ) -> Result<Self> {
+        Self::with_specialization_and_cache(
+            device,
+            layout,
+            shader,
+            entry_point,
+            specialization,
+            None,
+        )
+    }
+
+    /// Create a compute pipeline with specialization constants AND an
+    /// optional [`PipelineCache`] for fast warm starts. Pass `Some(&cache)`
+    /// to plug into a cache that may already contain a previously compiled
+    /// version of this pipeline.
+    pub fn with_specialization_and_cache(
+        device: &Device,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        entry_point: &str,
+        specialization: &SpecializationConstants,
+        cache: Option<&PipelineCache>,
+    ) -> Result<Self> {
         let create = device
             .inner
             .dispatch
@@ -287,13 +418,15 @@ impl ComputePipeline {
             ..Default::default()
         };
 
+        let cache_handle = cache.map_or(0u64, |c| c.handle);
+
         let mut handle: VkPipeline = 0;
         // Safety: info, stage, entry_c, spec_raw, and the data inside
         // `specialization` all live for the duration of this call.
         check(unsafe {
             create(
                 device.inner.handle,
-                0, // pipelineCache: VK_NULL_HANDLE
+                cache_handle,
                 1,
                 &info,
                 std::ptr::null(),
