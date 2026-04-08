@@ -17,19 +17,28 @@
 //!
 //! # Scope
 //!
-//! The safe wrapper currently covers the **core compute path**:
+//! The safe wrapper covers the **complete compute path**:
 //!
 //! - [`Instance`] / [`InstanceCreateInfo`]
 //! - [`PhysicalDevice`]
 //! - [`Device`] / [`DeviceCreateInfo`] / [`Queue`]
 //! - [`DeviceMemory`] (with mapping)
 //! - [`Buffer`] / [`BufferCreateInfo`]
-//! - [`CommandPool`] / [`CommandBuffer`]
+//! - [`ShaderModule`] (takes any `&[u32]` of SPIR-V)
+//! - [`DescriptorSetLayout`] / [`DescriptorPool`] / [`DescriptorSet`]
+//! - [`PipelineLayout`] / [`ComputePipeline`]
+//! - [`CommandPool`] / [`CommandBuffer`] (record `dispatch`, `bind_pipeline`,
+//!   `bind_descriptor_sets`, `fill_buffer`, `memory_barrier`)
 //! - [`Fence`]
 //!
-//! Graphics-specific functionality (swapchains, render passes, pipelines,
-//! images, samplers) and SPIR-V compute shader dispatch are not yet covered.
-//! Use [`spock::raw`](crate::raw) for those use cases.
+//! Graphics-specific functionality (swapchains, render passes, graphics
+//! pipelines, images, samplers) is not yet covered. Use
+//! [`spock::raw`](crate::raw) for those use cases.
+//!
+//! Compiling shaders is left to the user; spock takes SPIR-V as `&[u32]`.
+//! With the optional `naga` feature enabled, [`naga::compile_glsl`] provides
+//! a convenience function for compiling GLSL at runtime via the
+//! [`naga`](https://docs.rs/naga) crate.
 //!
 //! # Example
 //!
@@ -58,14 +67,23 @@ use crate::raw::bindings::VkResult;
 
 mod buffer;
 mod command;
+mod descriptor;
 mod device;
 mod instance;
 mod memory;
+#[cfg(feature = "naga")]
+pub mod naga;
 mod physical;
+mod pipeline;
+mod shader;
 mod sync;
 
 pub use buffer::{Buffer, BufferCreateInfo, BufferUsage};
 pub use command::{CommandBuffer, CommandBufferRecording, CommandPool};
+pub use descriptor::{
+    DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, DescriptorType, ShaderStageFlags,
+};
 pub use device::{Device, DeviceCreateInfo, Queue, QueueCreateInfo};
 pub use instance::{ApiVersion, Instance, InstanceCreateInfo};
 pub use memory::{DeviceMemory, MappedMemory, MemoryPropertyFlags};
@@ -73,6 +91,8 @@ pub use physical::{
     MemoryHeap, MemoryHeapFlags, MemoryType, PhysicalDevice, PhysicalDeviceProperties,
     PhysicalDeviceType, QueueFamilyProperties, QueueFlags,
 };
+pub use pipeline::{ComputePipeline, PipelineLayout};
+pub use shader::ShaderModule;
 pub use sync::Fence;
 
 /// Error type returned by all fallible operations in [`spock::safe`](crate::safe).
@@ -89,6 +109,11 @@ pub enum Error {
 
     /// A C string contained an interior NUL byte.
     InvalidString(std::ffi::NulError),
+
+    /// GLSL-to-SPIR-V compilation via [`naga`] failed.
+    /// Only emitted when the `naga` Cargo feature is enabled.
+    #[cfg(feature = "naga")]
+    NagaCompile(String),
 }
 
 impl std::fmt::Display for Error {
@@ -98,6 +123,8 @@ impl std::fmt::Display for Error {
             Self::MissingFunction(name) => write!(f, "Vulkan function not loaded: {name}"),
             Self::Vk(result) => write!(f, "Vulkan call failed: {result:?}"),
             Self::InvalidString(e) => write!(f, "invalid C string: {e}"),
+            #[cfg(feature = "naga")]
+            Self::NagaCompile(s) => write!(f, "GLSL compilation failed: {s}"),
         }
     }
 }

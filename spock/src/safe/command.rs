@@ -1,6 +1,8 @@
 //! Safe wrapper for `VkCommandPool` and `VkCommandBuffer`.
 
+use super::descriptor::DescriptorSet;
 use super::device::DeviceInner;
+use super::pipeline::{ComputePipeline, PipelineLayout};
 use super::{Buffer, Device, Error, Result, check};
 use crate::raw::bindings::*;
 use std::sync::Arc;
@@ -159,6 +161,120 @@ impl<'a> CommandBufferRecording<'a> {
             .expect("vkCmdFillBuffer is required by Vulkan 1.0");
         // Safety: command buffer is in recording state, buffer handle is valid.
         unsafe { cmd(self.buffer.handle, buffer.handle, dst_offset, size, data) };
+    }
+
+    /// Record `vkCmdBindPipeline` for a compute pipeline.
+    pub fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdBindPipeline
+            .expect("vkCmdBindPipeline is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, pipeline handle is valid.
+        // VK_PIPELINE_BIND_POINT_COMPUTE = 1
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                VkPipelineBindPoint::PIPELINE_BIND_POINT_COMPUTE,
+                pipeline.handle,
+            )
+        };
+    }
+
+    /// Record `vkCmdBindDescriptorSets` to bind one or more descriptor sets
+    /// to a compute pipeline starting at the given set number.
+    pub fn bind_compute_descriptor_sets(
+        &mut self,
+        layout: &PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[&DescriptorSet],
+    ) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdBindDescriptorSets
+            .expect("vkCmdBindDescriptorSets is required by Vulkan 1.0");
+
+        let raw: Vec<VkDescriptorSet> = descriptor_sets.iter().map(|s| s.handle).collect();
+        // Safety: command buffer is in recording state, layout and sets are valid,
+        // raw lives for the duration of the call.
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                VkPipelineBindPoint::PIPELINE_BIND_POINT_COMPUTE,
+                layout.handle,
+                first_set,
+                raw.len() as u32,
+                raw.as_ptr(),
+                0,
+                std::ptr::null(),
+            )
+        };
+    }
+
+    /// Record `vkCmdDispatch` to launch a 3D grid of workgroups.
+    pub fn dispatch(&mut self, group_count_x: u32, group_count_y: u32, group_count_z: u32) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdDispatch
+            .expect("vkCmdDispatch is required by Vulkan 1.0");
+        // Safety: command buffer is in recording state, a compute pipeline
+        // and compatible descriptor sets must be bound (caller's responsibility).
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                group_count_x,
+                group_count_y,
+                group_count_z,
+            )
+        };
+    }
+
+    /// Record a global memory barrier between two pipeline stages.
+    ///
+    /// This is a simplified `vkCmdPipelineBarrier` that emits a single
+    /// `VkMemoryBarrier`. Useful for guaranteeing that compute writes are
+    /// visible to subsequent host reads (or to subsequent shader work).
+    pub fn memory_barrier(
+        &mut self,
+        src_stage: u32,
+        dst_stage: u32,
+        src_access: u32,
+        dst_access: u32,
+    ) {
+        let cmd = self
+            .buffer
+            .device
+            .dispatch
+            .vkCmdPipelineBarrier
+            .expect("vkCmdPipelineBarrier is required by Vulkan 1.0");
+
+        let barrier = VkMemoryBarrier {
+            sType: VkStructureType::STRUCTURE_TYPE_MEMORY_BARRIER,
+            srcAccessMask: src_access,
+            dstAccessMask: dst_access,
+            ..Default::default()
+        };
+
+        // Safety: command buffer is in recording state, barrier lives for the call.
+        unsafe {
+            cmd(
+                self.buffer.handle,
+                src_stage,
+                dst_stage,
+                0,
+                1,
+                &barrier,
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+            )
+        };
     }
 
     /// Finish recording explicitly. This is what `Drop` does — call this

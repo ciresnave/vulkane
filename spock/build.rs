@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// 3. Auto-download (if `fetch-spec` feature is enabled)
 fn resolve_vk_xml(
     manifest_dir: &str,
-    out_dir: &str,
+    #[cfg_attr(not(feature = "fetch-spec"), allow(unused))] out_dir: &str,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
     // 1. Check VK_XML_PATH environment variable
     if let Ok(env_path) = env::var("VK_XML_PATH") {

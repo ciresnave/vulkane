@@ -4,8 +4,11 @@
 //! Skips gracefully on systems without Vulkan installed.
 
 use spock::safe::{
-    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, DeviceCreateInfo, DeviceMemory,
-    Fence, Instance, InstanceCreateInfo, MemoryPropertyFlags, QueueCreateInfo, QueueFlags,
+    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
+    DescriptorPool, DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
+    DescriptorType, DeviceCreateInfo, DeviceMemory, Fence, Instance, InstanceCreateInfo,
+    MemoryPropertyFlags, PipelineLayout, QueueCreateInfo, QueueFlags, ShaderModule,
+    ShaderStageFlags,
 };
 
 #[test]
@@ -270,4 +273,156 @@ fn test_buffer_usage_bitor() {
     assert!(u.contains(BufferUsage::TRANSFER_DST));
     assert!(u.contains(BufferUsage::STORAGE_BUFFER));
     assert!(!u.contains(BufferUsage::TRANSFER_SRC));
+}
+
+#[test]
+fn test_shader_module_from_spirv_bytes() {
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(_) => return,
+    };
+    let physicals = instance.enumerate_physical_devices().unwrap();
+    let Some(physical) = physicals.first().cloned() else {
+        return;
+    };
+    let queue_family = physical.find_queue_family(QueueFlags::COMPUTE).unwrap();
+    let device = physical
+        .create_device(DeviceCreateInfo {
+            queue_create_infos: &[QueueCreateInfo {
+                queue_family_index: queue_family,
+                queue_priorities: vec![1.0],
+            }],
+        })
+        .unwrap();
+
+    // Load the pre-compiled SPIR-V from disk and create a shader module.
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let spv = std::fs::read(format!("{manifest_dir}/examples/shaders/square_buffer.spv"))
+        .expect("pre-compiled square_buffer.spv must exist (run compile_shader example)");
+
+    let shader = ShaderModule::from_spirv_bytes(&device, &spv)
+        .expect("ShaderModule::from_spirv_bytes should succeed for valid SPIR-V");
+    assert!(shader.raw() != 0);
+}
+
+#[test]
+fn test_compute_pipeline_full_dispatch() {
+    // End-to-end compute test: same as the compute_square example, in test form.
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(_) => return,
+    };
+    let physicals = instance.enumerate_physical_devices().unwrap();
+    let Some(physical) = physicals.first().cloned() else {
+        return;
+    };
+
+    let queue_family = match physical.find_queue_family(QueueFlags::COMPUTE) {
+        Some(q) => q,
+        None => return,
+    };
+    let device = physical
+        .create_device(DeviceCreateInfo {
+            queue_create_infos: &[QueueCreateInfo {
+                queue_family_index: queue_family,
+                queue_priorities: vec![1.0],
+            }],
+        })
+        .unwrap();
+    let queue = device.get_queue(queue_family, 0);
+
+    // Storage buffer with 64 u32s = 256 bytes
+    const N: u32 = 64;
+    const SIZE: u64 = (N as u64) * 4;
+    let buffer = Buffer::new(
+        &device,
+        BufferCreateInfo {
+            size: SIZE,
+            usage: BufferUsage::STORAGE_BUFFER,
+        },
+    )
+    .unwrap();
+    let req = buffer.memory_requirements();
+    let mt = physical
+        .find_memory_type(
+            req.memory_type_bits,
+            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+        )
+        .unwrap();
+    let mut memory = DeviceMemory::allocate(&device, req.size, mt).unwrap();
+    buffer.bind_memory(&memory, 0).unwrap();
+
+    // Initial values: 0..64
+    {
+        let mut m = memory.map().unwrap();
+        let bytes = m.as_slice_mut();
+        for i in 0..N as usize {
+            let v = i as u32;
+            bytes[i * 4..(i + 1) * 4].copy_from_slice(&v.to_le_bytes());
+        }
+    }
+
+    // Load shader
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let spv = std::fs::read(format!("{manifest_dir}/examples/shaders/square_buffer.spv")).unwrap();
+    let shader = ShaderModule::from_spirv_bytes(&device, &spv).unwrap();
+
+    // Descriptor layout/pool/set
+    let set_layout = DescriptorSetLayout::new(
+        &device,
+        &[DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+            stage_flags: ShaderStageFlags::COMPUTE,
+        }],
+    )
+    .unwrap();
+    let pool = DescriptorPool::new(
+        &device,
+        1,
+        &[DescriptorPoolSize {
+            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+        }],
+    )
+    .unwrap();
+    let dset = pool.allocate(&set_layout).unwrap();
+    dset.write_buffer(0, DescriptorType::STORAGE_BUFFER, &buffer, 0, SIZE);
+
+    // Pipeline
+    let pipeline_layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
+    let pipeline = ComputePipeline::new(&device, &pipeline_layout, &shader, "main").unwrap();
+
+    // Record + submit
+    let cmd_pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = cmd_pool.allocate_primary().unwrap();
+    {
+        let mut rec = cmd.begin().unwrap();
+        rec.bind_compute_pipeline(&pipeline);
+        rec.bind_compute_descriptor_sets(&pipeline_layout, 0, &[&dset]);
+        rec.dispatch(N.div_ceil(64), 1, 1);
+        // Compute -> Host barrier (compute_shader_bit -> host_bit, shader_write -> host_read)
+        rec.memory_barrier(0x800, 0x4000, 0x40, 0x2000);
+        rec.end().unwrap();
+    }
+    let fence = Fence::new(&device).unwrap();
+    queue.submit(&[&cmd], Some(&fence)).unwrap();
+    fence.wait(u64::MAX).unwrap();
+
+    // Verify
+    {
+        let m = memory.map().unwrap();
+        let bytes = m.as_slice();
+        for i in 0..N as usize {
+            let read = u32::from_le_bytes([
+                bytes[i * 4],
+                bytes[i * 4 + 1],
+                bytes[i * 4 + 2],
+                bytes[i * 4 + 3],
+            ]);
+            let expected = (i as u32).wrapping_mul(i as u32);
+            assert_eq!(read, expected, "element {i}: GPU did not square correctly");
+        }
+    }
 }

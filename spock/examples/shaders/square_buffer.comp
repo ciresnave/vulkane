@@ -1,0 +1,32 @@
+// A trivial compute shader: reads each u32 from a storage buffer and
+// replaces it with its square (modulo 2^32).
+//
+// Used by the `compute_square` example to demonstrate the safe wrapper's
+// shader / descriptor / pipeline / dispatch path.
+//
+// Compile with:
+//   glslc -O square_buffer.comp -o square_buffer.spv
+//
+// The pre-compiled SPIR-V is checked into this directory so users don't need
+// glslc to run the example. Regenerate after editing.
+
+#version 450
+
+// 64 invocations per workgroup along the X axis. The example dispatches
+// `ceil(N / 64)` workgroups for an input of N elements.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// One storage buffer at descriptor set 0, binding 0.
+// std430 layout matches Rust's #[repr(C)] for u32 arrays.
+layout(set = 0, binding = 0, std430) buffer Data {
+    uint values[];
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= values.length()) {
+        return;
+    }
+    uint v = values[idx];
+    values[idx] = v * v;
+}

@@ -20,10 +20,16 @@ build-support = []
 # Enable automatic download of vk.xml from the Khronos GitHub repository
 # when no local copy is found. Requires network access during build.
 fetch-spec = []
+# Enable runtime GLSL -> SPIR-V compilation via the `naga` crate.
+# Adds the `spock::safe::naga::compile_glsl` convenience function.
+naga = ["dep:naga"]
 
 [dependencies]
 # Dynamic loading of the Vulkan runtime library
 libloading = { workspace = true }
+# Optional: GLSL -> SPIR-V compilation via Naga (the wgpu shader translator).
+# Pulls in glsl-in and spv-out features only — no other backends.
+naga = { version = "29", optional = true, default-features = false, features = ["glsl-in", "spv-out"] }
 
 [build-dependencies]
 vulkan_gen = { path = "../vulkan_gen" }

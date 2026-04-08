@@ -57,21 +57,34 @@ jobs:
       - name: Build (no default features)
         run: cargo build -p spock --features fetch-spec --no-default-features
 
-      - name: Run unit tests
+      - name: Build with naga feature
+        run: cargo build -p spock --features fetch-spec,naga
+
+      - name: Run unit tests (no naga)
         # On Linux, Lavapipe is installed above so the real-Vulkan integration
         # test will actually exercise the loader against a software Vulkan
         # implementation. On Windows/macOS the test gracefully skips if no
         # driver is found.
         run: cargo test --workspace --features fetch-spec
 
+      - name: Run unit tests (with naga)
+        # Re-run with the naga feature on so the GLSL compilation tests
+        # actually execute. They don't require a Vulkan driver.
+        run: cargo test --workspace --features fetch-spec,naga
+
       - name: Build examples
         run: |
           cargo build -p spock --features fetch-spec --example device_info
           cargo build -p spock --features fetch-spec --example fill_buffer
+          cargo build -p spock --features fetch-spec --example compute_square
+          cargo build -p spock --features fetch-spec,naga --example compile_shader
 
-      - name: Run device_info example (Linux only, with Lavapipe)
+      - name: Run examples on Linux (with Lavapipe)
         if: runner.os == 'Linux'
-        run: cargo run -p spock --features fetch-spec --example device_info
+        run: |
+          cargo run -p spock --features fetch-spec --example device_info
+          cargo run -p spock --features fetch-spec --example fill_buffer
+          cargo run -p spock --features fetch-spec --example compute_square
 
   docs:
     name: Build docs
