@@ -493,6 +493,51 @@ impl Instance {
         self.inner.handle
     }
 
+    /// Enumerate the physical device groups visible to this instance.
+    ///
+    /// Each group is a set of one or more physical devices that share
+    /// `VkDeviceMemory` and can be used together via per-allocation /
+    /// per-submission `device_mask` parameters. On most consumer
+    /// hardware every group is a singleton — the same set of devices
+    /// you'd see from [`enumerate_physical_devices`](Self::enumerate_physical_devices),
+    /// each in its own one-element group.
+    pub fn enumerate_physical_device_groups(
+        &self,
+    ) -> Result<Vec<crate::safe::PhysicalDeviceGroup>> {
+        let enumerate = self
+            .inner
+            .dispatch
+            .vkEnumeratePhysicalDeviceGroups
+            .ok_or(Error::MissingFunction("vkEnumeratePhysicalDeviceGroups"))?;
+
+        let mut count: u32 = 0;
+        // Safety: count query.
+        check(unsafe { enumerate(self.inner.handle, &mut count, std::ptr::null_mut()) })?;
+        // Initialize via Default so the embedded handle array starts
+        // zeroed and sType ends up correct.
+        let mut raw: Vec<VkPhysicalDeviceGroupProperties> = (0..count as usize)
+            .map(|_| VkPhysicalDeviceGroupProperties {
+                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES,
+                ..Default::default()
+            })
+            .collect();
+        check(unsafe { enumerate(self.inner.handle, &mut count, raw.as_mut_ptr()) })?;
+
+        Ok(raw
+            .into_iter()
+            .map(|r| {
+                let physical_devices: Vec<PhysicalDevice> = (0..r.physicalDeviceCount as usize)
+                    .map(|i| PhysicalDevice::new(Arc::clone(&self.inner), r.physicalDevices[i]))
+                    .collect();
+                crate::safe::PhysicalDeviceGroup {
+                    instance: Arc::clone(&self.inner),
+                    physical_devices,
+                    subset_allocation: r.subsetAllocation != 0,
+                }
+            })
+            .collect())
+    }
+
     /// Enumerate the physical devices visible to this instance.
     pub fn enumerate_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
         let enumerate = self

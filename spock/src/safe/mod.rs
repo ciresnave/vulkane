@@ -119,8 +119,8 @@ pub use instance::{
 pub use memory::{DeviceMemory, MappedMemory, MemoryPropertyFlags};
 pub use physical::{
     CooperativeMatrixProperties, MemoryBudget, MemoryHeap, MemoryHeapFlags, MemoryType,
-    PhysicalDevice, PhysicalDeviceProperties, PhysicalDeviceType, QueueFamilyProperties,
-    QueueFlags,
+    PhysicalDevice, PhysicalDeviceGroup, PhysicalDeviceProperties, PhysicalDeviceType,
+    QueueFamilyProperties, QueueFlags,
 };
 pub use pipeline::{
     ComputePipeline, PipelineCache, PipelineLayout, PushConstantRange, SpecializationConstants,

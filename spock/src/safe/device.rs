@@ -82,6 +82,10 @@ pub(crate) struct DeviceInner {
     /// Field is unread but its `Drop` semantics are essential.
     #[allow(dead_code)]
     pub(crate) instance: Arc<super::instance::InstanceInner>,
+    /// All physical devices in the device group this `Device` was
+    /// created from. Always at least one element. Length 1 for the
+    /// overwhelmingly common case of `physical.create_device(...)`.
+    pub(crate) physical_devices: Vec<VkPhysicalDevice>,
 }
 
 // Safety: VkDevice is documented by the Vulkan spec as safe to share between
@@ -111,7 +115,39 @@ pub struct Device {
 }
 
 impl Device {
+    /// Create a logical [`Device`] from a [`PhysicalDeviceGroup`].
+    /// Internally calls `vkCreateDevice` with a
+    /// `VkDeviceGroupDeviceCreateInfo` chain listing every physical
+    /// device in the group. The resulting `Device` exposes
+    /// [`physical_device_count`](Self::physical_device_count) > 1 and
+    /// every operation that takes a `device_mask` defaults to "all
+    /// devices in the group".
+    pub(crate) fn new_group(
+        group: &super::physical::PhysicalDeviceGroup,
+        info: DeviceCreateInfo<'_>,
+    ) -> Result<Self> {
+        // Use the first physical device as the entry point for
+        // vkCreateDevice (the spec says any device in the group works).
+        let physical = group
+            .physical_devices
+            .first()
+            .ok_or(Error::Vk(VkResult::ERROR_INITIALIZATION_FAILED))?;
+        let raw_handles: Vec<VkPhysicalDevice> =
+            group.physical_devices.iter().map(|p| p.handle).collect();
+
+        Self::new_inner(physical, info, raw_handles)
+    }
+
     pub(crate) fn new(physical: &PhysicalDevice, info: DeviceCreateInfo<'_>) -> Result<Self> {
+        // Single-physical-device case: store a length-1 group.
+        Self::new_inner(physical, info, vec![physical.handle])
+    }
+
+    fn new_inner(
+        physical: &PhysicalDevice,
+        info: DeviceCreateInfo<'_>,
+        raw_physical_handles: Vec<VkPhysicalDevice>,
+    ) -> Result<Self> {
         let create = physical
             .instance
             .dispatch
@@ -214,9 +250,32 @@ impl Device {
             p_enabled_features = std::ptr::null();
         }
 
+        // If this is a multi-device group, prepend a
+        // VkDeviceGroupDeviceCreateInfo to the pNext chain.
+        let group_info_owned: Option<VkDeviceGroupDeviceCreateInfo>;
+        let final_p_next: *const c_void = if raw_physical_handles.len() > 1 {
+            let mut g = VkDeviceGroupDeviceCreateInfo {
+                sType: VkStructureType::STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO,
+                pNext: p_next, // chain in the existing pNext (features, etc.)
+                physicalDeviceCount: raw_physical_handles.len() as u32,
+                pPhysicalDevices: raw_physical_handles.as_ptr(),
+            };
+            // Bind to a stable address.
+            group_info_owned = Some(g);
+            // Re-borrow once it's settled.
+            let g_ref = group_info_owned.as_ref().unwrap();
+            // Safety: g_ref lives until end of scope.
+            g = *g_ref;
+            let _ = g;
+            group_info_owned.as_ref().unwrap() as *const _ as *const c_void
+        } else {
+            group_info_owned = None;
+            p_next
+        };
+
         let create_info = VkDeviceCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            pNext: p_next,
+            pNext: final_p_next,
             queueCreateInfoCount: raw_infos.len() as u32,
             pQueueCreateInfos: raw_infos.as_ptr(),
             enabledExtensionCount: ext_ptrs.len() as u32,
@@ -231,11 +290,13 @@ impl Device {
 
         let mut handle: VkDevice = std::ptr::null_mut();
         // Safety: create_info is valid for the call. raw_infos, name
-        // CStrings, and the chain_owned tuple all live until end of scope.
+        // CStrings, the chain_owned tuple, raw_physical_handles, and
+        // group_info_owned all live until end of scope.
         check(unsafe { create(physical.handle, &create_info, std::ptr::null(), &mut handle) })?;
-        // Suppress dead-code warning for the chain binding — its
+        // Suppress dead-code warning for the chain bindings — their
         // *purpose* is to live until after the call.
         let _ = chain_owned;
+        let _ = group_info_owned;
 
         // Load device-level dispatch table.
         // Safety: handle and instance are both valid.
@@ -247,8 +308,34 @@ impl Device {
                 handle,
                 dispatch,
                 instance: Arc::clone(&physical.instance),
+                physical_devices: raw_physical_handles,
             }),
         })
+    }
+
+    /// Number of physical devices in this device's group. Always at
+    /// least 1; usually exactly 1 on consumer hardware.
+    pub fn physical_device_count(&self) -> u32 {
+        self.inner.physical_devices.len() as u32
+    }
+
+    /// Returns the raw physical device handles in this device's group.
+    /// Length matches [`physical_device_count`](Self::physical_device_count).
+    pub fn physical_device_handles(&self) -> &[VkPhysicalDevice] {
+        &self.inner.physical_devices
+    }
+
+    /// Returns the default device mask: a bitmask with one bit set per
+    /// physical device in the group. For a single-device group this is
+    /// `0b1`; for a 2-device group it's `0b11`; etc. Used as the
+    /// "submit / allocate to all devices in the group" sentinel.
+    pub fn default_device_mask(&self) -> u32 {
+        let n = self.inner.physical_devices.len() as u32;
+        if n >= 32 {
+            0xFFFF_FFFF
+        } else {
+            (1u32 << n) - 1
+        }
     }
 
     /// Returns the raw `VkDevice` handle.

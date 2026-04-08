@@ -558,6 +558,64 @@ impl MemoryBudget {
     }
 }
 
+/// A Vulkan physical device group: a set of one or more physical devices
+/// that share `VkDeviceMemory` allocations and can run in tandem with
+/// per-allocation / per-submission `device_mask` parameters.
+///
+/// Single-device "groups" of length 1 are the overwhelmingly common case
+/// and behave identically to a non-grouped [`PhysicalDevice`]. Multi-GPU
+/// systems (e.g. dual SLI / CrossFire / explicit-multi-GPU) expose
+/// genuine groups via
+/// [`Instance::enumerate_physical_device_groups`](super::Instance::enumerate_physical_device_groups).
+///
+/// Use [`PhysicalDeviceGroup::create_device`] to create a [`Device`]
+/// that internally tracks every physical device in the group. Single
+/// physical devices created via [`PhysicalDevice::create_device`]
+/// produce a [`Device`] that internally wraps a singleton group, so
+/// every code path in the safe wrapper sees the same shape.
+#[derive(Clone)]
+#[allow(dead_code)] // `instance` keeps the parent alive even if unread.
+pub struct PhysicalDeviceGroup {
+    pub(crate) instance: Arc<InstanceInner>,
+    pub(crate) physical_devices: Vec<PhysicalDevice>,
+    pub(crate) subset_allocation: bool,
+}
+
+impl PhysicalDeviceGroup {
+    /// Returns the physical devices in this group, in the order
+    /// `vkEnumeratePhysicalDeviceGroups` reported them. Always at
+    /// least one element; usually exactly one on consumer hardware.
+    pub fn physical_devices(&self) -> &[PhysicalDevice] {
+        &self.physical_devices
+    }
+
+    /// Number of physical devices in this group.
+    pub fn count(&self) -> u32 {
+        self.physical_devices.len() as u32
+    }
+
+    /// `true` if the implementation supports subset memory allocations
+    /// across this group (allowing per-device-mask allocation flags).
+    /// Always `false` on single-device groups.
+    pub fn supports_subset_allocation(&self) -> bool {
+        self.subset_allocation
+    }
+
+    /// Create a logical [`Device`] from this group.
+    pub fn create_device(&self, info: DeviceCreateInfo<'_>) -> Result<Device> {
+        Device::new_group(self, info)
+    }
+}
+
+impl std::fmt::Debug for PhysicalDeviceGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PhysicalDeviceGroup")
+            .field("count", &self.count())
+            .field("subset_allocation", &self.subset_allocation)
+            .finish()
+    }
+}
+
 /// One supported cooperative-matrix shape, as returned by
 /// [`PhysicalDevice::cooperative_matrix_properties`].
 #[derive(Clone)]

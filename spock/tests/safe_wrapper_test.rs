@@ -2649,6 +2649,94 @@ fn test_allocator_defragmentation_compacts_fragmented_pool() {
 }
 
 #[test]
+fn test_enumerate_physical_device_groups() {
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("SKIP: cannot create Vulkan instance: {e}");
+            return;
+        }
+    };
+    let groups = match instance.enumerate_physical_device_groups() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("SKIP: enumerate_physical_device_groups returned: {e}");
+            return;
+        }
+    };
+    println!("Found {} physical device group(s)", groups.len());
+    for (i, group) in groups.iter().enumerate() {
+        assert!(group.count() >= 1, "every group has at least one device");
+        println!(
+            "  group {i}: {} device(s), subset_allocation={}",
+            group.count(),
+            group.supports_subset_allocation()
+        );
+        for pd in group.physical_devices() {
+            assert!(!pd.properties().device_name().is_empty());
+        }
+    }
+}
+
+#[test]
+fn test_device_singleton_group_unification() {
+    // Verify that a device created via the legacy
+    // physical.create_device(...) path internally exposes a length-1
+    // physical-device group, matching the device-group representation.
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    assert_eq!(
+        device.physical_device_count(),
+        1,
+        "single-physical-device path should produce a length-1 group"
+    );
+    let handles = device.physical_device_handles();
+    assert_eq!(handles.len(), 1);
+    // The default device mask for a 1-device group is 0b1.
+    assert_eq!(device.default_device_mask(), 0b1);
+}
+
+#[test]
+fn test_device_create_via_physical_device_group() {
+    // Verify that PhysicalDeviceGroup::create_device works for
+    // singleton groups (we can't reliably test multi-device on most CI
+    // hardware) and that the resulting Device exposes the same fields.
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(_) => {
+            eprintln!("SKIP: no Vulkan ICD");
+            return;
+        }
+    };
+    let Some(group) = instance
+        .enumerate_physical_device_groups()
+        .ok()
+        .and_then(|gs| gs.into_iter().next())
+    else {
+        eprintln!("SKIP: no physical device groups");
+        return;
+    };
+    let Some(physical) = group.physical_devices().first() else {
+        eprintln!("SKIP: empty physical device group");
+        return;
+    };
+    let queue_family = physical.find_queue_family(QueueFlags::TRANSFER).unwrap();
+    let device = group
+        .create_device(DeviceCreateInfo {
+            queue_create_infos: &[QueueCreateInfo {
+                queue_family_index: queue_family,
+                queue_priorities: vec![1.0],
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(device.physical_device_count(), group.count());
+    assert!(device.default_device_mask() != 0);
+}
+
+#[test]
 fn test_defragmentation_move_struct_round_trip() {
     let m = DefragmentationMove {
         allocation_id: 42,
