@@ -40,6 +40,21 @@ impl PhysicalDevice {
         &self.instance.dispatch
     }
 
+    /// Query the physical device's supported Vulkan 1.0 feature bits.
+    /// Combine with [`super::DeviceFeatures::with_all_features10`] when
+    /// enabling all device-supported features.
+    pub fn supported_features(&self) -> VkPhysicalDeviceFeatures {
+        let get = self
+            .instance
+            .dispatch
+            .vkGetPhysicalDeviceFeatures
+            .expect("vkGetPhysicalDeviceFeatures is required by Vulkan 1.0");
+        // Safety: handle is valid; struct will be fully overwritten.
+        let mut feats: VkPhysicalDeviceFeatures = unsafe { std::mem::zeroed() };
+        unsafe { get(self.handle, &mut feats) };
+        feats
+    }
+
     /// Query the physical device's properties (name, vendor, API version, etc.).
     pub fn properties(&self) -> PhysicalDeviceProperties {
         let get = self

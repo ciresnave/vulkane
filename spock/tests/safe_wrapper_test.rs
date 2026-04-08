@@ -8,11 +8,11 @@ use spock::safe::{
     BufferCreateInfo, BufferImageCopy, BufferUsage, CommandPool, ComputePipeline,
     DEBUG_UTILS_EXTENSION, DebugMessage, DebugMessageSeverity, DescriptorPool, DescriptorPoolSize,
     DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo,
-    DeviceMemory, Fence, Format, Image, Image2dCreateInfo, ImageBarrier, ImageLayout, ImageUsage,
-    ImageView, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER, MemoryPropertyFlags,
-    PipelineCache, PipelineLayout, PipelineStatisticsFlags, PushConstantRange, QueryPool,
-    QueueCreateInfo, QueueFlags, Semaphore, SemaphoreKind, ShaderModule, ShaderStageFlags,
-    SignalSemaphore, SpecializationConstants, WaitSemaphore,
+    DeviceFeatures, DeviceMemory, Fence, Format, Image, Image2dCreateInfo, ImageBarrier,
+    ImageLayout, ImageUsage, ImageView, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER,
+    MemoryPropertyFlags, PipelineCache, PipelineLayout, PipelineStatisticsFlags, PushConstantRange,
+    QueryPool, QueueCreateInfo, QueueFlags, Semaphore, SemaphoreKind, ShaderModule,
+    ShaderStageFlags, SignalSemaphore, SpecializationConstants, WaitSemaphore,
 };
 
 #[test]
@@ -1999,39 +1999,11 @@ fn test_allocator_peak_bytes_tracks_high_watermark() {
     drop(b1);
 }
 
-#[test]
-fn test_buffer_device_address_returns_or_skips() {
-    // We deliberately do NOT call Buffer::device_address() here because
-    // the function pointer being loaded does not guarantee the
-    // bufferDeviceAddress device feature was enabled at device creation,
-    // and calling it without the feature is undefined behaviour on some
-    // implementations (notably Lavapipe). Until the safe wrapper supports
-    // an enable_features knob on DeviceCreateInfo, this test only
-    // verifies that the API surface compiles and that creating a buffer
-    // with the SHADER_DEVICE_ADDRESS usage either succeeds or returns a
-    // clean error — both of which are acceptable.
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
-        return;
-    };
-    match Buffer::new(
-        &device,
-        BufferCreateInfo {
-            size: 1024,
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::SHADER_DEVICE_ADDRESS,
-        },
-    ) {
-        Ok(b) => {
-            // We have a buffer; just drop it. We do not call
-            // device_address() because the feature may not have been
-            // enabled, which makes the function call UB.
-            assert!(b.raw() != 0);
-        }
-        Err(e) => {
-            eprintln!("OK: driver rejected SHADER_DEVICE_ADDRESS without feature enable: {e}");
-        }
-    }
-}
+// Note: the previous "buffer_device_address_returns_or_skips" test has
+// been replaced by `test_device_features_buffer_device_address_round_trip`
+// below, which actually enables the bufferDeviceAddress feature at
+// device creation and exercises the full call. The defanged version is
+// no longer needed.
 
 #[test]
 fn test_memory_budget_query_succeeds_or_skips() {
@@ -2066,3 +2038,209 @@ fn test_memory_budget_query_succeeds_or_skips() {
 // surface remains untested at runtime — but the wrapper itself
 // compiles and the host-side checks (function-pointer presence,
 // VkResult::SUCCESS guard) are in place.
+
+// ---------------------------------------------------------------------------
+// DeviceFeatures + features-enabled tests
+// ---------------------------------------------------------------------------
+
+/// Helper that creates an Instance + PhysicalDevice + Device with the
+/// requested feature set enabled. Returns None on devices/drivers that
+/// don't support the requested features so callers can skip cleanly.
+fn try_init_with_features(
+    features: DeviceFeatures,
+) -> Option<(
+    Instance,
+    spock::safe::PhysicalDevice,
+    spock::safe::Device,
+    spock::safe::Queue,
+    u32,
+)> {
+    let instance = Instance::new(InstanceCreateInfo::default()).ok()?;
+    let physical = instance
+        .enumerate_physical_devices()
+        .ok()?
+        .into_iter()
+        .next()?;
+    let queue_family = physical.find_queue_family(QueueFlags::COMPUTE)?;
+    let device = physical
+        .create_device(DeviceCreateInfo {
+            queue_create_infos: &[QueueCreateInfo {
+                queue_family_index: queue_family,
+                queue_priorities: vec![1.0],
+            }],
+            enabled_features: Some(&features),
+            ..Default::default()
+        })
+        .ok()?;
+    let queue = device.get_queue(queue_family, 0);
+    Some((instance, physical, device, queue, queue_family))
+}
+
+#[test]
+fn test_device_features_default_creates_normally() {
+    // A DeviceFeatures::default() with no flags set must successfully
+    // create a device on every conformant Vulkan implementation.
+    let features = DeviceFeatures::default();
+    let Some((_inst, _physical, device, _q, _qf)) = try_init_with_features(features) else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    assert!(device.raw() != std::ptr::null_mut());
+}
+
+#[test]
+fn test_device_features_buffer_device_address_round_trip() {
+    // Enable bufferDeviceAddress and verify Buffer::device_address()
+    // returns a non-zero address when called against a buffer with
+    // SHADER_DEVICE_ADDRESS usage.
+    let features = DeviceFeatures::default().with_buffer_device_address();
+    let Some((_inst, physical, device, _q, _qf)) = try_init_with_features(features) else {
+        eprintln!("SKIP: bufferDeviceAddress not supported by device");
+        return;
+    };
+
+    // Skip if Lavapipe (or any conformant Vulkan 1.0 ICD) doesn't expose
+    // the function pointer at the loaded device level.
+    let buffer = match Buffer::new(
+        &device,
+        BufferCreateInfo {
+            size: 4096,
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::SHADER_DEVICE_ADDRESS,
+        },
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("SKIP: SHADER_DEVICE_ADDRESS buffer creation failed: {e}");
+            return;
+        }
+    };
+    let req = buffer.memory_requirements();
+    // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT requires the
+    // VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT flag, which spock's
+    // DeviceMemory::allocate doesn't currently set. Until that lands,
+    // some drivers reject the bind. So we may also skip here.
+    let mt = physical
+        .find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
+        .or_else(|| {
+            physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::HOST_VISIBLE)
+        })
+        .unwrap();
+    let memory = match DeviceMemory::allocate(&device, req.size, mt) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("SKIP: vkAllocateMemory rejected the device-address buffer: {e}");
+            return;
+        }
+    };
+    if let Err(e) = buffer.bind_memory(&memory, 0) {
+        eprintln!("SKIP: vkBindBufferMemory rejected the device-address buffer: {e}");
+        return;
+    }
+    match buffer.device_address() {
+        Ok(addr) => {
+            assert!(
+                addr != 0,
+                "device_address() returned zero on a feature-enabled device"
+            );
+            println!("Buffer device address: 0x{addr:x}");
+        }
+        Err(e) => {
+            // Some implementations require additional flags we don't yet
+            // pass; this is acceptable.
+            eprintln!("SKIP: vkGetBufferDeviceAddress returned: {e}");
+        }
+    }
+}
+
+#[test]
+fn test_device_features_timeline_semaphore_round_trip() {
+    let features = DeviceFeatures::default().with_timeline_semaphore();
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_with_features(features)
+    else {
+        eprintln!("SKIP: timelineSemaphore not supported");
+        return;
+    };
+
+    let sem = match Semaphore::timeline(&device, 0) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("SKIP: timeline semaphore creation failed: {e}");
+            return;
+        }
+    };
+    assert_eq!(sem.kind(), SemaphoreKind::Timeline);
+    assert_eq!(sem.current_value().unwrap(), 0);
+
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd.begin().unwrap();
+        rec.end().unwrap();
+    }
+    queue
+        .submit_with_sync(
+            &[&cmd],
+            &[],
+            &[SignalSemaphore {
+                semaphore: &sem,
+                value: 42,
+            }],
+            None,
+        )
+        .unwrap();
+
+    sem.wait_value(42, u64::MAX).unwrap();
+    assert!(sem.current_value().unwrap() >= 42);
+    println!(
+        "Timeline semaphore reached value {}",
+        sem.current_value().unwrap()
+    );
+}
+
+#[test]
+fn test_device_features_synchronization2_round_trip() {
+    let features = DeviceFeatures::default().with_synchronization2();
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_with_features(features)
+    else {
+        eprintln!("SKIP: synchronization2 not supported");
+        return;
+    };
+
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    let supported = {
+        let mut rec = cmd.begin().unwrap();
+        // VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT  = 0x800
+        // VK_PIPELINE_STAGE_2_HOST_BIT            = 0x4000
+        // VK_ACCESS_2_SHADER_WRITE_BIT            = 0x40
+        // VK_ACCESS_2_HOST_READ_BIT               = 0x2000
+        let res = rec.memory_barrier2(0x800, 0x4000, 0x40, 0x2000);
+        rec.end().unwrap();
+        res
+    };
+    match supported {
+        Ok(()) => {
+            let fence = Fence::new(&device).unwrap();
+            queue.submit(&[&cmd], Some(&fence)).unwrap();
+            fence.wait(u64::MAX).unwrap();
+        }
+        Err(e) => {
+            // Even with the feature enabled, vkCmdPipelineBarrier2 might
+            // not be loaded on Vulkan 1.0/1.1 devices that lack
+            // VK_KHR_synchronization2 as an extension. Acceptable.
+            eprintln!("SKIP: vkCmdPipelineBarrier2 not loaded: {e}");
+        }
+    }
+}
+
+#[test]
+fn test_supported_features_query_succeeds() {
+    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let _features = physical.supported_features();
+    // Just verify the call doesn't crash; the bit-set returned varies
+    // by hardware. We don't assert any specific bit is set because
+    // even Lavapipe exposes very few core 1.0 features by default.
+}

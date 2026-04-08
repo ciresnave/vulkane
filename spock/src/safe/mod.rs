@@ -79,6 +79,7 @@ mod command;
 mod debug;
 mod descriptor;
 mod device;
+mod features;
 mod image;
 mod instance;
 mod memory;
@@ -105,6 +106,7 @@ pub use descriptor::{
 pub use device::{
     Device, DeviceCreateInfo, Queue, QueueCreateInfo, SignalSemaphore, WaitSemaphore,
 };
+pub use features::DeviceFeatures;
 pub use image::{
     BufferImageCopy, Format, Image, Image2dCreateInfo, ImageBarrier, ImageLayout, ImageUsage,
     ImageView,

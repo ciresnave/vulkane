@@ -1,11 +1,12 @@
 //! Safe wrapper for `VkDevice` and `VkQueue`.
 
+use super::features::DeviceFeatures;
 use super::physical::PhysicalDevice;
 use super::sync::Semaphore;
 use super::{Error, Result, check};
 use crate::raw::VulkanLibrary;
 use crate::raw::bindings::*;
-use std::ffi::{CString, c_char};
+use std::ffi::{CString, c_char, c_void};
 use std::sync::Arc;
 
 /// One semaphore wait in [`Queue::submit_with_sync`].
@@ -49,6 +50,14 @@ pub struct DeviceCreateInfo<'a> {
     /// Names of device extensions to enable. Each must be one that
     /// [`PhysicalDevice::enumerate_extension_properties`] reports as available.
     pub enabled_extensions: &'a [&'a str],
+    /// Optional Vulkan feature bits to enable. When `Some`, the safe
+    /// wrapper builds a `VkPhysicalDeviceFeatures2` chain (with the 1.1
+    /// / 1.2 / 1.3 sub-structs as needed) and passes it via `pNext` to
+    /// `vkCreateDevice`.
+    ///
+    /// When `None`, no features are enabled — equivalent to passing
+    /// `DeviceFeatures::default()`.
+    pub enabled_features: Option<&'a DeviceFeatures>,
 }
 
 // `&[T]` does implement `Default` (returns an empty slice), so technically
@@ -60,6 +69,7 @@ impl<'a> Default for DeviceCreateInfo<'a> {
         Self {
             queue_create_infos: &[],
             enabled_extensions: &[],
+            enabled_features: None,
         }
     }
 }
@@ -135,8 +145,78 @@ impl Device {
             .map(|s| s.as_ptr() as *mut c_char)
             .collect();
 
+        // Build the optional VkPhysicalDeviceFeatures2 chain. Each
+        // sub-struct's pNext points at the next one. Both `chain_owned`
+        // and `features2_owned` must outlive the create call, so we
+        // bind them with explicit `let`.
+        let chain_owned: Option<(
+            VkPhysicalDeviceFeatures2,
+            VkPhysicalDeviceVulkan11Features,
+            VkPhysicalDeviceVulkan12Features,
+            VkPhysicalDeviceVulkan13Features,
+        )>;
+        let p_next: *const c_void;
+        let p_enabled_features: *const VkPhysicalDeviceFeatures;
+
+        if let Some(f) = info.enabled_features {
+            // Lay out the chain in reverse (innermost first) so each
+            // pNext can point at a stable address.
+            //
+            //   features2 -> v11 -> v12 -> v13 -> null
+            //
+            // The pNext is a `*mut c_void` per Vulkan, so we have to
+            // const-cast our way out of immutable references.
+            let mut v13 = f.features13;
+            v13.pNext = std::ptr::null_mut();
+
+            let mut v12 = f.features12;
+            v12.pNext = (&v13 as *const _ as *mut c_void).cast();
+            // We need v12.pNext to point at v13. But v13 is a local — it
+            // moves into the tuple below; the address is only stable
+            // *after* the tuple is on the stack. So we patch pNext after
+            // construction. (See chain_owned binding below.)
+
+            let mut v11 = f.features11;
+            v11.pNext = std::ptr::null_mut();
+
+            let mut features2 = VkPhysicalDeviceFeatures2 {
+                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                pNext: std::ptr::null_mut(),
+                features: f.features10,
+            };
+            features2.pNext = std::ptr::null_mut();
+
+            chain_owned = Some((features2, v11, v12, v13));
+
+            // Now patch pNext pointers to refer to the stable tuple.
+            // Safety: borrow_chain has Some so unwrap is fine. The tuple
+            // is bound for the rest of this function so the references
+            // are valid until vkCreateDevice returns.
+            let chain_ref = chain_owned.as_ref().unwrap();
+            // chain_ref is (&features2, &v11, &v12, &v13)
+            // We need to mutate the pNext fields, so cast through.
+            unsafe {
+                let f2_ptr = &chain_ref.0 as *const _ as *mut VkPhysicalDeviceFeatures2;
+                let v11_ptr = &chain_ref.1 as *const _ as *mut VkPhysicalDeviceVulkan11Features;
+                let v12_ptr = &chain_ref.2 as *const _ as *mut VkPhysicalDeviceVulkan12Features;
+                let v13_ptr = &chain_ref.3 as *const _ as *mut VkPhysicalDeviceVulkan13Features;
+                (*f2_ptr).pNext = v11_ptr.cast();
+                (*v11_ptr).pNext = v12_ptr.cast();
+                (*v12_ptr).pNext = v13_ptr.cast();
+                (*v13_ptr).pNext = std::ptr::null_mut();
+            }
+            p_next = &chain_ref.0 as *const _ as *const c_void;
+            // When using features2 in pNext, pEnabledFeatures must be null.
+            p_enabled_features = std::ptr::null();
+        } else {
+            chain_owned = None;
+            p_next = std::ptr::null();
+            p_enabled_features = std::ptr::null();
+        }
+
         let create_info = VkDeviceCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            pNext: p_next,
             queueCreateInfoCount: raw_infos.len() as u32,
             pQueueCreateInfos: raw_infos.as_ptr(),
             enabledExtensionCount: ext_ptrs.len() as u32,
@@ -145,14 +225,17 @@ impl Device {
             } else {
                 ext_ptrs.as_ptr()
             },
+            pEnabledFeatures: p_enabled_features,
             ..Default::default()
         };
 
         let mut handle: VkDevice = std::ptr::null_mut();
-        // Safety: create_info is valid for the call. raw_infos and the
-        // priority slices outlive the call (they're owned by `info` which
-        // outlives this function).
+        // Safety: create_info is valid for the call. raw_infos, name
+        // CStrings, and the chain_owned tuple all live until end of scope.
         check(unsafe { create(physical.handle, &create_info, std::ptr::null(), &mut handle) })?;
+        // Suppress dead-code warning for the chain binding — its
+        // *purpose* is to live until after the call.
+        let _ = chain_owned;
 
         // Load device-level dispatch table.
         // Safety: handle and instance are both valid.
