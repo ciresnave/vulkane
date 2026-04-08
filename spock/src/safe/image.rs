@@ -30,9 +30,15 @@ pub struct Format(pub VkFormat);
 impl Format {
     pub const R8_UNORM: Self = Self(VkFormat::FORMAT_R8_UNORM);
     pub const R8G8B8A8_UNORM: Self = Self(VkFormat::FORMAT_R8G8B8A8_UNORM);
+    pub const B8G8R8A8_UNORM: Self = Self(VkFormat::FORMAT_B8G8R8A8_UNORM);
+    pub const B8G8R8A8_SRGB: Self = Self(VkFormat::FORMAT_B8G8R8A8_SRGB);
     pub const R32_UINT: Self = Self(VkFormat::FORMAT_R32_UINT);
     pub const R32_SFLOAT: Self = Self(VkFormat::FORMAT_R32_SFLOAT);
+    pub const R32G32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32_SFLOAT);
+    pub const R32G32B32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32B32_SFLOAT);
     pub const R32G32B32A32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32B32A32_SFLOAT);
+    pub const D32_SFLOAT: Self = Self(VkFormat::FORMAT_D32_SFLOAT);
+    pub const D24_UNORM_S8_UINT: Self = Self(VkFormat::FORMAT_D24_UNORM_S8_UINT);
 }
 
 /// Image layout — Vulkan tracks images through several access-pattern
@@ -43,10 +49,15 @@ pub struct ImageLayout(pub VkImageLayout);
 impl ImageLayout {
     pub const UNDEFINED: Self = Self(VkImageLayout::IMAGE_LAYOUT_UNDEFINED);
     pub const GENERAL: Self = Self(VkImageLayout::IMAGE_LAYOUT_GENERAL);
+    pub const COLOR_ATTACHMENT_OPTIMAL: Self =
+        Self(VkImageLayout::IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    pub const DEPTH_STENCIL_ATTACHMENT_OPTIMAL: Self =
+        Self(VkImageLayout::IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     pub const SHADER_READ_ONLY_OPTIMAL: Self =
         Self(VkImageLayout::IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     pub const TRANSFER_SRC_OPTIMAL: Self = Self(VkImageLayout::IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     pub const TRANSFER_DST_OPTIMAL: Self = Self(VkImageLayout::IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    pub const PRESENT_SRC_KHR: Self = Self(VkImageLayout::IMAGE_LAYOUT_PRESENT_SRC_KHR);
 }
 
 /// Image usage flag bits.
@@ -58,6 +69,10 @@ impl ImageUsage {
     pub const TRANSFER_DST: Self = Self(0x2);
     pub const SAMPLED: Self = Self(0x4);
     pub const STORAGE: Self = Self(0x8);
+    pub const COLOR_ATTACHMENT: Self = Self(0x10);
+    pub const DEPTH_STENCIL_ATTACHMENT: Self = Self(0x20);
+    pub const TRANSIENT_ATTACHMENT: Self = Self(0x40);
+    pub const INPUT_ATTACHMENT: Self = Self(0x80);
 
     pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0
@@ -317,6 +332,136 @@ impl BufferImageCopy {
                 height: self.image_extent[1],
                 depth: self.image_extent[2],
             },
+        }
+    }
+}
+
+/// Texel filter mode for a [`Sampler`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplerFilter(pub VkFilter);
+
+impl SamplerFilter {
+    pub const NEAREST: Self = Self(VkFilter::FILTER_NEAREST);
+    pub const LINEAR: Self = Self(VkFilter::FILTER_LINEAR);
+}
+
+/// Mipmap mode for a [`Sampler`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplerMipmapMode(pub VkSamplerMipmapMode);
+
+impl SamplerMipmapMode {
+    pub const NEAREST: Self = Self(VkSamplerMipmapMode::SAMPLER_MIPMAP_MODE_NEAREST);
+    pub const LINEAR: Self = Self(VkSamplerMipmapMode::SAMPLER_MIPMAP_MODE_LINEAR);
+}
+
+/// UV(W) addressing mode for a [`Sampler`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplerAddressMode(pub VkSamplerAddressMode);
+
+impl SamplerAddressMode {
+    pub const REPEAT: Self = Self(VkSamplerAddressMode::SAMPLER_ADDRESS_MODE_REPEAT);
+    pub const MIRRORED_REPEAT: Self =
+        Self(VkSamplerAddressMode::SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT);
+    pub const CLAMP_TO_EDGE: Self = Self(VkSamplerAddressMode::SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    pub const CLAMP_TO_BORDER: Self =
+        Self(VkSamplerAddressMode::SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
+}
+
+/// Parameters for [`Sampler::new`]. Defaults to a sensible "nearest
+/// linear-magnification clamp-to-edge" sampler suitable for textured
+/// quads. Override fields as needed.
+#[derive(Debug, Clone, Copy)]
+pub struct SamplerCreateInfo {
+    pub mag_filter: SamplerFilter,
+    pub min_filter: SamplerFilter,
+    pub mipmap_mode: SamplerMipmapMode,
+    pub address_mode_u: SamplerAddressMode,
+    pub address_mode_v: SamplerAddressMode,
+    pub address_mode_w: SamplerAddressMode,
+    pub anisotropy: Option<f32>,
+}
+
+impl Default for SamplerCreateInfo {
+    fn default() -> Self {
+        Self {
+            mag_filter: SamplerFilter::LINEAR,
+            min_filter: SamplerFilter::LINEAR,
+            mipmap_mode: SamplerMipmapMode::LINEAR,
+            address_mode_u: SamplerAddressMode::CLAMP_TO_EDGE,
+            address_mode_v: SamplerAddressMode::CLAMP_TO_EDGE,
+            address_mode_w: SamplerAddressMode::CLAMP_TO_EDGE,
+            anisotropy: None,
+        }
+    }
+}
+
+/// A safe wrapper around `VkSampler`.
+///
+/// Samplers describe how an image is sampled inside a shader: filter
+/// mode, addressing mode, anisotropic filtering, etc. They are
+/// destroyed automatically on drop.
+pub struct Sampler {
+    pub(crate) handle: VkSampler,
+    pub(crate) device: Arc<DeviceInner>,
+}
+
+impl Sampler {
+    /// Create a new sampler.
+    pub fn new(device: &Device, info: SamplerCreateInfo) -> Result<Self> {
+        let create = device
+            .inner
+            .dispatch
+            .vkCreateSampler
+            .ok_or(Error::MissingFunction("vkCreateSampler"))?;
+
+        let raw_info = VkSamplerCreateInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            magFilter: info.mag_filter.0,
+            minFilter: info.min_filter.0,
+            mipmapMode: info.mipmap_mode.0,
+            addressModeU: info.address_mode_u.0,
+            addressModeV: info.address_mode_v.0,
+            addressModeW: info.address_mode_w.0,
+            mipLodBias: 0.0,
+            anisotropyEnable: if info.anisotropy.is_some() { 1 } else { 0 },
+            maxAnisotropy: info.anisotropy.unwrap_or(1.0),
+            compareEnable: 0,
+            compareOp: VkCompareOp::COMPARE_OP_NEVER,
+            minLod: 0.0,
+            maxLod: 0.0,
+            borderColor: VkBorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+            unnormalizedCoordinates: 0,
+            ..Default::default()
+        };
+
+        let mut handle: VkSampler = 0;
+        // Safety: raw_info is valid for the call.
+        check(unsafe {
+            create(
+                device.inner.handle,
+                &raw_info,
+                std::ptr::null(),
+                &mut handle,
+            )
+        })?;
+
+        Ok(Self {
+            handle,
+            device: Arc::clone(&device.inner),
+        })
+    }
+
+    /// Returns the raw `VkSampler` handle.
+    pub fn raw(&self) -> VkSampler {
+        self.handle
+    }
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        if let Some(destroy) = self.device.dispatch.vkDestroySampler {
+            // Safety: handle is valid; we are the sole owner.
+            unsafe { destroy(self.device.handle, self.handle, std::ptr::null()) };
         }
     }
 }

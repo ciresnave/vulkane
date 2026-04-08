@@ -80,6 +80,7 @@ mod debug;
 mod descriptor;
 mod device;
 mod features;
+mod graphics_pipeline;
 mod image;
 mod instance;
 mod memory;
@@ -88,6 +89,7 @@ pub mod naga;
 mod physical;
 mod pipeline;
 mod query;
+mod render_pass;
 mod shader;
 mod sync;
 
@@ -108,9 +110,13 @@ pub use device::{
     Device, DeviceCreateInfo, Queue, QueueCreateInfo, SignalSemaphore, WaitSemaphore,
 };
 pub use features::DeviceFeatures;
+pub use graphics_pipeline::{
+    CullMode, FrontFace, GraphicsPipeline, GraphicsPipelineBuilder, GraphicsShaderStage,
+    PolygonMode, PrimitiveTopology, VertexInputAttribute, VertexInputBinding,
+};
 pub use image::{
     BufferImageCopy, Format, Image, Image2dCreateInfo, ImageBarrier, ImageLayout, ImageUsage,
-    ImageView,
+    ImageView, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerFilter, SamplerMipmapMode,
 };
 pub use instance::{
     ApiVersion, DEBUG_UTILS_EXTENSION, ExtensionProperties, Instance, InstanceCreateInfo,
@@ -126,6 +132,10 @@ pub use pipeline::{
     ComputePipeline, PipelineCache, PipelineLayout, PushConstantRange, SpecializationConstants,
 };
 pub use query::{PipelineStatisticsFlags, QueryPool, QueryType};
+pub use render_pass::{
+    AttachmentDescription, AttachmentLoadOp, AttachmentStoreOp, Framebuffer, RenderPass,
+    RenderPassCreateInfo,
+};
 pub use shader::ShaderModule;
 pub use sync::{Fence, Semaphore, SemaphoreKind};
 
