@@ -260,10 +260,12 @@ impl Renderer {
                 semaphore: &frame.image_available,
                 value: 0,
                 dst_stage_mask: 0x400,
+                device_index: 0,
             }],
             &[SignalSemaphore {
                 semaphore: &frame.render_finished,
                 value: 0,
+                device_index: 0,
             }],
             Some(&frame.in_flight),
         )?;

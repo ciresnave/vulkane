@@ -170,6 +170,22 @@ pub struct AllocationCreateInfo {
     /// patterns: a `u64` cast of an `Arc<MyResource>` raw pointer, or
     /// a slot index into the app's own resource table.
     pub user_data: u64,
+    /// Device-group mask: which physical devices in the
+    /// [`Device`] group this allocation should live on. `None` (the
+    /// default) lets the driver pick — typically all devices in the
+    /// group.
+    ///
+    /// Setting this to `Some(mask)` forces a dedicated `vkAllocateMemory`
+    /// (since each `VkDeviceMemory` block is allocated with one mask),
+    /// chains a `VkMemoryAllocateFlagsInfo` with
+    /// `VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT`, and sets `deviceMask` to
+    /// `mask`. Setting `Some(0)` is invalid; use `None` to mean
+    /// "default".
+    ///
+    /// Only meaningful when the [`Device`] was created from a multi-GPU
+    /// `PhysicalDeviceGroup` via [`Device::new_group`]. On a single-device
+    /// group it's a no-op (the driver always uses device 0).
+    pub device_mask: Option<u32>,
 }
 
 /// Aggregate statistics for the [`Allocator`].
@@ -779,6 +795,16 @@ impl Allocator {
         info: AllocationCreateInfo,
     ) -> Result<Allocation> {
         if let Some(pool_handle) = info.pool {
+            // Per-allocation device_mask is incompatible with custom pools:
+            // a custom pool's blocks are allocated up front with one mask,
+            // and we'd silently sub-allocate from a block whose mask
+            // doesn't match the user's request. Reject explicitly.
+            if info.device_mask.is_some() {
+                return Err(Error::InvalidArgument(
+                    "AllocationCreateInfo.device_mask cannot be combined with a custom pool; \
+                     omit `pool` to get a dedicated allocation with the requested device mask",
+                ));
+            }
             return self.allocate_in_custom_pool(pool_handle, &requirements, info);
         }
 
@@ -789,8 +815,12 @@ impl Allocator {
         let mut state = self.inner.pools.lock().unwrap();
         let block_size = self.heap_block_size_for_type(memory_type_index);
 
-        // Force dedicated for very large allocations or when explicitly asked.
-        let force_dedicated = info.dedicated || requirements.size > block_size / 2;
+        // Force dedicated for very large allocations, when explicitly asked,
+        // or when the user supplied a non-default device_mask (each
+        // VkDeviceMemory block is allocated with one mask, so per-allocation
+        // mask control implies one allocation per block).
+        let force_dedicated =
+            info.dedicated || info.device_mask.is_some() || requirements.size > block_size / 2;
 
         if force_dedicated {
             return self.allocate_dedicated(&mut state, memory_type_index, &requirements, info);
@@ -1117,7 +1147,11 @@ impl Allocator {
         requirements: &MemoryRequirements,
         info: AllocationCreateInfo,
     ) -> Result<Allocation> {
-        let memory = self.raw_allocate(requirements.size, memory_type_index)?;
+        let memory = self.raw_allocate_with_mask(
+            requirements.size,
+            memory_type_index,
+            info.device_mask,
+        )?;
         let mapped_ptr = if info.mapped && self.is_host_visible(memory_type_index) {
             self.raw_map_persistent(memory)?
         } else {
@@ -1158,6 +1192,15 @@ impl Allocator {
     }
 
     fn raw_allocate(&self, size: u64, memory_type_index: u32) -> Result<VkDeviceMemory> {
+        self.raw_allocate_with_mask(size, memory_type_index, None)
+    }
+
+    fn raw_allocate_with_mask(
+        &self,
+        size: u64,
+        memory_type_index: u32,
+        device_mask: Option<u32>,
+    ) -> Result<VkDeviceMemory> {
         let allocate = self
             .inner
             .device
@@ -1165,15 +1208,30 @@ impl Allocator {
             .vkAllocateMemory
             .ok_or(Error::MissingFunction("vkAllocateMemory"))?;
 
+        // When the user supplies a device mask, chain a
+        // VkMemoryAllocateFlagsInfo so the driver pins the allocation to
+        // the requested subset of physical devices in the group.
+        let flags_info = device_mask.map(|mask| VkMemoryAllocateFlagsInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+            pNext: std::ptr::null(),
+            flags: MEMORY_ALLOCATE_DEVICE_MASK_BIT,
+            deviceMask: mask,
+        });
+        let p_next: *const std::ffi::c_void = match &flags_info {
+            Some(f) => f as *const _ as *const std::ffi::c_void,
+            None => std::ptr::null(),
+        };
+
         let info = VkMemoryAllocateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            pNext: p_next,
             allocationSize: size,
             memoryTypeIndex: memory_type_index,
-            ..Default::default()
         };
 
         let mut handle: VkDeviceMemory = 0;
-        // Safety: info is valid for the call.
+        // Safety: info (and the optional flags_info chained via pNext)
+        // are valid for the duration of the call.
         check(unsafe {
             allocate(
                 self.inner.device.handle,

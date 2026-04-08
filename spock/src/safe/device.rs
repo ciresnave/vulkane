@@ -15,21 +15,33 @@ use std::sync::Arc;
 /// is the counter value the wait must reach before the submission may
 /// proceed. `dst_stage_mask` is the `VK_PIPELINE_STAGE_*` mask
 /// of stages that need to wait.
+///
+/// `device_index` selects which physical device in a [`Device`] group
+/// the wait happens on. `0` is the right choice for non-group devices
+/// and is the default of any wait that does not opt in. The field is
+/// only consulted when [`Queue::submit_with_groups`] is called *and*
+/// at least one wait, signal, or command-buffer mask is non-default.
 #[derive(Clone, Copy)]
 pub struct WaitSemaphore<'a> {
     pub semaphore: &'a Semaphore,
     pub value: u64,
     pub dst_stage_mask: u32,
+    /// Physical-device index inside the [`Device`] group. Defaults to `0`.
+    pub device_index: u32,
 }
 
 /// One semaphore signal in [`Queue::submit_with_sync`].
 ///
 /// `value` is ignored for binary semaphores; for timeline semaphores it
 /// is the counter value the submission writes when it completes.
+///
+/// See [`WaitSemaphore::device_index`] for `device_index` semantics.
 #[derive(Clone, Copy)]
 pub struct SignalSemaphore<'a> {
     pub semaphore: &'a Semaphore,
     pub value: u64,
+    /// Physical-device index inside the [`Device`] group. Defaults to `0`.
+    pub device_index: u32,
 }
 
 /// Parameters for creating a single device queue.
@@ -425,9 +437,53 @@ impl Queue {
     /// Both lists may freely mix binary and timeline semaphores. For
     /// binary semaphores the `value` field is ignored; for timeline
     /// semaphores it is the counter value waited-for or signaled.
+    ///
+    /// If any [`WaitSemaphore::device_index`] or
+    /// [`SignalSemaphore::device_index`] is non-zero, a
+    /// `VkDeviceGroupSubmitInfo` is automatically chained on `pNext` so
+    /// the wait/signal happens on the requested physical device. To
+    /// also override the per-command-buffer device mask (which physical
+    /// devices in the group execute the work), use
+    /// [`submit_with_groups`](Self::submit_with_groups) instead.
     pub fn submit_with_sync(
         &self,
         command_buffers: &[&super::CommandBuffer],
+        wait_semaphores: &[WaitSemaphore<'_>],
+        signal_semaphores: &[SignalSemaphore<'_>],
+        signal_fence: Option<&super::Fence>,
+    ) -> Result<()> {
+        self.submit_with_groups(
+            command_buffers,
+            None,
+            wait_semaphores,
+            signal_semaphores,
+            signal_fence,
+        )
+    }
+
+    /// Like [`submit_with_sync`](Self::submit_with_sync), but with an
+    /// explicit per-command-buffer device-mask list. When
+    /// `command_buffer_device_masks` is `Some`, its length must equal
+    /// `command_buffers.len()`; each entry is a bitmask of physical
+    /// devices in the [`Device`] group that should execute the
+    /// corresponding command buffer.
+    ///
+    /// When `command_buffer_device_masks` is `None`, the per-CB masks
+    /// fall back to "all devices in the group" (the [`Device`]'s
+    /// [`default_device_mask`](Device::default_device_mask)).
+    ///
+    /// `VkDeviceGroupSubmitInfo` is chained whenever any of the
+    /// following is true:
+    /// - `command_buffer_device_masks` is `Some(_)`
+    /// - any wait `device_index` is non-zero
+    /// - any signal `device_index` is non-zero
+    ///
+    /// On a single-device group all of these reduce to no-ops, so it is
+    /// safe to call this method unconditionally.
+    pub fn submit_with_groups(
+        &self,
+        command_buffers: &[&super::CommandBuffer],
+        command_buffer_device_masks: Option<&[u32]>,
         wait_semaphores: &[WaitSemaphore<'_>],
         signal_semaphores: &[SignalSemaphore<'_>],
         signal_fence: Option<&super::Fence>,
@@ -438,18 +494,33 @@ impl Queue {
             .vkQueueSubmit
             .ok_or(Error::MissingFunction("vkQueueSubmit"))?;
 
+        if let Some(masks) = command_buffer_device_masks
+            && masks.len() != command_buffers.len()
+        {
+            return Err(Error::InvalidArgument(
+                "submit_with_groups: command_buffer_device_masks length must \
+                 match command_buffers length",
+            ));
+        }
+
         let raw_cmds: Vec<VkCommandBuffer> = command_buffers.iter().map(|c| c.raw()).collect();
 
         let raw_wait: Vec<VkSemaphore> =
             wait_semaphores.iter().map(|w| w.semaphore.raw()).collect();
         let raw_wait_stages: Vec<u32> = wait_semaphores.iter().map(|w| w.dst_stage_mask).collect();
         let raw_wait_values: Vec<u64> = wait_semaphores.iter().map(|w| w.value).collect();
+        let raw_wait_device_indices: Vec<u32> =
+            wait_semaphores.iter().map(|w| w.device_index).collect();
 
         let raw_signal: Vec<VkSemaphore> = signal_semaphores
             .iter()
             .map(|s| s.semaphore.raw())
             .collect();
         let raw_signal_values: Vec<u64> = signal_semaphores.iter().map(|s| s.value).collect();
+        let raw_signal_device_indices: Vec<u32> = signal_semaphores
+            .iter()
+            .map(|s| s.device_index)
+            .collect();
 
         // Build the timeline submit info chain. We always include it; for
         // binary-only submits the per-semaphore values are ignored by the
@@ -476,12 +547,63 @@ impl Queue {
         // still pass the chain — the spec says implementations that don't
         // recognise an unrecognised pNext chain entry must ignore it.
         // (We could elide it for purely binary submits, but it's harmless.)
-        let p_next: *const std::ffi::c_void =
+        let mut p_next: *const std::ffi::c_void =
             if self.device.dispatch.vkGetSemaphoreCounterValue.is_some() {
                 &timeline_info as *const _ as *const _
             } else {
                 std::ptr::null()
             };
+
+        // Decide whether we need a VkDeviceGroupSubmitInfo. Either the
+        // caller passed an explicit per-CB mask list, or any wait/signal
+        // device_index is non-zero. We materialize the per-CB mask vector
+        // (synthesizing the default mask when omitted) so the chain
+        // pointers are valid through the call.
+        let needs_group_chain = command_buffer_device_masks.is_some()
+            || raw_wait_device_indices.iter().any(|&i| i != 0)
+            || raw_signal_device_indices.iter().any(|&i| i != 0);
+
+        let cb_masks_owned: Vec<u32> = if needs_group_chain {
+            match command_buffer_device_masks {
+                Some(masks) => masks.to_vec(),
+                None => {
+                    // Default = "all devices in the group", which on a
+                    // single-device group is just 0b1.
+                    let default_mask = (1u32 << self.device.physical_devices.len() as u32)
+                        .wrapping_sub(1);
+                    vec![default_mask; raw_cmds.len()]
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        let group_info = VkDeviceGroupSubmitInfo {
+            sType: VkStructureType::STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO,
+            pNext: p_next,
+            waitSemaphoreCount: raw_wait_device_indices.len() as u32,
+            pWaitSemaphoreDeviceIndices: if raw_wait_device_indices.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_wait_device_indices.as_ptr()
+            },
+            commandBufferCount: cb_masks_owned.len() as u32,
+            pCommandBufferDeviceMasks: if cb_masks_owned.is_empty() {
+                std::ptr::null()
+            } else {
+                cb_masks_owned.as_ptr()
+            },
+            signalSemaphoreCount: raw_signal_device_indices.len() as u32,
+            pSignalSemaphoreDeviceIndices: if raw_signal_device_indices.is_empty() {
+                std::ptr::null()
+            } else {
+                raw_signal_device_indices.as_ptr()
+            },
+        };
+
+        if needs_group_chain {
+            p_next = &group_info as *const _ as *const _;
+        }
 
         let submit_info = VkSubmitInfo {
             sType: VkStructureType::STRUCTURE_TYPE_SUBMIT_INFO,
@@ -510,7 +632,8 @@ impl Queue {
         let fence_handle = signal_fence.map_or(0u64, super::Fence::raw);
 
         // Safety: submit_info is valid for the call, all the Vec backing
-        // pointers outlive the call.
+        // pointers (raw_*, cb_masks_owned, timeline_info, group_info)
+        // outlive the call.
         check(unsafe { submit(self.handle, 1, &submit_info, fence_handle) })
     }
 

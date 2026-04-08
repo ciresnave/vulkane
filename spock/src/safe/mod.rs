@@ -162,6 +162,11 @@ pub enum Error {
     /// A C string contained an interior NUL byte.
     InvalidString(std::ffi::NulError),
 
+    /// The caller passed an argument combination that the wrapper rejects
+    /// before issuing the Vulkan call. The string is a static, human-readable
+    /// description of what's wrong.
+    InvalidArgument(&'static str),
+
     /// GLSL-to-SPIR-V compilation via [`naga`] failed.
     /// Only emitted when the `naga` Cargo feature is enabled.
     #[cfg(feature = "naga")]
@@ -175,6 +180,7 @@ impl std::fmt::Display for Error {
             Self::MissingFunction(name) => write!(f, "Vulkan function not loaded: {name}"),
             Self::Vk(result) => write!(f, "Vulkan call failed: {result:?}"),
             Self::InvalidString(e) => write!(f, "invalid C string: {e}"),
+            Self::InvalidArgument(msg) => write!(f, "invalid argument: {msg}"),
             #[cfg(feature = "naga")]
             Self::NagaCompile(s) => write!(f, "GLSL compilation failed: {s}"),
         }

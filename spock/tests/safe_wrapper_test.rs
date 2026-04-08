@@ -1568,6 +1568,7 @@ fn test_timeline_semaphore_gpu_signal_then_host_wait() {
             &[SignalSemaphore {
                 semaphore: &sem,
                 value: 1,
+                device_index: 0,
             }],
             None,
         )
@@ -1615,6 +1616,7 @@ fn test_timeline_semaphore_chained_dispatches() {
             &[SignalSemaphore {
                 semaphore: &sem,
                 value: 1,
+                device_index: 0,
             }],
             None,
         )
@@ -1629,10 +1631,12 @@ fn test_timeline_semaphore_chained_dispatches() {
                 semaphore: &sem,
                 value: 1,
                 dst_stage_mask: 0x1,
+                device_index: 0,
             }],
             &[SignalSemaphore {
                 semaphore: &sem,
                 value: 2,
+                device_index: 0,
             }],
             None,
         )
@@ -1880,6 +1884,102 @@ fn test_allocator_dedicated_for_huge_buffer() {
     drop(buffer);
     let stats = allocator.statistics();
     assert_eq!(stats.dedicated_allocation_count, 0);
+}
+
+#[test]
+fn test_allocator_per_allocation_device_mask_forces_dedicated() {
+    // Even on a single-device group, supplying device_mask = Some(mask)
+    // must force the dedicated path (so the chained
+    // VkMemoryAllocateFlagsInfo with VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT
+    // is honored). On a single-device group the only valid mask is 0b1,
+    // which is what default_device_mask() returns.
+    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let allocator = Allocator::new(&device, &physical).unwrap();
+    let mask = device.default_device_mask();
+
+    let stats_before = allocator.statistics();
+
+    let (buffer, alloc) = allocator
+        .create_buffer(
+            BufferCreateInfo {
+                size: 4096,
+                usage: BufferUsage::STORAGE_BUFFER,
+            },
+            AllocationCreateInfo {
+                usage: AllocationUsage::DeviceLocal,
+                device_mask: Some(mask),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let stats = allocator.statistics();
+    assert_eq!(
+        stats.dedicated_allocation_count,
+        stats_before.dedicated_allocation_count + 1,
+        "device_mask=Some(_) must force a dedicated allocation"
+    );
+    // A dedicated allocation always sits at offset 0 in its own VkDeviceMemory.
+    assert_eq!(alloc.offset(), 0);
+
+    allocator.free(alloc);
+    drop(buffer);
+}
+
+#[test]
+fn test_allocator_device_mask_rejects_custom_pool() {
+    // Custom pools have their device mask fixed at block creation time;
+    // combining them with per-allocation device_mask must error rather
+    // than silently ignoring the mask.
+    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let allocator = Allocator::new(&device, &physical).unwrap();
+
+    // Pick any host-visible memory type for the pool.
+    let mem_props = physical.memory_properties();
+    let mem_type = (0..mem_props.type_count())
+        .find(|&i| {
+            mem_props
+                .memory_type(i)
+                .property_flags()
+                .contains(spock::safe::MemoryPropertyFlags::HOST_VISIBLE)
+        })
+        .expect("expected at least one host-visible memory type");
+
+    let pool = allocator
+        .create_pool(spock::safe::PoolCreateInfo {
+            memory_type_index: mem_type,
+            strategy: spock::safe::AllocationStrategy::FreeList,
+            block_size: 1024 * 1024,
+            max_block_count: 0,
+        })
+        .unwrap();
+
+    let mask = device.default_device_mask();
+    let result = allocator.create_buffer(
+        BufferCreateInfo {
+            size: 4096,
+            usage: BufferUsage::STORAGE_BUFFER,
+        },
+        AllocationCreateInfo {
+            usage: AllocationUsage::HostVisible,
+            pool: Some(pool),
+            device_mask: Some(mask),
+            ..Default::default()
+        },
+    );
+    match result {
+        Err(spock::safe::Error::InvalidArgument(_)) => {}
+        Ok(_) => panic!("expected InvalidArgument when combining device_mask with a pool"),
+        Err(e) => panic!("expected InvalidArgument, got {e:?}"),
+    }
+
+    allocator.destroy_pool(pool);
 }
 
 #[test]
@@ -2185,6 +2285,7 @@ fn test_device_features_timeline_semaphore_round_trip() {
             &[SignalSemaphore {
                 semaphore: &sem,
                 value: 42,
+                device_index: 0,
             }],
             None,
         )
@@ -2696,6 +2797,58 @@ fn test_device_singleton_group_unification() {
     assert_eq!(handles.len(), 1);
     // The default device mask for a 1-device group is 0b1.
     assert_eq!(device.default_device_mask(), 0b1);
+}
+
+#[test]
+fn test_submit_with_groups_default_mask_round_trip() {
+    // On any single-device group (i.e. all CI hardware), submit_with_groups
+    // with the default per-CB mask must succeed and behave identically to
+    // submit_with_sync. This exercises the VkDeviceGroupSubmitInfo
+    // pNext-chaining path: we explicitly pass Some(&[mask]), which forces
+    // the chain to be added.
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd.begin().unwrap();
+        rec.end().unwrap();
+    }
+    let fence = Fence::new(&device).unwrap();
+    let mask = device.default_device_mask();
+
+    queue
+        .submit_with_groups(&[&cmd], Some(&[mask]), &[], &[], Some(&fence))
+        .unwrap();
+
+    // The fence must signal exactly as it would for the non-group path.
+    // (wait() returns SUCCESS only when the fence has actually become
+    // signaled.)
+    fence.wait(u64::MAX).unwrap();
+}
+
+#[test]
+fn test_submit_with_groups_rejects_mask_length_mismatch() {
+    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let pool = CommandPool::new(&device, queue_family).unwrap();
+    let mut cmd = pool.allocate_primary().unwrap();
+    {
+        let rec = cmd.begin().unwrap();
+        rec.end().unwrap();
+    }
+
+    // 1 CB, 2 masks → must error.
+    let result = queue.submit_with_groups(&[&cmd], Some(&[1u32, 2u32]), &[], &[], None);
+    match result {
+        Err(spock::safe::Error::InvalidArgument(_)) => {}
+        Ok(_) => panic!("expected InvalidArgument when mask len differs from CB count"),
+        Err(e) => panic!("expected InvalidArgument, got {e:?}"),
+    }
 }
 
 #[test]
