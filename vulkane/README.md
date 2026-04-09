@@ -7,7 +7,7 @@ graphics + compute pipelines, swapchain, a VMA-style sub-allocator with
 TLSF + linear pools and defragmentation, fences + binary/timeline
 semaphores, query pools, validation layers, and more).
 
-[![CI](https://github.com/ciresnave/spock/actions/workflows/ci.yml/badge.svg)](https://github.com/ciresnave/spock/actions/workflows/ci.yml)
+[![CI](https://github.com/ciresnave/vulkane/actions/workflows/ci.yml/badge.svg)](https://github.com/ciresnave/vulkane/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/vulkane.svg)](https://crates.io/crates/vulkane)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 

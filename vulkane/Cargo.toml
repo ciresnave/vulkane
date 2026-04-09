@@ -9,8 +9,8 @@ description = "Vulkan API bindings generated entirely from vk.xml, with a comple
 keywords = ["vulkan", "graphics", "gpu", "rendering", "ffi"]
 categories = ["graphics", "api-bindings", "rendering", "external-ffi-bindings"]
 readme = "README.md"
-repository = "https://github.com/ciresnave/spock"
-homepage = "https://github.com/ciresnave/spock"
+repository = "https://github.com/ciresnave/vulkane"
+homepage = "https://github.com/ciresnave/vulkane"
 documentation = "https://docs.rs/vulkane"
 
 [features]

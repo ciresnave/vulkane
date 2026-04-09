@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 description = "Vulkan XML specification parser and Rust binding generator. Used internally by the vulkane crate, but reusable as a standalone code generator."
 keywords = ["vulkan", "codegen", "bindings", "xml", "ffi"]
 categories = ["development-tools", "parser-implementations", "graphics"]
-repository = "https://github.com/ciresnave/spock"
-homepage = "https://github.com/ciresnave/spock"
+repository = "https://github.com/ciresnave/vulkane"
+homepage = "https://github.com/ciresnave/vulkane"
 documentation = "https://docs.rs/vulkan_gen"
 readme = "README.md"
 
