@@ -1,4 +1,23 @@
 //! Safe wrapper for `VkDeviceMemory` and host memory mapping.
+//!
+//! [`DeviceMemory`] represents an allocation of GPU memory. It must be
+//! bound to a [`Buffer`](super::Buffer) or [`Image`](super::Image)
+//! before either can be used.
+//!
+//! For most use cases, prefer the convenience helpers that handle
+//! allocation and binding together:
+//!
+//! - [`Buffer::new_bound`](super::Buffer::new_bound) /
+//!   [`Image::new_2d_bound`](super::Image::new_2d_bound) — one-call
+//!   create + allocate + bind.
+//! - [`Queue::upload_buffer`](super::Queue::upload_buffer) — staging
+//!   upload in one call.
+//! - [`Allocator::create_buffer`](super::Allocator::create_buffer) —
+//!   sub-allocated from a pool.
+//!
+//! Use `DeviceMemory` directly only when you need precise control over
+//! memory type selection, sub-resource binding offsets, or manual
+//! mapping.
 
 use super::device::DeviceInner;
 use super::{Device, Error, Result, check};

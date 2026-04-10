@@ -1,4 +1,27 @@
-//! Safe wrapper for `VkPhysicalDevice`.
+//! Safe wrapper for `VkPhysicalDevice` — a GPU discovered by the
+//! Vulkan loader.
+//!
+//! A [`PhysicalDevice`] represents a piece of hardware (or software
+//! rasterizer) that can run Vulkan commands. Use it to:
+//!
+//! - Query properties: [`properties()`](PhysicalDevice::properties),
+//!   [`memory_properties()`](PhysicalDevice::memory_properties)
+//! - Find queue families:
+//!   [`find_queue_family(QueueFlags::GRAPHICS)`](PhysicalDevice::find_queue_family)
+//! - Find memory types:
+//!   [`find_memory_type(bits, flags)`](PhysicalDevice::find_memory_type)
+//! - Create a logical device:
+//!   [`create_device(info)`](PhysicalDevice::create_device)
+//!
+//! ```ignore
+//! let physical = instance
+//!     .enumerate_physical_devices()?
+//!     .into_iter()
+//!     .find(|pd| pd.find_queue_family(QueueFlags::GRAPHICS).is_some())
+//!     .ok_or("no compatible GPU")?;
+//!
+//! println!("Using: {}", physical.properties().device_name());
+//! ```
 
 use super::instance::{ApiVersion, ExtensionProperties, InstanceInner};
 use super::{Device, DeviceCreateInfo, Error, Result, check};

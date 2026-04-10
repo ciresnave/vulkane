@@ -1,4 +1,35 @@
 //! Safe wrapper for `VkCommandPool` and `VkCommandBuffer`.
+//!
+//! All GPU work in Vulkan is recorded into command buffers before
+//! being submitted to a queue. The typical pattern is:
+//!
+//! 1. Create a [`CommandPool`] from a queue family index.
+//! 2. Allocate a [`CommandBuffer`] from the pool.
+//! 3. Call [`cmd.begin()`](CommandBuffer::begin) to get a
+//!    [`CommandBufferRecording`] handle.
+//! 4. Record commands: barriers, copies, dispatches, draws.
+//! 5. Call [`rec.end()`](CommandBufferRecording::end).
+//! 6. Submit with [`Queue::submit`](super::Queue::submit).
+//!
+//! For fire-and-forget work (uploads, transitions),
+//! [`Queue::one_shot`](super::Queue::one_shot) wraps steps 1–6 into a
+//! single closure call.
+//!
+//! ## Key recording methods
+//!
+//! - **Barriers:** [`memory_barrier`](CommandBufferRecording::memory_barrier),
+//!   [`image_barrier`](CommandBufferRecording::image_barrier) (typed
+//!   [`PipelineStage`](super::PipelineStage) / [`AccessFlags`](super::AccessFlags))
+//! - **Copies:** [`copy_buffer`](CommandBufferRecording::copy_buffer),
+//!   [`copy_buffer_to_image`](CommandBufferRecording::copy_buffer_to_image),
+//!   [`copy_image_to_buffer`](CommandBufferRecording::copy_image_to_buffer),
+//!   [`fill_buffer`](CommandBufferRecording::fill_buffer)
+//! - **Compute:** [`bind_compute_pipeline`](CommandBufferRecording::bind_compute_pipeline),
+//!   [`dispatch`](CommandBufferRecording::dispatch)
+//! - **Graphics:** [`begin_render_pass`](CommandBufferRecording::begin_render_pass),
+//!   [`bind_graphics_pipeline`](CommandBufferRecording::bind_graphics_pipeline),
+//!   [`draw`](CommandBufferRecording::draw),
+//!   [`draw_indexed`](CommandBufferRecording::draw_indexed)
 
 use super::descriptor::{DescriptorSet, ShaderStageFlags};
 use super::device::DeviceInner;

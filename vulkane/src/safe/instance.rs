@@ -1,4 +1,26 @@
-//! Safe wrapper for `VkInstance`.
+//! Safe wrapper for `VkInstance` — the root of every Vulkan session.
+//!
+//! An [`Instance`] is the first object you create and the last one
+//! destroyed. It connects your application to the Vulkan loader,
+//! enables validation layers and instance extensions, and is the
+//! parent of every [`PhysicalDevice`](super::PhysicalDevice).
+//!
+//! ```ignore
+//! use vulkane::safe::{Instance, InstanceCreateInfo, ApiVersion};
+//!
+//! let instance = Instance::new(InstanceCreateInfo {
+//!     application_name: Some("my-app"),
+//!     api_version: ApiVersion::V1_0,
+//!     ..Default::default()
+//! })?;
+//!
+//! // Enable validation layers for debug builds:
+//! let instance = Instance::new(InstanceCreateInfo::validation())?;
+//! ```
+//!
+//! Use [`Instance::enumerate_physical_devices`] to discover GPUs,
+//! then [`PhysicalDevice::create_device`](super::PhysicalDevice::create_device)
+//! to create a logical device.
 
 use super::debug::{
     DebugCallback, DebugMessageSeverity, DebugMessageType, RealDebugCallbackFn, default_callback,

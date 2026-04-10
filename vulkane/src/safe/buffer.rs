@@ -1,4 +1,39 @@
 //! Safe wrapper for `VkBuffer`.
+//!
+//! Buffers are linear arrays of bytes on the GPU used for vertex data,
+//! index data, uniform data, storage, staging transfers, and more.
+//!
+//! ## Creating a buffer
+//!
+//! **One-call (recommended for simple cases):**
+//! ```ignore
+//! let (buffer, memory) = Buffer::new_bound(
+//!     &device, &physical,
+//!     BufferCreateInfo { size: 4096, usage: BufferUsage::STORAGE_BUFFER },
+//!     MemoryPropertyFlags::DEVICE_LOCAL,
+//! )?;
+//! ```
+//!
+//! **Staging upload (host data → device-local buffer):**
+//! ```ignore
+//! let (buffer, memory) = queue.upload_buffer(
+//!     &device, &physical, qf, &my_data, BufferUsage::VERTEX_BUFFER,
+//! )?;
+//! ```
+//!
+//! **Sub-allocated (for many buffers sharing large blocks):**
+//! ```ignore
+//! let (buffer, alloc) = allocator.create_buffer(info, alloc_info)?;
+//! ```
+//!
+//! **Manual (full control):**
+//! ```ignore
+//! let buffer = Buffer::new(&device, info)?;
+//! let req = buffer.memory_requirements();
+//! let mt = physical.find_memory_type(req.memory_type_bits, flags)?;
+//! let memory = DeviceMemory::allocate(&device, req.size, mt)?;
+//! buffer.bind_memory(&memory, 0)?;
+//! ```
 
 use super::device::DeviceInner;
 use super::{Device, DeviceMemory, Error, Result, check};

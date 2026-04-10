@@ -5,103 +5,72 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-04-10
+
+### Added
+
+- **45 Format constants** (up from 11) covering 8/16/32-bit, depth, and BC compressed formats. No more reaching into `vulkane::raw::bindings::VkFormat` for vertex attribute formats.
+- **`Format::bytes_per_pixel()`** — returns the byte size per pixel for common uncompressed formats.
+- **`BufferCopy::full(size)`** — one-liner for the common offset-0 copy case.
+- **`#[derive(Vertex)]` proc macro** (new `vulkane_derive` crate, opt-in via `derive` feature) — auto-generates `VertexInputBinding` + `VertexInputAttribute` from `#[repr(C)]` structs. Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`, `[i32; 2..3]`, `[u8; 4]`, `u16`, `i16`. Provides both `::binding()` (vertex rate) and `::instance_binding()` (instance rate).
+- New example: `derive_vertex` — instanced triangles using the derive macro.
+
+## [0.3.0] — 2026-04-10
+
+### Added
+
+- **Pipeline builder extensions:**
+  - `depth_bias(constant, slope, clamp)` — shadow acne prevention.
+  - `depth_compare_op(CompareOp)` with `CompareOp` enum (NEVER / LESS / EQUAL / LESS_OR_EQUAL / GREATER / NOT_EQUAL / GREATER_OR_EQUAL / ALWAYS).
+  - `InputRate` (VERTEX / INSTANCE) on `VertexInputBinding` — instanced rendering.
+  - `color_attachment_count(n)` — multi-attachment / G-buffer pipelines.
+  - `dynamic_viewport_scissor()` — resize-friendly pipelines with `set_viewport` / `set_scissor`.
+- **Depth image views** — `ImageView::new_2d_depth` for depth-aspect views.
+- **Image barrier aspect mask** — `ImageBarrier` gains `aspect_mask` field + `::color()` / `::depth()` convenience constructors.
+- **`ClearValue` enum** + `begin_render_pass_ext` for mixed color + depth/stencil clear values.
+- **Comparison sampler** — `SamplerCreateInfo::compare_op` for shadow map sampling.
+- **Allocation helpers:**
+  - `Buffer::new_bound(device, physical, info, flags)` — 5-step boilerplate → 1 call.
+  - `Image::new_2d_bound(device, physical, info, flags)` — same for images + auto color view.
+  - `Queue::upload_buffer<T>(device, physical, qf, data, usage)` — staging upload in one call.
+  - `Queue::upload_image_rgba(device, physical, qf, w, h, pixels)` — image upload with layout transitions.
+- New examples: `depth_prepass`, `instanced_mesh`, `shadow_map`, `deferred_shading`.
+
+### Breaking
+
+- `ImageBarrier` now requires `aspect_mask: u32` field. Use `ImageBarrier::color(...)` or `ImageBarrier::depth(...)` constructors.
+
+## [0.2.0] — 2026-04-09
+
+### Added
+
+- **Typed pipeline stage and access mask constants** — `PipelineStage`, `AccessFlags` (32-bit), `PipelineStage2`, `AccessFlags2` (64-bit for Sync2). All barrier, timestamp, and sync APIs now accept these types instead of raw `u32` / `u64`.
+- **Convenience constructors:**
+  - `QueueCreateInfo::single(family_index)` — one queue, priority 1.0.
+  - `WaitSemaphore::binary(sem, stage)` / `::timeline(sem, value, stage)`.
+  - `SignalSemaphore::binary(sem)` / `::timeline(sem, value)`.
+  - `RenderPass::simple_color(device, format, load, store, final_layout)`.
+  - `Queue::one_shot(device, qf, |rec| { ... })` — fire-and-forget command recording.
+- **Raw escape hatch** — `Device::dispatch()` and `Instance::dispatch()` expose the full dispatch tables for calling any Vulkan function alongside safe wrapper types.
+- New examples: `buffer_upload`, `raw_interop`, `allocator_compute`.
+
+### Breaking
+
+- All barrier/sync API signatures changed from raw `u32`/`u64` to typed `PipelineStage`/`AccessFlags`. Migration: `0x800` → `PipelineStage::COMPUTE_SHADER`.
+- `WaitSemaphore::dst_stage_mask` changed from `u32` to `PipelineStage`.
+
 ## [0.1.0] — 2026-04-08
 
 ### Added
 
-- Initial public release of vulkane — Vulkan API bindings generated entirely from the official `vk.xml` specification, plus a complete safe RAII wrapper covering compute and graphics end-to-end.
-- **Safe wrapper module** (`vulkane::safe`) — RAII wrappers covering the **complete compute path**: `Instance`, `PhysicalDevice`, `Device`, `Queue`, `Buffer`, `DeviceMemory` (with `MappedMemory`), `ShaderModule` (takes `&[u32]` SPIR-V), `DescriptorSetLayout`, `DescriptorPool`, `DescriptorSet`, `PipelineLayout`, `ComputePipeline`, `CommandPool`, `CommandBuffer`, and `Fence`. Every handle is destroyed automatically via `Drop`. No manual `vkDestroy*` calls.
-- **Optional `naga` feature** — pulls in `naga` 29 with `glsl-in` + `spv-out` only. Exposes `vulkane::safe::naga::compile_glsl(source, stage)` returning `Vec<u32>` SPIR-V. Disabled by default; users with their own SPIR-V pay nothing.
-- **`fill_buffer` example** that exercises the safe wrapper end-to-end on a real GPU using `vkCmdFillBuffer`.
-- **`compute_square` example** — complete compute round trip: loads pre-compiled SPIR-V, creates a storage buffer of 256 `u32`s, builds descriptor set + pipeline layout + compute pipeline, dispatches, and verifies the GPU squared every element. Validated on real hardware (NVIDIA RTX 4070) and on Lavapipe in CI.
-- **`compile_shader` example** — one-shot helper (under the `naga` feature) that regenerates the pre-compiled `square_buffer.spv` from the GLSL source.
-- **Validation layers + debug-utils messenger** — `InstanceCreateInfo::validation()` convenience enables `VK_LAYER_KHRONOS_validation` and `VK_EXT_debug_utils` together with a default `eprintln!`-style callback. For finer control, set `enabled_layers`, `enabled_extensions`, and `debug_callback` directly. The callback is invoked from a Rust closure (`Box<dyn Fn(&DebugMessage) + Send + Sync>`); the FFI plumbing (trampoline + leaked-box user-data) is handled internally and the messenger is destroyed automatically on `Instance` drop.
-- **Instance / device extension and layer enable lists** on `InstanceCreateInfo` (`enabled_layers`, `enabled_extensions`) and `DeviceCreateInfo` (`enabled_extensions`).
-- **Layer / extension enumeration** — `Instance::enumerate_layer_properties()`, `Instance::enumerate_extension_properties()`, and `PhysicalDevice::enumerate_extension_properties()` for runtime introspection of what the loader exposes before requesting it.
-- **Compute essentials**:
-  - **Push constants** — `PushConstantRange`, `PipelineLayout::with_push_constants`, and `CommandBufferRecording::push_constants` for the cheapest possible per-dispatch parameter passing.
-  - **Specialization constants** — `SpecializationConstants` typed builder (`add_u32` / `add_i32` / `add_f32` / `add_bool`) and `ComputePipeline::with_specialization`. Lets shaders bake in workgroup sizes, unroll factors, dtype switches at pipeline creation time.
-  - **Buffer-to-buffer copy** (`copy_buffer`) and `BufferCopy` region struct, enabling the staging-buffer pattern (`HOST_VISIBLE` upload → `DEVICE_LOCAL` copy).
-  - **Indirect dispatch** (`dispatch_indirect`) — workgroup count read from a GPU buffer at dispatch time.
-  - **Query pools** — `QueryPool::timestamps`, `QueryPool::pipeline_statistics`, `get_results_u64`, plus `reset_query_pool` and `write_timestamp` on the recording API.
-  - **`PhysicalDevice::find_dedicated_compute_queue` / `find_dedicated_transfer_queue`** — prefer compute-without-graphics (async compute on NV/AMD) and transfer-without-compute (DMA engines on discrete GPUs), with sensible fallbacks.
-  - **`PhysicalDevice::timestamp_period`** for converting GPU ticks to nanoseconds, and **`PhysicalDeviceProperties::max_push_constants_size`**.
-- **2D storage images** — `Image`, `ImageView`, `Image2dCreateInfo`, `Format`, `ImageUsage`, `ImageLayout`, `ImageBarrier`, `BufferImageCopy`, plus the matching command-buffer methods `image_barrier`, `copy_buffer_to_image`, `copy_image_to_buffer`, and the `DescriptorSet::write_storage_image` write helper. Sufficient for the entire compute-on-2D-image flow: pre-fill via staging buffer, layout-transition `UNDEFINED → TRANSFER_DST → GENERAL`, dispatch a compute shader using `imageLoad` / `imageStore`, transition `GENERAL → TRANSFER_SRC`, copy back to a staging buffer, and read.
-- **`compute_image_invert` example** — runs a tiny GLSL shader (`invert_image.comp`) on a 64×64 RGBA8 storage image and verifies every pixel's RGB was inverted by the GPU. Validated on real hardware.
-- **Binary and timeline semaphores** — `Semaphore::binary(device)` and `Semaphore::timeline(device, initial_value)`, with `current_value`, `signal_value`, and `wait_value` for the timeline case. `Queue::submit_with_sync(cmds, wait_semaphores, signal_semaphores, fence)` accepts mixed binary/timeline wait/signal lists; the safe wrapper builds the `VkTimelineSemaphoreSubmitInfo` chain automatically when timeline semaphores are present.
-- **Pipeline cache** — `PipelineCache::new` / `PipelineCache::with_data` to create an empty or pre-populated cache, `PipelineCache::data` to serialize for disk persistence, and `ComputePipeline::with_specialization_and_cache` to plug a cache into pipeline creation. Implementation-specific blob is opaque and silently ignored on driver mismatch, so it's safe to always pass any previously saved bytes.
-- **Synchronization2** — `CommandBufferRecording::memory_barrier2` and `image_barrier2` use `vkCmdPipelineBarrier2` with 64-bit `VkPipelineStageFlags2` / `VkAccessFlags2`. Returns `MissingFunction` when the device doesn't expose `vkCmdPipelineBarrier2` (Vulkan 1.0/1.1 without `VK_KHR_synchronization2`); the legacy `memory_barrier` and `image_barrier` continue to work everywhere.
-- **VMA-style sub-allocator** (`vulkane::safe::Allocator`) — pools many sub-allocations into a small number of `vkAllocateMemory` blocks so apps don't hit `maxMemoryAllocationCount` (~4096 on most drivers). Highlights:
-  - **Two-Level Segregated Fit** (TLSF) free-list per block: O(1) allocation and free, low fragmentation, the same algorithm AMD's VMA uses.
-  - **Memory-type selection** by `(required, preferred)` property flag pair, driven by the `AllocationUsage` hint (`Auto`, `DeviceLocal`, `HostVisible`, `HostVisibleDeviceLocal`).
-  - **Dedicated allocations** when the user opts in (`AllocationCreateInfo::dedicated = true`) or when the request is larger than half the block size; falls through to a direct `vkAllocateMemory`.
-  - **Persistent mapping** — pass `mapped: true` for host-visible allocations and `Allocation::mapped_ptr()` returns a stable pointer for the lifetime of the allocation.
-  - **`Allocator::create_buffer` / `Allocator::create_image_2d`** — convenience constructors that build the resource, call `vkBind*Memory` with the right offset, and return the `(Resource, Allocation)` pair.
-  - **Statistics**: `AllocationStatistics` exposes `block_bytes`, `allocation_bytes`, `block_count`, `allocation_count`, `free_region_count`, `peak_allocation_bytes`, and `dedicated_allocation_count`.
-  - **Default block sizes**: 256 MiB on heaps ≥ 4 GiB, 64 MiB on smaller heaps — same as VMA.
-  - 9 unit tests for TLSF + linear strategies (alignment, no-overlap, fragmentation, full-pool failure, reset) and 7 integration tests on real Vulkan (creation, pool sub-allocation reuse, dedicated path, image-via-pool, persistent mapped pointer, peak watermark, many-small-buffers-share-one-block).
-- **Buffer device addresses** — `BufferUsage::SHADER_DEVICE_ADDRESS` flag and `Buffer::device_address()` method. Returns the GPU virtual address of a buffer for use with `VK_KHR_buffer_device_address` (Vulkan 1.2 core) shaders. Surfaces a clean `MissingFunction` error when the device wasn't created with the `bufferDeviceAddress` feature enabled.
-- **`PhysicalDevice::cooperative_matrix_properties`** — query the supported `(M, N, K, A_type, B_type, C_type, Result_type, scope)` shapes via `VK_KHR_cooperative_matrix`, the building blocks for native GPU matrix-multiply-and-accumulate (the foundation for ML workloads). Returns an empty `Vec` cleanly when the extension isn't enabled. New `CooperativeMatrixProperties` accessor type. Marked `unsafe` because calling the underlying function without the instance extension enabled is undefined behaviour on some implementations.
-- **Device features enable list** — new `DeviceFeatures` builder type wrapping `VkPhysicalDeviceFeatures` plus the Vulkan 1.1 / 1.2 / 1.3 aggregate feature structs. `DeviceCreateInfo::enabled_features` accepts an `Option<&DeviceFeatures>` and the safe wrapper builds the `VkPhysicalDeviceFeatures2` `pNext` chain for `vkCreateDevice` automatically. Builder methods include `with_buffer_device_address`, `with_timeline_semaphore`, `with_synchronization2`, `with_dynamic_rendering`, `with_descriptor_indexing`, `with_runtime_descriptor_array`, `with_shader_int8`, `with_shader_float16`, `with_sampler_anisotropy`, and several more. With features enabled the `Buffer::device_address`, `Semaphore::timeline`, and `memory_barrier2` paths can finally be exercised end-to-end. Also adds `PhysicalDevice::supported_features` for runtime feature support introspection.
-- **Custom user pools and linear pools** for the sub-allocator. New `Allocator::create_pool` / `destroy_pool` / `reset_pool` / `pool_statistics` API plus `PoolHandle`, `PoolCreateInfo`, and `AllocationStrategy { FreeList, Linear }`. Custom pools let apps segregate allocations (e.g. all per-frame uploads into a single linear pool that gets reset together) and pick a non-default strategy. Linear pools use a bump allocator with `reset_pool` semantics — perfect for transient stack/ring/per-frame uploads. The internal `BlockStrategy` enum lets a single `Block` carry either TLSF or linear state, so the same allocator instance can manage both strategies side-by-side. `AllocationCreateInfo::pool` selects which custom pool to allocate from (or `None` for the default per-memory-type TLSF pool).
-- **Defragmentation** for the sub-allocator. `Allocator::build_defragmentation_plan(pool)` walks every live allocation in a `FreeList` custom pool and computes a compact target layout. `Allocator::apply_defragmentation_plan(plan)` consumes the plan, resets the affected blocks' TLSF state, re-allocates each surviving entry at its target position, and updates every live `Allocation` handle's recorded `(memory, offset)`. New `DefragmentationMove` and `DefragmentationPlan` types expose the move list to the user (so they can issue the GPU copies and rebind their `Buffer` / `Image` handles). For the bookkeeping side to work without invalidating the user's `Allocation` clones, `Allocation` is now an `Arc<AllocationInner>` with a `Mutex<AllocationLocation>` inside; every clone of an allocation automatically reflects the post-defrag location. The id and size are stable across defrag and exposed via `Allocation::id()` and `Allocation::user_data()` so apps can correlate moves with their own resource tables.
-- **Device groups, unified from day one.** Every `Device` now internally tracks a `Vec<VkPhysicalDevice>` representing the device group it was created from — length 1 for the common single-physical-device case, length ≥ 2 for true multi-GPU device groups. New `Instance::enumerate_physical_device_groups()` returns `Vec<PhysicalDeviceGroup>`, and `PhysicalDeviceGroup::create_device(info)` produces a `Device` that internally chains a `VkDeviceGroupDeviceCreateInfo` into the `vkCreateDevice` call. The legacy `physical.create_device(info)` path is preserved unchanged and produces a singleton group. New `Device::physical_device_count()`, `Device::physical_device_handles()`, and `Device::default_device_mask()` accessors give every device — single or multi — the same shape, so multi-device support can be enabled per-allocation / per-submission without ever breaking the existing API surface.
-- **Graphics path: render passes, framebuffers, graphics pipelines.** New `safe::render_pass` module with `RenderPass`, `Framebuffer`, `RenderPassCreateInfo`, `AttachmentDescription`, `AttachmentLoadOp`, `AttachmentStoreOp` for the most common single-subpass shape (N color attachments + optional depth). New `safe::graphics_pipeline` module with `GraphicsPipeline`, `GraphicsPipelineBuilder` (a focused builder over the nine sub-create-infos `vkCreateGraphicsPipelines` requires), `GraphicsShaderStage`, `VertexInputBinding`, `VertexInputAttribute`, `PrimitiveTopology`, `PolygonMode`, `CullMode`, `FrontFace`. Image gains `ImageUsage::COLOR_ATTACHMENT` / `DEPTH_STENCIL_ATTACHMENT` / `INPUT_ATTACHMENT` / `TRANSIENT_ATTACHMENT` flags and `ImageLayout::COLOR_ATTACHMENT_OPTIMAL` / `DEPTH_STENCIL_ATTACHMENT_OPTIMAL` / `PRESENT_SRC_KHR`. `Format` gains `B8G8R8A8_UNORM`, `B8G8R8A8_SRGB`, `R32G32_SFLOAT`, `R32G32B32_SFLOAT`, `D32_SFLOAT`, `D24_UNORM_S8_UINT`. New `Sampler` type with `SamplerCreateInfo`, `SamplerFilter`, `SamplerMipmapMode`, `SamplerAddressMode`. Command-buffer recording gains `begin_render_pass`, `end_render_pass`, `bind_graphics_pipeline`, `bind_graphics_descriptor_sets`, `bind_vertex_buffers`, `bind_index_buffer`, `draw`, `draw_indexed`, `set_viewport`, `set_scissor`.
-- **`headless_triangle` example** — renders a colored RGB triangle into a 256×256 R8G8B8A8 image via a real graphics pipeline, copies it back to a staging buffer, and verifies that the centre pixel is non-black and ~24% of the viewport is painted. No window or swapchain required; runs in CI on Lavapipe and locally on real hardware. The pre-compiled `triangle.vert.spv` / `triangle.frag.spv` are checked in alongside the GLSL sources. The `compile_shader` example now globs every `*.comp`, `*.vert`, `*.frag` under `examples/shaders/` and dispatches to the right naga stage automatically.
-- **Surface (`VK_KHR_surface`) and Swapchain (`VK_KHR_swapchain`)** — `safe::surface` module with `Surface`, `SurfaceCapabilities`, `SurfaceFormat`, `PresentMode`, plus three `unsafe` platform constructors: `Surface::from_win32`, `Surface::from_wayland`, `Surface::from_metal`. (Xlib/Xcb constructors are deferred until the bindings generator correctly types `Window`/`xcb_window_t` as integers.) `safe::swapchain` module with `Swapchain`, `SwapchainCreateInfo`, the standard `acquire_next_image` / `present` semaphore loop, `image_views()` for per-image framebuffer construction, and a `pick_surface_format()` helper. Constants for the canonical extension names (`KHR_SURFACE_EXTENSION`, `KHR_WIN32_SURFACE_EXTENSION`, `KHR_WAYLAND_SURFACE_EXTENSION`, `EXT_METAL_SURFACE_EXTENSION`, `KHR_SWAPCHAIN_EXTENSION`) are exported so users don't have to hand-type them.
-- **`windowed_triangle` example** — opens a real OS window via `winit` and renders the same RGB triangle as `headless_triangle` to a swapchain image, with the standard acquire / submit / present loop and per-frame `(image_available, render_finished, in_flight)` sync triple. `winit` and `raw-window-handle` are dev-dependencies — they're not pulled into the vulkane crate's own build. CI builds the example on every platform; users run it locally to see the window. Validated visually on real NVIDIA RTX 4070 (Win32 path).
-- **vk.xml `api` attribute filter** in the parser. Previously, function parameters and struct members tagged `api="vulkansc"` (Vulkan Safety Critical) were emitted alongside the desktop-Vulkan ones — `vkCreateSwapchainKHR` ended up with two `pCreateInfo` parameters in the generated bindings, which would have made every swapchain call silently misbehave on real drivers. The parser now filters to keep only `api="vulkan"` / `api="vulkanbase"` entries (and entries with no `api` attribute, which apply universally).
-- **Lavapipe integration in CI** — Linux runners install Mesa's software Vulkan implementation so the real-Vulkan integration tests actually exercise the loader on every CI run.
-- **Strict clippy on CI** — `cargo clippy --workspace -- -D warnings` is enforced.
-- Tree-based XML parser using `roxmltree` that correctly extracts nested struct members and command parameters.
-- Code generator producing `#[repr(C)]` structs with correct pointer/array/const field types.
-- Code generator producing `#[repr(i32)]` enums with extension values merged into base enums.
-- Code generator producing `pub union` for Vulkan union types (e.g., `VkClearColorValue`).
-- Function pointer typedefs with `unsafe extern "system"` calling convention.
-- Three-tier dispatch tables (`VkEntryDispatchTable`, `VkInstanceDispatchTable`, `VkDeviceDispatchTable`) generated from vk.xml.
-- `VulkanLibrary` runtime loader with `load_entry`, `load_instance`, and `load_device` methods.
-- `VkResultExt` trait with `into_result()`, `is_success()`, `is_error()` for ergonomic `?` propagation.
-- `VkResult` implements `std::error::Error` for use with `Box<dyn Error>` return types.
-- `vk_check!` macro for one-line Vulkan call validation.
-- Doc comments harvested from vk.xml `comment` attributes and `<comment>` child elements.
-- C-to-Rust transpiler for `VK_MAKE_API_VERSION` and other version-encoding macros — bit positions are derived from vk.xml, not hardcoded.
-- `fetch-spec` Cargo feature for automatic vk.xml download from the Khronos GitHub repository.
-- `VK_VERSION` environment variable to pin a specific Vulkan version (e.g., `VK_VERSION=1.3.250`).
-- `VK_XML_PATH` environment variable to use a local vk.xml at any path.
-- `device_info` example demonstrating instance creation, physical device enumeration, memory queries, queue family inspection, and logical device creation/destruction.
-- Real-Vulkan integration test that validates the entire pipeline against actual GPU drivers (skips gracefully when no driver is installed).
-- GitHub Actions CI matrix on Linux, Windows, and macOS.
-
-### Supported Vulkan Versions
-
-- Minimum: **Vulkan 1.2.175** (the first version with `VK_MAKE_API_VERSION` macros).
-- Maximum: latest from the Khronos `Vulkan-Docs` `main` branch.
-
-### Notes
-
-- Vulkane generates ~52,000 lines of Rust bindings covering ~1,478 structs, ~1,343 type aliases, ~148 Rust enums, ~3,064 constants, and ~657 function pointer typedefs from a typical recent vk.xml.
-- Nothing about Vulkan is hardcoded in vulkane's source code. To target a new Vulkan version, swap the vk.xml file (or set `VK_VERSION`) and rebuild.
-- All structs implement `Default`. To construct a `Vk*CreateInfo` ergonomically,
-  set just the `sType` and required fields and use `..Default::default()` for
-  the rest:
-
-  ```rust
-  let create_info = VkInstanceCreateInfo {
-      sType: VkStructureType::STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-      pApplicationInfo: &app_info,
-      ..Default::default()
-  };
-  ```
-
-### Known limitations
-
-- No builder pattern helpers (`VkInstanceCreateInfo::builder()...`). Use the
-  `..Default::default()` shorthand above instead. Builder generation is on the
-  roadmap but adds significant generated-code volume.
-- The safe wrapper module covers the **complete compute path** but does not
-  yet cover graphics-specific functionality: surfaces, swapchains, render
-  passes, graphics pipelines, images for color attachments, or samplers.
-  Use `vulkane::raw` for those use cases.
-- The real-Vulkan integration tests run on Linux CI runners via Lavapipe
-  (Mesa's software rasterizer). Windows and macOS CI runners don't have a
-  Vulkan ICD by default, so the integration tests skip gracefully there.
+- Initial release: complete Vulkan bindings generated from vk.xml + safe RAII wrapper covering compute and graphics end-to-end.
+- **Raw bindings** (`vulkane::raw`) — all types, enums, structs, function pointers, and three-tier dispatch tables generated from the spec.
+- **Safe wrapper** (`vulkane::safe`) — RAII handles for Instance, Device, Buffer, Image, ImageView, Sampler, DeviceMemory, ShaderModule, DescriptorSetLayout/Pool/Set, PipelineLayout, ComputePipeline, GraphicsPipeline (with builder), RenderPass, Framebuffer, Surface (Win32/Wayland/Xlib/Xcb/Metal), Swapchain, CommandPool/Buffer, Fence, Semaphore (binary + timeline), QueryPool.
+- **VMA-style sub-allocator** — TLSF + linear pools, custom user pools, dedicated allocations, persistent mapping, defragmentation, memory budget queries.
+- **Device groups** — unified single/multi-GPU device representation with per-allocation and per-submission device masks.
+- **DeviceFeatures builder** — Vulkan 1.0/1.1/1.2/1.3 feature chain construction.
+- **Optional `naga` feature** — `compile_glsl` + `compile_wgsl` → SPIR-V at runtime.
+- **`fetch-spec` feature** — auto-download vk.xml from Khronos GitHub.
+- 7 bundled examples: device_info, fill_buffer, compute_square, compute_image_invert, compile_shader, headless_triangle, textured_quad, windowed_triangle.
+- Tree-based XML parser (roxmltree), vk.xml api-attribute filtering, VKSC profile exclusion.
+- CI on Linux/Windows/macOS with Mesa Lavapipe for headless GPU tests.

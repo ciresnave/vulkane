@@ -2,104 +2,83 @@
 
 Vulkan for Rust: complete bindings generated from the official `vk.xml`
 specification, plus a safe RAII wrapper that covers compute and graphics
-end-to-end (instance, device, buffer, image, sampler, render pass,
-graphics + compute pipelines, swapchain, a VMA-style sub-allocator with
-TLSF + linear pools and defragmentation, fences + binary/timeline
-semaphores, query pools, validation layers, and more).
+end-to-end — from instance creation through shadow mapping and deferred
+shading.
 
 [![CI](https://github.com/ciresnave/vulkane/actions/workflows/ci.yml/badge.svg)](https://github.com/ciresnave/vulkane/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/vulkane.svg)](https://crates.io/crates/vulkane)
+[![docs.rs](https://docs.rs/vulkane/badge.svg)](https://docs.rs/vulkane)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 ## What is Vulkane?
 
-Vulkane is a Rust crate that generates **complete** Vulkan API bindings from `vk.xml`, the
-official machine-readable Vulkan specification maintained by Khronos. Every type, constant,
-struct, enum, function pointer, and dispatch table is derived from the XML at build time.
-**Nothing is hardcoded.**
+Vulkane generates **complete** Vulkan API bindings from `vk.xml`, the
+official machine-readable specification maintained by Khronos. Every
+type, constant, struct, enum, function pointer, and dispatch table is
+derived at build time. **Nothing is hardcoded.**
 
-To target a different Vulkan version, swap `vk.xml` (or set the `VK_VERSION` environment
-variable) and rebuild — that's the entire upgrade procedure.
+To target a different Vulkan version, swap `vk.xml` and rebuild.
 
 Vulkane exposes Vulkan through two complementary APIs:
 
-- [`vulkane::raw`](vulkane/src/raw) — direct FFI bindings, exactly as the spec defines them.
-  Maximum control, zero overhead.
-- [`vulkane::safe`](vulkane/src/safe) — RAII wrappers with automatic cleanup, `Result`-based
-  error handling, and type-safe enums. Covers the **complete compute path** *and* the
-  **complete graphics path**:
+- **`vulkane::raw`** — direct FFI bindings, exactly as the spec
+  defines them. Maximum control, zero overhead.
+- **`vulkane::safe`** — RAII wrappers with automatic cleanup,
+  `Result`-based error handling, typed flags, and convenience
+  helpers. Covers compute **and** graphics:
 
-  - **Instance / Device** — `Instance`, `InstanceCreateInfo` (with optional validation
-    layer + debug-utils messenger), `PhysicalDevice`, `PhysicalDeviceGroup`, `Device`
-    (always backed by a possibly-singleton physical-device group), `Queue`,
-    `DeviceFeatures` builder for the Vulkan 1.0/1.1/1.2/1.3 feature chain.
-  - **Memory** — `Buffer`, `Image` (2D, color/depth attachment, storage, sampled),
-    `ImageView`, `Sampler`, `DeviceMemory`, plus a **VMA-style sub-allocator**
-    (`Allocator`) with TLSF + linear pools, custom user pools, dedicated allocations,
-    persistent mapping, defragmentation, and memory budget queries.
-  - **Compute** — `ComputePipeline` (with specialization constants and pipeline
-    cache), `PipelineLayout` (with push constants), `DescriptorSetLayout`,
-    `DescriptorPool`, `DescriptorSet` (storage buffer / uniform buffer / storage
-    image / combined image sampler), `ShaderModule` (takes `&[u32]` SPIR-V), with an
-    optional `naga` feature for GLSL → SPIR-V at runtime.
-  - **Graphics** — `RenderPass`, `Framebuffer`, `GraphicsPipeline` (with a focused
-    `GraphicsPipelineBuilder`), `Surface` (Win32 / Wayland / Xlib / Xcb / Metal),
-    `Swapchain` with the standard acquire / submit / present semaphore loop.
-  - **Synchronization** — `Fence`, `Semaphore` (binary and timeline), command-buffer
-    `memory_barrier` / `image_barrier` plus their `Synchronization2` 64-bit
-    counterparts, `QueryPool` (timestamps + pipeline statistics), and the Vulkan 1.2
-    `vkGetBufferDeviceAddress` path for bindless / pointer-chasing compute kernels.
+  - **Instance / Device** — `Instance`, `PhysicalDevice`,
+    `PhysicalDeviceGroup`, `Device`, `Queue`, `DeviceFeatures`
+    builder (1.0 / 1.1 / 1.2 / 1.3 features).
+  - **Memory** — `Buffer`, `Image`, `ImageView`, `Sampler`,
+    `DeviceMemory`, plus a **VMA-style sub-allocator** (`Allocator`)
+    with TLSF + linear pools, custom pools, dedicated allocations,
+    persistent mapping, defragmentation, and budget queries.
+  - **Convenience helpers** — `Buffer::new_bound`,
+    `Image::new_2d_bound`, `Queue::upload_buffer<T>`,
+    `Queue::upload_image_rgba`, `Queue::one_shot` — collapse the
+    5-step allocate-bind pattern into one call.
+  - **Compute** — `ComputePipeline`, `PipelineLayout`,
+    `DescriptorSet`, `ShaderModule`, specialization constants,
+    pipeline cache, push constants.
+  - **Graphics** — `RenderPass` (with `simple_color` shortcut),
+    `Framebuffer`, `GraphicsPipelineBuilder` (depth bias, `CompareOp`,
+    `InputRate`, multi-attachment blend, dynamic viewport/scissor),
+    `Surface` (Win32 / Wayland / Xlib / Xcb / Metal), `Swapchain`.
+  - **Synchronization** — typed `PipelineStage` / `AccessFlags`
+    (plus 64-bit `PipelineStage2` / `AccessFlags2` for Sync2),
+    `Fence`, `Semaphore` (binary + timeline), `ImageBarrier::color`
+    / `::depth`, `ClearValue`, `QueryPool`.
+  - **Derive macros** — `#[derive(Vertex)]` auto-generates vertex
+    input layouts from `#[repr(C)]` structs (optional `derive`
+    feature).
+  - **Raw escape hatch** — `Device::dispatch()` /
+    `Instance::dispatch()` expose the full dispatch tables so you
+    can drop to raw Vulkan for anything the safe wrapper doesn't
+    cover yet.
 
-## Why Vulkane?
+## Quick Start
 
-If you're already using `ash`, here's the trade-off:
-
-| Aspect | vulkane | ash |
-| --- | --- | --- |
-| Source of truth | `vk.xml` (parsed at build time) | Hand-curated bindings module |
-| New Vulkan version support | Swap vk.xml, rebuild | Wait for crate update |
-| New extension support | Automatic on next vk.xml fetch | Wait for crate update |
-| Generated lines of Rust | ~52,000 | ~30,000 |
-| Hand-written FFI | None | Some |
-| Safe-API surface | Compute + graphics RAII layer in `vulkane::safe` (instance, device, buffer, image, sampler, render pass, framebuffer, graphics + compute pipelines, swapchain, allocator, sync, queries) | Raw FFI; safe wrappers come from third-party crates (`vulkano`, `vulkanalia`) |
-| Sub-allocator | TLSF + linear pools, custom user pools, defragmentation, memory budget queries built into `vulkane::safe::Allocator` | None — you BYO via `gpu-allocator` or `vk-mem` |
-| GLSL→SPIR-V at runtime | Optional `naga` feature | None |
-| Maturity | New | Battle-tested |
-
-**Vulkane is the right choice if:**
-
-- you want bindings that always match the Vulkan version your driver supports
-- you want to opt into new extensions the moment Khronos publishes them
-- you don't want to depend on a third party shipping updates
-- you want to read the Vulkan spec and have confidence the bindings reflect it exactly
-
-**Ash is the right choice if:**
-
-- you want maximum maturity and a large body of existing example code
-- you prefer ergonomic builders over raw FFI structs
-- you're building higher-level wrappers and want a stable foundation
-
-The two crates are not mutually exclusive. Vulkane targets the same C ABI as the Vulkan spec,
-so a downstream crate can build a safe wrapper layer on top of either.
-
-## First impression — safe API
+```toml
+[dependencies]
+vulkane = { version = "0.4", features = ["fetch-spec"] }
+```
 
 ```rust
 use vulkane::safe::{
-    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, DeviceCreateInfo,
-    DeviceMemory, Fence, Instance, InstanceCreateInfo, MemoryPropertyFlags, QueueCreateInfo,
+    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool,
+    DeviceCreateInfo, DeviceMemory, Fence, Instance, InstanceCreateInfo,
+    MemoryPropertyFlags, PipelineStage, AccessFlags, QueueCreateInfo,
     QueueFlags,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load Vulkan and create an instance — RAII handles cleanup.
     let instance = Instance::new(InstanceCreateInfo {
         application_name: Some("hello-vulkane"),
         api_version: ApiVersion::V1_0,
         ..Default::default()
     })?;
 
-    // Pick a physical device with a transfer-capable queue.
     let physical = instance
         .enumerate_physical_devices()?
         .into_iter()
@@ -107,225 +86,141 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("no compatible GPU")?;
     let qf = physical.find_queue_family(QueueFlags::TRANSFER).unwrap();
 
-    // Create a logical device with one queue.
     let device = physical.create_device(DeviceCreateInfo {
-        queue_create_infos: &[QueueCreateInfo {
-            queue_family_index: qf,
-            queue_priorities: vec![1.0],
-        }],
+        queue_create_infos: &[QueueCreateInfo::single(qf)],
         ..Default::default()
     })?;
     let queue = device.get_queue(qf, 0);
 
-    // Allocate a host-visible buffer.
-    let buffer = Buffer::new(&device, BufferCreateInfo {
-        size: 1024,
-        usage: BufferUsage::TRANSFER_DST,
+    // One-call buffer allocation (no manual memory_requirements + find_type + bind).
+    let (buffer, mut memory) = Buffer::new_bound(
+        &device, &physical,
+        BufferCreateInfo { size: 1024, usage: BufferUsage::TRANSFER_DST },
+        MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+    )?;
+
+    // One-shot command recording + submit + wait.
+    queue.one_shot(&device, qf, |rec| {
+        rec.fill_buffer(&buffer, 0, 1024, 0xDEADBEEF);
+        rec.memory_barrier(
+            PipelineStage::TRANSFER, PipelineStage::HOST,
+            AccessFlags::TRANSFER_WRITE, AccessFlags::HOST_READ,
+        );
+        Ok(())
     })?;
-    let req = buffer.memory_requirements();
-    let mt = physical
-        .find_memory_type(req.memory_type_bits,
-            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT)
-        .unwrap();
-    let mut memory = DeviceMemory::allocate(&device, req.size, mt)?;
-    buffer.bind_memory(&memory, 0)?;
 
-    // Record vkCmdFillBuffer and submit it to the GPU.
-    let pool = CommandPool::new(&device, qf)?;
-    let mut cmd = pool.allocate_primary()?;
-    cmd.begin()?.fill_buffer(&buffer, 0, 1024, 0xDEADBEEF);
-    let fence = Fence::new(&device)?;
-    queue.submit(&[&cmd], Some(&fence))?;
-    fence.wait(u64::MAX)?;
-
-    // Read it back from the host side.
     let mapped = memory.map()?;
     assert_eq!(&mapped.as_slice()[..4], &0xDEADBEEFu32.to_ne_bytes());
-    println!("GPU filled the buffer with 0xDEADBEEF");
-
-    // Everything drops here in the right order — no manual vkDestroy* calls.
+    println!("GPU filled the buffer with 0xDEADBEEF — it works!");
     Ok(())
 }
 ```
 
-## Bundled examples
+## Bundled Examples
 
-| Example | What it shows |
+15 examples ship with the crate, from basic compute through advanced
+graphics techniques. All are headless (runnable in CI) except
+`windowed_triangle`.
+
+| Example | Technique |
 | --- | --- |
-| [`device_info`](vulkane/examples/device_info.rs) | Raw-API instance creation, physical device enumeration, queue family inspection |
-| [`fill_buffer`](vulkane/examples/fill_buffer.rs) | Safe-API: full host→GPU→host round trip via `vkCmdFillBuffer` |
-| [`compute_square`](vulkane/examples/compute_square.rs) | Safe-API: complete compute path — load SPIR-V, descriptor set, compute pipeline, dispatch, verify the GPU squared every element |
-| [`compute_image_invert`](vulkane/examples/compute_image_invert.rs) | Safe-API: 2D storage image compute — RGBA8 round trip with layout transitions, copy buffer↔image, dispatch invert shader, verify per-pixel |
-| [`compile_shader`](vulkane/examples/compile_shader.rs) (`--features naga`) | Compile every `*.comp` / `*.vert` / `*.frag` / `*.wgsl` under `examples/shaders/` to SPIR-V using the optional `naga` feature |
-| [`headless_triangle`](vulkane/examples/headless_triangle.rs) | Safe-API: full graphics pipeline — render pass, framebuffer, graphics pipeline, vertex/fragment shaders, draw, copy back, verify pixels were rasterized |
-| [`textured_quad`](vulkane/examples/textured_quad.rs) | Safe-API: headless textured quad — upload a 4×4 RGBA8 checkerboard, sample it with a `Sampler` from a WGSL fragment shader (separated `SAMPLED_IMAGE` + `SAMPLER` descriptors), verify the rendered pixels picked up the texture colors |
-| [`windowed_triangle`](vulkane/examples/windowed_triangle.rs) | Safe-API: opens a real OS window via `winit`, creates a Win32 / Wayland / Xlib / Xcb / Metal surface, builds a swapchain, and runs the standard acquire/submit/present loop with two frames in flight |
-
-The compute examples and the headless triangle run in CI on every platform via Mesa
-Lavapipe; the windowed triangle is built but not run in CI (it requires a display
-server). To run any of them locally:
+| [`device_info`](vulkane/examples/device_info.rs) | Raw API: instance, physical device enumeration, queue families |
+| [`fill_buffer`](vulkane/examples/fill_buffer.rs) | Safe API: `vkCmdFillBuffer` round trip |
+| [`compute_square`](vulkane/examples/compute_square.rs) | Compute: SPIR-V, descriptor set, pipeline, dispatch, verify |
+| [`compute_image_invert`](vulkane/examples/compute_image_invert.rs) | Compute: 2D storage image, layout transitions, per-pixel verify |
+| [`compile_shader`](vulkane/examples/compile_shader.rs) | Compile GLSL/WGSL → SPIR-V via naga (`--features naga`) |
+| [`headless_triangle`](vulkane/examples/headless_triangle.rs) | Graphics: render pass, pipeline, draw, readback |
+| [`textured_quad`](vulkane/examples/textured_quad.rs) | Graphics: texture upload, sampler, WGSL fragment shader |
+| [`windowed_triangle`](vulkane/examples/windowed_triangle.rs) | Windowed: winit + surface + swapchain + present loop |
+| [`buffer_upload`](vulkane/examples/buffer_upload.rs) | `Queue::one_shot` staging upload pattern |
+| [`allocator_compute`](vulkane/examples/allocator_compute.rs) | `Allocator::create_buffer` — 2 lines vs 5 |
+| [`raw_interop`](vulkane/examples/raw_interop.rs) | `Device::dispatch()` + `.raw()` escape hatch |
+| [`depth_prepass`](vulkane/examples/depth_prepass.rs) | Depth-only pass + color EQUAL — early-Z prepass |
+| [`instanced_mesh`](vulkane/examples/instanced_mesh.rs) | 100 triangles via `InputRate::INSTANCE` |
+| [`shadow_map`](vulkane/examples/shadow_map.rs) | Two-pass shadow mapping: depth bias, comparison sampler, uniform buffers |
+| [`deferred_shading`](vulkane/examples/deferred_shading.rs) | G-buffer (3 MRT) + fullscreen Phong lighting pass |
+| [`derive_vertex`](vulkane/examples/derive_vertex.rs) | `#[derive(Vertex)]` auto-generated vertex layouts (`--features derive`) |
 
 ```bash
 cargo run -p vulkane --features fetch-spec --example headless_triangle
-cargo run -p vulkane --features fetch-spec --example compute_square
-cargo run -p vulkane --features fetch-spec --example windowed_triangle  # opens a window
+cargo run -p vulkane --features fetch-spec --example shadow_map
+cargo run -p vulkane --features fetch-spec,derive --example derive_vertex
 ```
 
-## Quick Start
+## `#[derive(Vertex)]`
 
-Add to your `Cargo.toml`:
+Enable the `derive` feature to auto-generate vertex input layouts:
 
 ```toml
-[dependencies]
-vulkane = "0.1"
+vulkane = { version = "0.4", features = ["fetch-spec", "derive"] }
 ```
 
-If you don't have a local copy of `vk.xml` (most people don't), enable auto-download:
+```rust
+use vulkane::Vertex;
 
-```toml
-[dependencies]
-vulkane = { version = "0.1", features = ["fetch-spec"] }
+#[derive(Vertex, Clone, Copy)]
+#[repr(C)]
+struct MyVertex {
+    position: [f32; 3],  // R32G32B32_SFLOAT, location 0
+    normal:   [f32; 3],  // R32G32B32_SFLOAT, location 1
+    uv:       [f32; 2],  // R32G32_SFLOAT,    location 2
+}
+
+// In pipeline setup:
+let bindings = [MyVertex::binding(0)];
+let attributes = MyVertex::attributes(0);
+builder.vertex_input(&bindings, &attributes)
 ```
 
-## Providing vk.xml
+Strides, offsets, and Vulkan format enums are computed at compile time.
+Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`,
+`[i32; 2..3]`, `[u8; 4]`, `u16`, `i16`. For per-instance data, use
+`MyStruct::instance_binding(n)` instead of `::binding(n)`.
 
-The build script resolves the Vulkan specification in this order:
+## Why Vulkane over ash?
 
-1. **`VK_XML_PATH` environment variable** — point to any local `vk.xml` file:
-
-   ```bash
-   VK_XML_PATH=/path/to/vk.xml cargo build
-   ```
-
-2. **Local copy** — place `vk.xml` at `spec/registry/Vulkan-Docs/xml/vk.xml` relative to the workspace root.
-
-3. **Auto-download** (requires `fetch-spec` feature) — downloads from the Khronos GitHub repository:
-
-   ```bash
-   # Download the latest version
-   cargo build --features fetch-spec
-
-   # Pin to a specific version
-   VK_VERSION=1.3.250 cargo build --features fetch-spec
-   ```
-
-   Pinned versions are cached permanently; the latest is refreshed after 24 hours.
-
-## Supported Vulkan Versions
-
-Vulkane supports Vulkan specification versions **1.2.175** through the latest release.
-
-Version 1.2.175 is the minimum because it's the first version that introduced the
-`VK_MAKE_API_VERSION` / `VK_API_VERSION_*` macro family, which replaced the deprecated
-`VK_MAKE_VERSION` / `VK_VERSION_*` macros. Vulkane transpiles these macros from C to Rust
-`const fn` at build time, so they must be present in the specification.
-
-| Vulkan version | Status |
-| --- | --- |
-| 1.2.175 (minimum) | Tested |
-| 1.3.250 | Tested |
-| 1.4.348 | Tested |
-| latest (main branch) | Tested |
-
-## What Gets Generated
-
-Everything in this table is derived entirely from `vk.xml` at build time:
-
-| Category | Count (recent vk.xml) | Description |
+| Aspect | Vulkane | ash |
 | --- | --- | --- |
-| Structs | ~1,478 | `#[repr(C)]` with correct pointer/array/const field types |
-| Unions | ~14 | `#[repr(C)] pub union` with `unsafe { mem::zeroed() }` defaults |
-| Type aliases | ~1,343 | Dispatchable handles (`*mut c_void`), non-dispatchable handles (`u64`), bitmasks, base types |
-| Rust enums | ~148 | `#[repr(i32)]` with extension values merged from all extensions |
-| Constants | ~3,064 | Including bitmask flag values emitted as `pub const` |
-| Function pointer typedefs | ~657 | `unsafe extern "system" fn(...)` for every Vulkan command |
-| Dispatch tables | 3 | Entry, instance, and device tables generated from first-parameter classification |
-| Version functions | All | `vk_make_api_version`, `vk_api_version_major`, etc. transpiled from C macros |
-| Doc comments | ~960 | Harvested from vk.xml `<comment>` and `comment` attributes |
+| Source of truth | `vk.xml` at build time | Hand-curated bindings |
+| New Vulkan version | Swap vk.xml, rebuild | Wait for crate update |
+| Safe wrapper | Built-in: compute + graphics + allocator + sync | Raw FFI only |
+| Sub-allocator | TLSF + linear pools + defrag built in | BYO (`gpu-allocator`) |
+| Vertex layout | `#[derive(Vertex)]` | Manual |
+| Pipeline builder | Depth bias, CompareOp, multi-attach, dynamic viewport | N/A (raw structs) |
+| Allocation helpers | `Buffer::new_bound`, `Queue::upload_buffer<T>` | N/A |
+| GLSL/WGSL→SPIR-V | Optional `naga` feature | N/A |
+| Raw escape hatch | `device.dispatch()` + `.raw()` | N/A (always raw) |
+| Maturity | New (0.4) | Battle-tested |
 
 ## Features
 
 | Feature | Description |
 | --- | --- |
-| `build-support` (default) | Enables XML parsing and code generation during build |
-| `fetch-spec` | Enables automatic download of `vk.xml` from the Khronos GitHub repository |
-| `naga` | Pulls in `naga` 29 with `glsl-in` + `wgsl-in` + `spv-out` only. Exposes `vulkane::safe::naga::compile_glsl(source, stage)` and `compile_wgsl(source)` for runtime GLSL/WGSL → SPIR-V compilation. Disabled by default — users with their own SPIR-V pay nothing. |
+| `build-support` (default) | XML parsing and code generation during build |
+| `fetch-spec` | Auto-download vk.xml from Khronos GitHub |
+| `naga` | `compile_glsl` + `compile_wgsl` → SPIR-V at runtime |
+| `derive` | `#[derive(Vertex)]` proc macro for vertex layouts |
 
-## Loader API
+## Providing vk.xml
 
-The runtime loader is a thin wrapper around `libloading`:
+1. **`VK_XML_PATH`** env var — point to any local `vk.xml`
+2. **Local copy** at `spec/registry/Vulkan-Docs/xml/vk.xml`
+3. **Auto-download** (`--features fetch-spec`), optionally pinned
+   with `VK_VERSION=1.3.250`
 
-```rust
-use vulkane::raw::VulkanLibrary;
+## Supported Vulkan Versions
 
-let library = VulkanLibrary::new()?;             // dlopen vulkan-1.dll / libvulkan.so.1
-let entry = unsafe { library.load_entry() };     // global functions
-let inst  = unsafe { library.load_instance(instance) };       // instance functions
-let dev   = unsafe { library.load_device(instance, device) }; // device functions
-```
-
-Each dispatch table contains every relevant Vulkan command as an `Option<fn_ptr>` field.
-Functions that the loaded Vulkan implementation doesn't support are `None`.
-
-## Result helpers
-
-```rust
-use vulkane::raw::VkResultExt;
-
-unsafe { vkCreateInstance(&info, std::ptr::null(), &mut instance) }
-    .into_result()?;  // VkResult::SUCCESS -> Ok(()), anything else -> Err(VkResult)
-```
-
-`VkResult` implements `std::error::Error` so you can use `?` directly with
-`Box<dyn Error>` return types.
+**1.2.175** through the latest release. The minimum is set by the
+`VK_MAKE_API_VERSION` macros introduced in that version.
 
 ## Architecture
 
 ```text
-       vk.xml
-         │
-         ▼
-  vulkan_gen crate
-   ┌──────────────┐
-   │ tree_parser  │  (roxmltree DOM parser)
-   │      │       │
-   │      ▼       │
-   │  vk_types    │  (parsed data structures)
-   │      │       │
-   │      ▼       │
-   │   codegen    │  (8 generator modules + assembler)
-   └──────┬───────┘
-          │
-          ▼
-    vulkane crate
-   ┌─────────────────────────┐
-   │  build.rs               │  resolves vk.xml, calls
-   │                         │  vulkan_gen::generate_bindings
-   │                         │
-   │  raw/                   │
-   │   bindings.rs (~52k LoC, generated from vk.xml)
-   │   loader.rs   (VulkanLibrary, dispatch tables)
-   │   result.rs   (VkResultExt, vk_check!)
-   │                         │
-   │  safe/                  │
-   │   instance.rs / device.rs / physical.rs
-   │   buffer.rs / image.rs / memory.rs / sampler
-   │   render_pass.rs / graphics_pipeline.rs
-   │   pipeline.rs (compute) / descriptor.rs / shader.rs
-   │   surface.rs / swapchain.rs
-   │   command.rs / sync.rs / query.rs
-   │   features.rs / debug.rs
-   │   allocator/ (TLSF + linear + dedicated, defrag,
-   │              custom user pools, statistics, budget)
-   │   naga.rs (optional GLSL → SPIR-V via the `naga` feature)
-   └─────────────────────────┘
+vk.xml → vulkan_gen (roxmltree parser + codegen) → vulkane crate
+                                                    ├── raw/   (generated FFI bindings)
+                                                    ├── safe/  (RAII wrapper)
+                                                    └── vulkane_derive (proc macros)
 ```
-
-The parser uses DOM-based XML parsing (`roxmltree`) to correctly handle nested elements
-like `<member>` and `<param>` that contain mixed text and child element content. The
-safe wrapper layer is hand-written on top of the generated raw bindings — every safe
-type is a thin RAII shell around a `VkFoo` handle plus an `Arc<DeviceInner>` (or
-`Arc<InstanceInner>`) for parent lifetime tracking.
 
 ## License
 
@@ -338,6 +233,7 @@ at your option.
 
 ### Contribution
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for
-inclusion in vulkane by you, as defined in the Apache-2.0 license, shall be dual-licensed
-as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in vulkane by you, as defined in the Apache-2.0
+license, shall be dual-licensed as above, without any additional terms
+or conditions.

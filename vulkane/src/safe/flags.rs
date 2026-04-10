@@ -22,9 +22,9 @@
 
 /// A bitmask of Vulkan pipeline stages (`VkPipelineStageFlagBits`).
 ///
-/// Used by [`CommandBufferRecording::memory_barrier`],
-/// [`CommandBufferRecording::image_barrier`],
-/// [`CommandBufferRecording::write_timestamp`],
+/// Used by [`CommandBufferRecording::memory_barrier`](super::CommandBufferRecording::memory_barrier),
+/// [`CommandBufferRecording::image_barrier`](super::CommandBufferRecording::image_barrier),
+/// [`CommandBufferRecording::write_timestamp`](super::CommandBufferRecording::write_timestamp),
 /// and [`WaitSemaphore::dst_stage_mask`](super::WaitSemaphore).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PipelineStage(pub u32);
@@ -67,7 +67,7 @@ impl std::ops::BitOr for PipelineStage {
 /// A bitmask of Vulkan memory access types (`VkAccessFlagBits`).
 ///
 /// Used in [`ImageBarrier`](super::ImageBarrier) and
-/// [`CommandBufferRecording::memory_barrier`].
+/// [`CommandBufferRecording::memory_barrier`](super::CommandBufferRecording::memory_barrier).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct AccessFlags(pub u32);
 
@@ -110,8 +110,8 @@ impl std::ops::BitOr for AccessFlags {
 /// A 64-bit bitmask of Vulkan pipeline stages for the Synchronization2 API
 /// (`VkPipelineStageFlagBits2`).
 ///
-/// Used by [`CommandBufferRecording::memory_barrier2`] and
-/// [`CommandBufferRecording::image_barrier2`].
+/// Used by [`CommandBufferRecording::memory_barrier2`](super::CommandBufferRecording::memory_barrier2) and
+/// [`CommandBufferRecording::image_barrier2`](super::CommandBufferRecording::image_barrier2).
 /// Vulkan 1.3 core or `VK_KHR_synchronization2` on 1.1/1.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PipelineStage2(pub u64);
@@ -162,8 +162,8 @@ impl std::ops::BitOr for PipelineStage2 {
 /// A 64-bit bitmask of Vulkan memory access types for the Synchronization2
 /// API (`VkAccessFlagBits2`).
 ///
-/// Used in [`CommandBufferRecording::memory_barrier2`] and
-/// [`CommandBufferRecording::image_barrier2`].
+/// Used in [`CommandBufferRecording::memory_barrier2`](super::CommandBufferRecording::memory_barrier2) and
+/// [`CommandBufferRecording::image_barrier2`](super::CommandBufferRecording::image_barrier2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct AccessFlags2(pub u64);
 

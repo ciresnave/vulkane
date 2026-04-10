@@ -1,4 +1,35 @@
 //! Safe wrapper for `VkDevice` and `VkQueue`.
+//!
+//! A [`Device`] is the logical connection to a GPU — all resources
+//! (buffers, images, pipelines, command pools) are created from it.
+//! A [`Queue`] is a submission endpoint belonging to a device; work
+//! is recorded into command buffers and submitted to a queue.
+//!
+//! ## Typical workflow
+//!
+//! ```ignore
+//! use vulkane::safe::{DeviceCreateInfo, QueueCreateInfo, QueueFlags};
+//!
+//! let qf = physical.find_queue_family(QueueFlags::GRAPHICS).unwrap();
+//! let device = physical.create_device(DeviceCreateInfo {
+//!     queue_create_infos: &[QueueCreateInfo::single(qf)],
+//!     ..Default::default()
+//! })?;
+//! let queue = device.get_queue(qf, 0);
+//!
+//! // One-shot command recording + submit + wait:
+//! queue.one_shot(&device, qf, |rec| {
+//!     rec.fill_buffer(&buffer, 0, 1024, 0xDEADBEEF);
+//!     Ok(())
+//! })?;
+//! ```
+//!
+//! ## Raw escape hatch
+//!
+//! [`Device::dispatch()`] returns a reference to the full
+//! `VkDeviceDispatchTable` so you can call any Vulkan function the
+//! safe wrapper doesn't cover yet. Combine with [`.raw()`](Device::raw)
+//! for the first argument.
 
 use super::features::DeviceFeatures;
 use super::flags::PipelineStage;

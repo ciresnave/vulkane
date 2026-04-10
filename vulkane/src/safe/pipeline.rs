@@ -1,4 +1,16 @@
-//! Safe wrappers for `VkPipelineLayout` and `VkPipeline` (compute only for now).
+//! Safe wrappers for `VkPipelineLayout` and `VkPipeline` (compute).
+//!
+//! A [`PipelineLayout`] describes the descriptor set layouts and push
+//! constant ranges a pipeline uses. A [`ComputePipeline`] pairs a
+//! layout with a compute shader module.
+//!
+//! For **graphics pipelines**, see
+//! [`GraphicsPipelineBuilder`](super::GraphicsPipelineBuilder) in the
+//! `graphics_pipeline` module.
+//!
+//! Optional: [`SpecializationConstants`] for baking workgroup sizes or
+//! dtype switches at pipeline creation time, and [`PipelineCache`] for
+//! caching compiled pipelines to disk.
 
 use super::descriptor::{DescriptorSetLayout, ShaderStageFlags};
 use super::device::DeviceInner;
