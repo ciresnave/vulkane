@@ -10,8 +10,8 @@ struct Params {
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
-var<workgroup> shared_max: array<f32, 256>;
-var<workgroup> shared_sum: array<f32, 256>;
+var<workgroup> wg_max: array<f32, 256>;
+var<workgroup> wg_sum: array<f32, 256>;
 
 @compute @workgroup_size(256)
 fn main(
@@ -31,19 +31,19 @@ fn main(
         local_max = max(local_max, input[row_offset + col]);
         col += 256u;
     }
-    shared_max[tid] = local_max;
+    wg_max[tid] = local_max;
     workgroupBarrier();
 
     // Tree reduction for max.
     var stride = 128u;
     while stride > 0u {
         if tid < stride {
-            shared_max[tid] = max(shared_max[tid], shared_max[tid + stride]);
+            wg_max[tid] = max(wg_max[tid], wg_max[tid + stride]);
         }
         workgroupBarrier();
         stride = stride >> 1u;
     }
-    let row_max = shared_max[0];
+    let row_max = wg_max[0];
     workgroupBarrier();
 
     // Step 2: compute exp(x - max) and sum.
@@ -55,19 +55,19 @@ fn main(
         local_sum += val;
         col += 256u;
     }
-    shared_sum[tid] = local_sum;
+    wg_sum[tid] = local_sum;
     workgroupBarrier();
 
     // Tree reduction for sum.
     stride = 128u;
     while stride > 0u {
         if tid < stride {
-            shared_sum[tid] += shared_sum[tid + stride];
+            wg_sum[tid] += wg_sum[tid + stride];
         }
         workgroupBarrier();
         stride = stride >> 1u;
     }
-    let row_sum = shared_sum[0];
+    let row_sum = wg_sum[0];
     workgroupBarrier();
 
     // Step 3: normalize.

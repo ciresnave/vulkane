@@ -14,7 +14,7 @@ const OP_SUM: u32 = 0u;
 const OP_MAX: u32 = 1u;
 const OP_MIN: u32 = 2u;
 
-var<workgroup> shared: array<f32, 256>;
+var<workgroup> wg_data: array<f32, 256>;
 
 fn identity(op: u32) -> f32 {
     switch op {
@@ -48,20 +48,20 @@ fn main(
         acc = combine(op, acc, input[i]);
         i += 256u;
     }
-    shared[tid] = acc;
+    wg_data[tid] = acc;
     workgroupBarrier();
 
     // Tree reduction.
     var stride = 128u;
     while stride > 0u {
         if tid < stride {
-            shared[tid] = combine(op, shared[tid], shared[tid + stride]);
+            wg_data[tid] = combine(op, wg_data[tid], wg_data[tid + stride]);
         }
         workgroupBarrier();
         stride = stride >> 1u;
     }
 
     if tid == 0u {
-        output[0] = shared[0];
+        output[0] = wg_data[0];
     }
 }
