@@ -177,6 +177,122 @@ Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`,
 `[i32; 2..3]`, `[u8; 4]`, `u16`, `i16`. For per-instance data, use
 `MyStruct::instance_binding(n)` instead of `::binding(n)`.
 
+## Runtime shader compilation
+
+Vulkane offers two optional, independent back-ends for compiling shader
+source to SPIR-V at runtime. Enable one, the other, or both — they are
+completely separate modules.
+
+### `naga` — pure Rust (WGSL + subset of GLSL)
+
+Zero external build dependencies. Best choice when:
+
+- You want a pure-Rust build (no CMake, no C++ toolchain).
+- You are targeting modern GLSL or WGSL.
+- WGSL's combined image-samplers fit your rendering code.
+
+```toml
+vulkane = { version = "0.4", features = ["naga"] }
+```
+
+```rust
+use vulkane::safe::naga::compile_glsl;
+use naga::ShaderStage;
+
+let spirv = compile_glsl(
+    r#"#version 450
+       layout(local_size_x = 64) in;
+       layout(set = 0, binding = 0, std430) buffer Data { uint v[]; };
+       void main() { v[gl_GlobalInvocationID.x] *= 2; }"#,
+    ShaderStage::Compute,
+)?;
+// Pass straight into ShaderModule::from_spirv(&device, &spirv).
+```
+
+### `shaderc` — Khronos glslang (full GLSL + HLSL)
+
+Wraps the Khronos reference compiler. Best choice when:
+
+- You need **full GLSL** support (`#include`, `GL_*` extensions, older
+  core versions, legacy sample shaders).
+- You are compiling **HLSL** for a Vulkan target.
+- You want optimization passes (`OptimizationLevel::Size` or
+  `Performance`) or explicit macro defines / include resolution.
+
+```toml
+vulkane = { version = "0.4", features = ["shaderc"] }
+```
+
+```rust
+use vulkane::safe::shaderc::{compile_glsl, ShaderKind};
+
+let spirv = compile_glsl(
+    r#"#version 450
+       layout(local_size_x = 64) in;
+       void main() {}"#,
+    ShaderKind::Compute,
+    "doubler.comp",   // virtual file name (used in error messages and #include resolution)
+    "main",           // entry-point name
+)?;
+```
+
+For fine-grained control — HLSL input, optimization level, macro
+defines, include callbacks, target Vulkan version — use
+`compile_with_options`:
+
+```rust
+use vulkane::safe::shaderc::{compile_with_options, ShaderKind, SourceLanguage};
+use shaderc::OptimizationLevel;
+
+let spirv = compile_with_options(
+    hlsl_source,
+    ShaderKind::Fragment,
+    "shader.hlsl",
+    "main",
+    |opts| {
+        opts.set_source_language(SourceLanguage::HLSL);
+        opts.set_optimization_level(OptimizationLevel::Size);
+        opts.add_macro_definition("USE_PBR", Some("1"));
+    },
+)?;
+```
+
+#### Build requirements for `shaderc`
+
+`shaderc-rs` locates libshaderc in this order:
+
+1. **`SHADERC_LIB_DIR`** env var — point to a directory containing
+   `libshaderc_combined`.
+2. **`VULKAN_SDK`** env var — installing the
+   [LunarG Vulkan SDK](https://vulkan.lunarg.com/) sets this
+   automatically, and ships a prebuilt `libshaderc_combined`. **This is
+   the easiest path.**
+3. **`pkg-config`** / system libraries (typical on Linux distros that
+   package `shaderc`).
+4. **Source build fallback** — compiles glslang from C++ source.
+   Requires CMake ≥ 3.17 (newer CMake may need
+   `CMAKE_POLICY_VERSION_MINIMUM=3.5` until shaderc-sys updates its
+   pinned sources), Python 3, and a working C++ toolchain. First build
+   takes 1–3 minutes.
+
+If neither the SDK nor a system package is available and you don't
+want to build from source, use the `naga` feature instead.
+
+#### When to pick which
+
+| Need                                   | `naga` | `shaderc` |
+| -------------------------------------- | :----: | :-------: |
+| Pure Rust build (no C++ toolchain)     |   ✅   |    ❌     |
+| Modern GLSL (core, no extensions)      |   ✅   |    ✅     |
+| Full GLSL (`#include`, `GL_*` exts)    |   ❌   |    ✅     |
+| HLSL input                             |   ❌   |    ✅     |
+| WGSL input                             |   ✅   |    ❌     |
+| Optimization passes                    |   ❌   |    ✅     |
+| Smallest binary / fastest cold build   |   ✅   |    ❌     |
+
+Both features can be enabled simultaneously — pick per shader at the
+call site.
+
 ## Why Vulkane over ash?
 
 | Aspect | Vulkane | ash |
@@ -188,7 +304,7 @@ Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`,
 | Vertex layout | `#[derive(Vertex)]` | Manual |
 | Pipeline builder | Depth bias, CompareOp, multi-attach, dynamic viewport | N/A (raw structs) |
 | Allocation helpers | `Buffer::new_bound`, `Queue::upload_buffer<T>` | N/A |
-| GLSL/WGSL→SPIR-V | Optional `naga` feature | N/A |
+| GLSL/WGSL→SPIR-V | Optional `naga` (pure Rust) or `shaderc` (glslang) feature | N/A |
 | Raw escape hatch | `device.dispatch()` + `.raw()` | N/A (always raw) |
 | Maturity | New (0.4) | Battle-tested |
 
@@ -198,7 +314,8 @@ Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`,
 | --- | --- |
 | `build-support` (default) | XML parsing and code generation during build |
 | `fetch-spec` | Auto-download vk.xml from Khronos GitHub |
-| `naga` | `compile_glsl` + `compile_wgsl` → SPIR-V at runtime |
+| `naga` | `compile_glsl` + `compile_wgsl` → SPIR-V at runtime (pure Rust) |
+| `shaderc` | `compile_glsl` / `compile_with_options` → SPIR-V via Khronos glslang (full GLSL + HLSL) |
 | `derive` | `#[derive(Vertex)]` proc macro for vertex layouts |
 
 ## Providing vk.xml

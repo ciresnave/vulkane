@@ -1,11 +1,11 @@
 [package]
 name = "vulkane"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "Vulkan API bindings generated entirely from vk.xml, with a complete safe RAII wrapper covering compute and graphics: instance/device/queue, buffer, image, sampler, render pass, framebuffer, graphics + compute pipelines, swapchain, a VMA-style sub-allocator with TLSF + linear pools and defragmentation, sync primitives (fences, binary + timeline semaphores, sync2 barriers), query pools, and an optional naga GLSL/WGSL→SPIR-V feature. Supports Vulkan 1.2.175 onward — swap vk.xml and rebuild."
+description = "Vulkan API bindings generated entirely from vk.xml, with a complete safe RAII wrapper covering compute and graphics: instance/device/queue, buffer, image, sampler, render pass, framebuffer, graphics + compute pipelines, swapchain, a VMA-style sub-allocator with TLSF + linear pools and defragmentation, sync primitives (fences, binary + timeline semaphores, sync2 barriers), query pools, and optional GLSL/WGSL/HLSL→SPIR-V compilation via naga or shaderc. Supports Vulkan 1.2.175 onward — swap vk.xml and rebuild."
 keywords = ["vulkan", "graphics", "gpu", "rendering", "ffi"]
 categories = ["graphics", "api-bindings", "rendering", "external-ffi-bindings"]
 readme = "README.md"
@@ -23,6 +23,11 @@ fetch-spec = []
 # Enable runtime GLSL/WGSL -> SPIR-V compilation via the `naga` crate.
 # Adds the `vulkane::safe::naga::compile_glsl` and `compile_wgsl` functions.
 naga = ["dep:naga"]
+# Enable runtime GLSL/HLSL -> SPIR-V compilation via the `shaderc` crate
+# (Khronos glslang). Adds the `vulkane::safe::shaderc::compile_glsl` function.
+# Requires either the Vulkan SDK (setting VULKAN_SDK) or a C++ build
+# toolchain (CMake, Python, a C++ compiler) at build time.
+shaderc = ["dep:shaderc"]
 # Enable #[derive(Vertex)] for automatic vertex input layout generation.
 derive = ["dep:vulkane_derive"]
 
@@ -32,6 +37,10 @@ libloading = { workspace = true }
 # Optional: GLSL/WGSL -> SPIR-V compilation via Naga (the wgpu shader translator).
 # Pulls in glsl-in, wgsl-in and spv-out features only — no other backends.
 naga = { version = "29", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }
+# Optional: GLSL/HLSL -> SPIR-V compilation via shaderc (glslang).
+# Prefers a system libshaderc (Vulkan SDK) and falls back to building
+# glslang from source — see the `shaderc` feature documentation above.
+shaderc = { version = "0.8", optional = true }
 # Optional: derive macros for vertex layout generation.
 vulkane_derive = { path = "../vulkane_derive", version = "0.1", optional = true }
 

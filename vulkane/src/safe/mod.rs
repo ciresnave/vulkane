@@ -75,6 +75,8 @@ mod instance;
 mod memory;
 #[cfg(feature = "naga")]
 pub mod naga;
+#[cfg(feature = "shaderc")]
+pub mod shaderc;
 mod physical;
 mod pipeline;
 mod query;
@@ -162,6 +164,11 @@ pub enum Error {
     /// Only emitted when the `naga` Cargo feature is enabled.
     #[cfg(feature = "naga")]
     NagaCompile(String),
+
+    /// GLSL/HLSL-to-SPIR-V compilation via [`shaderc`] failed.
+    /// Only emitted when the `shaderc` Cargo feature is enabled.
+    #[cfg(feature = "shaderc")]
+    ShadercCompile(String),
 }
 
 impl std::fmt::Display for Error {
@@ -174,6 +181,8 @@ impl std::fmt::Display for Error {
             Self::InvalidArgument(msg) => write!(f, "invalid argument: {msg}"),
             #[cfg(feature = "naga")]
             Self::NagaCompile(s) => write!(f, "GLSL compilation failed: {s}"),
+            #[cfg(feature = "shaderc")]
+            Self::ShadercCompile(s) => write!(f, "shaderc compilation failed: {s}"),
         }
     }
 }
