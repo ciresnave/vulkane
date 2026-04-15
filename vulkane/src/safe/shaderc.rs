@@ -32,7 +32,7 @@
 //! find and link the prebuilt `libshaderc_combined` shipped with it.
 
 use super::Error;
-pub use shaderc::{ShaderKind, SourceLanguage, TargetEnv};
+pub use shaderc::{EnvVersion, ShaderKind, SourceLanguage, SpirvVersion, TargetEnv};
 
 /// Errors that can occur during shaderc compilation.
 #[derive(Debug)]
