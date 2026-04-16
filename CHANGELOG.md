@@ -5,6 +5,22 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-04-16
+
+### Added
+
+- **`ShaderRegistry` for precompiled SPIR-V shaders** — new `vulkane::safe::shaders` module providing a small, shared abstraction for applications that ship compiled `.spv` artifacts (embedded via `include_bytes!` and/or loaded from disk).
+  - `ShaderSource { name: &'static str, spv: &'static [u8] }` — one entry per compiled shader.
+  - `ShaderRegistry::new().with_embedded(&[...]).with_env_override("MY_APP_OVERRIDE_DIR")` — builder-style setup.
+  - `registry.load(name) -> Cow<'_, [u8]>` — bytes.
+  - `registry.load_words(name) -> Vec<u32>` — SPIR-V word layout.
+  - `registry.load_module(&device, name) -> ShaderModule` — full device-bound module in one call.
+  - Runtime disk override: if the configured env var points at a directory and `<dir>/<name>.spv` exists, it is loaded instead of the embedded default; otherwise the registry falls through to the embedded table. Ideal for shader developers iterating without rebuilding the whole binary.
+
+### Breaking
+
+- **`Error::ShaderLoad` payload changed from `String` to `ShaderLoadError`.** The old variant preserved only a string description; the new one carries a structured enum (`NotFound` / `Io { name, source }` / `MalformedSpirv { name, byte_len }`) so consumers can match on the failure reason. Migration for manual constructions: convert `Error::ShaderLoad(format!("..."))` into the matching `ShaderLoadError` variant. Code that already used `From<ShaderLoadError> for Error` (via `?` on a `ShaderRegistry` call) needs no changes.
+
 ## [0.4.5] — 2026-04-15
 
 ### Added

@@ -84,6 +84,7 @@ mod pipeline;
 mod query;
 mod render_pass;
 mod shader;
+mod shaders;
 mod surface;
 mod swapchain;
 mod sync;
@@ -134,6 +135,7 @@ pub use render_pass::{
     RenderPassCreateInfo,
 };
 pub use shader::ShaderModule;
+pub use shaders::{ShaderLoadError, ShaderRegistry, ShaderSource};
 pub use surface::{
     EXT_METAL_SURFACE_EXTENSION, KHR_SURFACE_EXTENSION, KHR_SWAPCHAIN_EXTENSION,
     KHR_WAYLAND_SURFACE_EXTENSION, KHR_WIN32_SURFACE_EXTENSION, KHR_XCB_SURFACE_EXTENSION,
@@ -162,6 +164,14 @@ pub enum Error {
     /// description of what's wrong.
     InvalidArgument(&'static str),
 
+    /// Looking up, reading, or decoding a precompiled shader via
+    /// [`ShaderRegistry`] failed.
+    ///
+    /// This replaces the earlier `ShaderLoad(String)` variant;
+    /// `ShaderLoadError` carries the structured failure reason
+    /// (not found / I/O failure / malformed SPIR-V length).
+    ShaderLoad(ShaderLoadError),
+
     /// GLSL-to-SPIR-V compilation via [`naga`] failed.
     /// Only emitted when the `naga` Cargo feature is enabled.
     #[cfg(feature = "naga")]
@@ -186,6 +196,7 @@ impl std::fmt::Display for Error {
             Self::Vk(result) => write!(f, "Vulkan call failed: {result:?}"),
             Self::InvalidString(e) => write!(f, "invalid C string: {e}"),
             Self::InvalidArgument(msg) => write!(f, "invalid argument: {msg}"),
+            Self::ShaderLoad(e) => write!(f, "shader load failed: {e}"),
             #[cfg(feature = "naga")]
             Self::NagaCompile(s) => write!(f, "GLSL compilation failed: {s}"),
             #[cfg(feature = "shaderc")]
@@ -201,6 +212,7 @@ impl std::error::Error for Error {
         match self {
             Self::LibraryLoad(e) => Some(e),
             Self::InvalidString(e) => Some(e),
+            Self::ShaderLoad(e) => Some(e),
             _ => None,
         }
     }

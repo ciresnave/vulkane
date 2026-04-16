@@ -177,6 +177,49 @@ Supports `f32`, `[f32; 2..4]`, `u32`, `[u32; 2..4]`, `i32`,
 `[i32; 2..3]`, `[u8; 4]`, `u16`, `i16`. For per-instance data, use
 `MyStruct::instance_binding(n)` instead of `::binding(n)`.
 
+## Precompiled shader registry
+
+For applications that ship precompiled `.spv` artifacts (embedded with
+[`include_bytes!`] or shipped alongside the binary),
+[`vulkane::safe::ShaderRegistry`] gives you a small, shared abstraction
+for looking up shaders by name — plus an optional runtime disk
+override for shader developers iterating without a full rebuild.
+
+```rust
+use vulkane::safe::{ShaderRegistry, ShaderSource};
+
+// Embedded at compile time. `include_bytes!` resolves paths relative
+// to the file that invokes it, so the macro call lives in your crate.
+const EMBEDDED: &[ShaderSource] = &[
+    ShaderSource { name: "doubler", spv: include_bytes!("shaders/doubler.spv") },
+    ShaderSource { name: "reduce",  spv: include_bytes!("shaders/reduce.spv")  },
+];
+
+fn app_shaders() -> ShaderRegistry {
+    ShaderRegistry::new()
+        .with_embedded(EMBEDDED)
+        .with_env_override("MY_APP_SHADER_OVERRIDE_DIR")
+}
+
+// Later, when you have a Device:
+let module = app_shaders().load_module(&device, "doubler")?;
+```
+
+Lookup order when an override var is configured:
+
+1. `$MY_APP_SHADER_OVERRIDE_DIR/doubler.spv` on disk (if the directory
+   and file both exist).
+2. Fall back to the embedded table.
+
+`ShaderRegistry::load(name)` returns the SPIR-V bytes,
+`load_words(name)` returns a `Vec<u32>` ready for
+[`ShaderModule::from_spirv`], and `load_module(&device, name)` wraps
+the whole pipeline. Lookup errors flow through
+[`ShaderLoadError`](https://docs.rs/vulkane/latest/vulkane/safe/enum.ShaderLoadError.html)
+into the unified `Error::ShaderLoad` variant.
+
+[`include_bytes!`]: https://doc.rust-lang.org/stable/std/macro.include_bytes.html
+
 ## Runtime shader compilation
 
 Vulkane offers two optional, independent back-ends for compiling shader
