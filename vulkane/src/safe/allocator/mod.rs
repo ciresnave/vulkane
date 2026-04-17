@@ -324,7 +324,7 @@ pub struct Allocator {
     inner: Arc<AllocatorInner>,
 }
 
-struct AllocatorInner {
+pub(crate) struct AllocatorInner {
     device: Arc<DeviceInner>,
     /// Kept for budget queries via VK_EXT_memory_budget.
     physical: PhysicalDevice,
@@ -332,6 +332,126 @@ struct AllocatorInner {
     memory_properties: VkPhysicalDeviceMemoryProperties,
     /// One pool per memory type. None until first use.
     pools: Mutex<PoolState>,
+}
+
+impl AllocatorInner {
+    /// Refresh the free-region count statistic across every pool. Called
+    /// after any free/destroy that may have merged regions.
+    fn refresh_free_region_count(&self, state: &mut PoolState) {
+        let mut total = 0u32;
+        for pool in state.pools.iter().flatten() {
+            for block in &pool.blocks {
+                total += block.strategy.free_region_count();
+            }
+        }
+        for pool in state.custom_pools.values() {
+            for block in &pool.blocks {
+                total += block.strategy.free_region_count();
+            }
+        }
+        state.statistics.free_region_count = total;
+    }
+
+    /// Unmap (if mapped) and `vkFreeMemory` a block. Used by `destroy_pool`,
+    /// `free_allocation_internal`, and the allocator's own `Drop`.
+    fn free_block_memory(&self, block: &Block) {
+        if !block.mapped_ptr.is_null()
+            && let Some(unmap) = self.device.dispatch.vkUnmapMemory
+        {
+            // Safety: handle is valid; we are about to free it.
+            unsafe { unmap(self.device.handle, block.memory) };
+        }
+        if let Some(free) = self.device.dispatch.vkFreeMemory {
+            // Safety: handle is valid; we are the sole owner.
+            unsafe { free(self.device.handle, block.memory, std::ptr::null()) };
+        }
+    }
+
+    /// Return a single allocation to its pool. Called both from
+    /// [`Allocator::free`] (explicitly) and from
+    /// [`AllocationInner::Drop`] (implicitly when the last clone goes
+    /// out of scope).
+    pub(crate) fn free_allocation_internal(
+        &self,
+        location: &AllocationLocation,
+        alloc_size: u64,
+    ) {
+        let mut state = self.pools.lock().unwrap();
+        match location.kind {
+            AllocationKind::DefaultPool {
+                memory_type_index,
+                block_index,
+                tlsf_block_id,
+            } => {
+                if let Some(Some(pool)) = state.pools.get_mut(memory_type_index as usize)
+                    && let Some(block) = pool.blocks.get_mut(block_index as usize)
+                    && let BlockStrategy::Tlsf(ref mut t) = block.strategy
+                {
+                    t.free(TlsfAllocation {
+                        offset: location.offset,
+                        size: alloc_size,
+                        block_id: tlsf_block_id,
+                    });
+                }
+                state.statistics.allocation_count =
+                    state.statistics.allocation_count.saturating_sub(1);
+                state.statistics.allocation_bytes =
+                    state.statistics.allocation_bytes.saturating_sub(alloc_size);
+                self.refresh_free_region_count(&mut state);
+            }
+            AllocationKind::CustomPool {
+                pool_id,
+                block_index,
+                tlsf_block_id,
+            } => {
+                if let Some(pool) = state.custom_pools.get_mut(&pool_id)
+                    && let Some(block) = pool.blocks.get_mut(block_index as usize)
+                    && let BlockStrategy::Tlsf(ref mut t) = block.strategy
+                {
+                    // Linear pool allocations cannot be freed
+                    // individually — caller must use reset_pool. We
+                    // silently no-op the per-alloc free in that case.
+                    t.free(TlsfAllocation {
+                        offset: location.offset,
+                        size: alloc_size,
+                        block_id: tlsf_block_id,
+                    });
+                }
+                state.statistics.allocation_count =
+                    state.statistics.allocation_count.saturating_sub(1);
+                state.statistics.allocation_bytes =
+                    state.statistics.allocation_bytes.saturating_sub(alloc_size);
+                self.refresh_free_region_count(&mut state);
+            }
+            AllocationKind::Dedicated { id } => {
+                if let Some(pos) = state.dedicated_blocks.iter().position(|d| d.id == id) {
+                    let dedicated = state.dedicated_blocks.swap_remove(pos);
+                    // Unmap if needed and free.
+                    if !dedicated.mapped_ptr.is_null()
+                        && let Some(unmap) = self.device.dispatch.vkUnmapMemory
+                    {
+                        // Safety: handle is valid.
+                        unsafe { unmap(self.device.handle, dedicated.memory) };
+                    }
+                    if let Some(free) = self.device.dispatch.vkFreeMemory {
+                        // Safety: handle is valid; we are the sole owner.
+                        unsafe { free(self.device.handle, dedicated.memory, std::ptr::null()) };
+                    }
+                    state.statistics.block_count = state.statistics.block_count.saturating_sub(1);
+                    state.statistics.block_bytes =
+                        state.statistics.block_bytes.saturating_sub(dedicated.size);
+                    state.statistics.dedicated_allocation_count = state
+                        .statistics
+                        .dedicated_allocation_count
+                        .saturating_sub(1);
+                    state.statistics.allocation_count =
+                        state.statistics.allocation_count.saturating_sub(1);
+                    state.statistics.allocation_bytes =
+                        state.statistics.allocation_bytes.saturating_sub(alloc_size);
+                }
+            }
+        }
+    }
 }
 
 struct PoolState {
@@ -361,6 +481,7 @@ fn make_allocation(
     mapped_ptr: *mut std::ffi::c_void,
     kind: AllocationKind,
     user_data: u64,
+    allocator: std::sync::Weak<AllocatorInner>,
 ) -> Allocation {
     let id = state.next_alloc_id;
     state.next_alloc_id += 1;
@@ -376,6 +497,7 @@ fn make_allocation(
             memory_type_index,
             user_data,
             id,
+            allocator,
         }),
     };
     // Register the weak ref in the owning pool so defragmentation can
@@ -440,6 +562,25 @@ pub(crate) struct AllocationInner {
     pub(crate) memory_type_index: u32,
     pub(crate) user_data: u64,
     pub(crate) id: u64,
+    /// Back-reference to the owning [`AllocatorInner`]. `Weak` (not
+    /// `Arc`) so that an `Allocation` outliving its `Allocator` is a
+    /// no-op-on-drop instead of a use-after-free — the
+    /// `AllocatorInner::Drop` already releases all underlying memory
+    /// when the allocator itself goes away.
+    pub(crate) allocator: std::sync::Weak<AllocatorInner>,
+}
+
+impl Drop for AllocationInner {
+    fn drop(&mut self) {
+        // If the allocator is still alive, return our slot to the pool.
+        // If the allocator was dropped first, its own Drop has already
+        // freed the underlying VkDeviceMemory blocks — nothing to do.
+        let Some(allocator) = self.allocator.upgrade() else {
+            return;
+        };
+        let location = self.location.lock().unwrap().clone();
+        allocator.free_allocation_internal(&location, self.size);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -692,93 +833,17 @@ impl Allocator {
         Some(stats)
     }
 
-    /// Free a previously returned allocation. The user is responsible for
-    /// ensuring the resource bound to this allocation has been destroyed
-    /// (or has not yet been bound).
+    /// Free a previously returned allocation.
+    ///
+    /// Equivalent to dropping `allocation` (every `Allocation` now
+    /// `Drop`s back into the allocator automatically). Kept as an
+    /// explicit method for callers who prefer the imperative style or
+    /// want a clear "free here" line in their code.
     pub fn free(&self, allocation: Allocation) {
-        // Snapshot the current location while holding the per-allocation
-        // lock so we don't race with a defrag move.
-        let location = allocation.inner.location.lock().unwrap().clone();
-        let alloc_size = allocation.inner.size;
+        // The Drop impl on `AllocationInner` does the actual work; we
+        // just need to release our handle to it. If this was the last
+        // outstanding clone the slot is reclaimed immediately.
         drop(allocation);
-
-        let mut state = self.inner.pools.lock().unwrap();
-        match location.kind {
-            AllocationKind::DefaultPool {
-                memory_type_index,
-                block_index,
-                tlsf_block_id,
-            } => {
-                if let Some(Some(pool)) = state.pools.get_mut(memory_type_index as usize)
-                    && let Some(block) = pool.blocks.get_mut(block_index as usize)
-                    && let BlockStrategy::Tlsf(ref mut t) = block.strategy
-                {
-                    t.free(TlsfAllocation {
-                        offset: location.offset,
-                        size: alloc_size,
-                        block_id: tlsf_block_id,
-                    });
-                }
-                state.statistics.allocation_count =
-                    state.statistics.allocation_count.saturating_sub(1);
-                state.statistics.allocation_bytes =
-                    state.statistics.allocation_bytes.saturating_sub(alloc_size);
-                self.refresh_free_region_count(&mut state);
-            }
-            AllocationKind::CustomPool {
-                pool_id,
-                block_index,
-                tlsf_block_id,
-            } => {
-                if let Some(pool) = state.custom_pools.get_mut(&pool_id)
-                    && let Some(block) = pool.blocks.get_mut(block_index as usize)
-                    && let BlockStrategy::Tlsf(ref mut t) = block.strategy
-                {
-                    // Linear pool allocations cannot be freed
-                    // individually — caller must use reset_pool. We
-                    // silently no-op the per-alloc free in that case.
-                    t.free(TlsfAllocation {
-                        offset: location.offset,
-                        size: alloc_size,
-                        block_id: tlsf_block_id,
-                    });
-                }
-                state.statistics.allocation_count =
-                    state.statistics.allocation_count.saturating_sub(1);
-                state.statistics.allocation_bytes =
-                    state.statistics.allocation_bytes.saturating_sub(alloc_size);
-                self.refresh_free_region_count(&mut state);
-            }
-            AllocationKind::Dedicated { id } => {
-                if let Some(pos) = state.dedicated_blocks.iter().position(|d| d.id == id) {
-                    let dedicated = state.dedicated_blocks.swap_remove(pos);
-                    // Unmap if needed and free.
-                    if !dedicated.mapped_ptr.is_null()
-                        && let Some(unmap) = self.inner.device.dispatch.vkUnmapMemory
-                    {
-                        // Safety: handle is valid.
-                        unsafe { unmap(self.inner.device.handle, dedicated.memory) };
-                    }
-                    if let Some(free) = self.inner.device.dispatch.vkFreeMemory {
-                        // Safety: handle is valid; we are the sole owner.
-                        unsafe {
-                            free(self.inner.device.handle, dedicated.memory, std::ptr::null())
-                        };
-                    }
-                    state.statistics.block_count = state.statistics.block_count.saturating_sub(1);
-                    state.statistics.block_bytes =
-                        state.statistics.block_bytes.saturating_sub(dedicated.size);
-                    state.statistics.dedicated_allocation_count = state
-                        .statistics
-                        .dedicated_allocation_count
-                        .saturating_sub(1);
-                    state.statistics.allocation_count =
-                        state.statistics.allocation_count.saturating_sub(1);
-                    state.statistics.allocation_bytes =
-                        state.statistics.allocation_bytes.saturating_sub(alloc_size);
-                }
-            }
-        }
     }
 
     /// Allocate `size` bytes meeting `requirements` and the `info` hints,
@@ -863,6 +928,7 @@ impl Allocator {
                     mapped_ptr,
                     kind,
                     info.user_data,
+                    Arc::downgrade(&self.inner),
                 );
                 return Ok(alloc);
             }
@@ -917,6 +983,7 @@ impl Allocator {
                 tlsf_block_id: ta.block_id,
             },
             info.user_data,
+            Arc::downgrade(&self.inner),
         ))
     }
 
@@ -1001,6 +1068,7 @@ impl Allocator {
                         tlsf_block_id: tlsf_id,
                     },
                     info.user_data,
+                    Arc::downgrade(&self.inner),
                 ));
             }
         }
@@ -1069,6 +1137,7 @@ impl Allocator {
                 tlsf_block_id,
             },
             info.user_data,
+            Arc::downgrade(&self.inner),
         ))
     }
 
@@ -1190,6 +1259,7 @@ impl Allocator {
             mapped_ptr,
             AllocationKind::Dedicated { id },
             info.user_data,
+            Arc::downgrade(&self.inner),
         ))
     }
 
@@ -1213,35 +1283,36 @@ impl Allocator {
         // When the user supplies a device mask, chain a
         // VkMemoryAllocateFlagsInfo so the driver pins the allocation to
         // the requested subset of physical devices in the group.
-        let flags_info = device_mask.map(|mask| VkMemoryAllocateFlagsInfo {
-            sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-            pNext: std::ptr::null(),
-            flags: MEMORY_ALLOCATE_DEVICE_MASK_BIT,
-            deviceMask: mask,
-        });
-        let p_next: *const std::ffi::c_void = match &flags_info {
-            Some(f) => f as *const _ as *const std::ffi::c_void,
-            None => std::ptr::null(),
-        };
+        let mut chain = crate::safe::PNextChain::new();
+        if let Some(mask) = device_mask {
+            chain.push(VkMemoryAllocateFlagsInfo {
+                sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+                pNext: std::ptr::null_mut(),
+                flags: MEMORY_ALLOCATE_DEVICE_MASK_BIT,
+                deviceMask: mask,
+            });
+        }
 
         let info = VkMemoryAllocateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            pNext: p_next,
+            pNext: chain.head(),
             allocationSize: size,
             memoryTypeIndex: memory_type_index,
         };
 
         let mut handle: VkDeviceMemory = 0;
-        // Safety: info (and the optional flags_info chained via pNext)
-        // are valid for the duration of the call.
-        check(unsafe {
+        // Safety: info is valid for the duration of the call; the chain
+        // lives until dropped below.
+        let r = check(unsafe {
             allocate(
                 self.inner.device.handle,
                 &info,
                 std::ptr::null(),
                 &mut handle,
             )
-        })?;
+        });
+        drop(chain);
+        r?;
         Ok(handle)
     }
 
@@ -1337,34 +1408,16 @@ impl Allocator {
         }
     }
 
+    /// Forwarder — these helpers live on [`AllocatorInner`] now so the
+    /// `AllocationInner::Drop` impl can call them. Kept here as
+    /// `pub(crate)` shim so the rest of the file's call sites compile
+    /// unchanged.
     fn refresh_free_region_count(&self, state: &mut PoolState) {
-        let mut total = 0u32;
-        for pool in state.pools.iter().flatten() {
-            for block in &pool.blocks {
-                total += block.strategy.free_region_count();
-            }
-        }
-        for pool in state.custom_pools.values() {
-            for block in &pool.blocks {
-                total += block.strategy.free_region_count();
-            }
-        }
-        state.statistics.free_region_count = total;
+        self.inner.refresh_free_region_count(state);
     }
 
-    /// Unmap (if mapped) and `vkFreeMemory` a block. Used by both
-    /// `destroy_pool` and the allocator's own `Drop`.
     fn free_block_memory(&self, block: &Block) {
-        if !block.mapped_ptr.is_null()
-            && let Some(unmap) = self.inner.device.dispatch.vkUnmapMemory
-        {
-            // Safety: handle is valid; we are about to free it.
-            unsafe { unmap(self.inner.device.handle, block.memory) };
-        }
-        if let Some(free) = self.inner.device.dispatch.vkFreeMemory {
-            // Safety: handle is valid; we are the sole owner.
-            unsafe { free(self.inner.device.handle, block.memory, std::ptr::null()) };
-        }
+        self.inner.free_block_memory(block);
     }
 }
 

@@ -62,11 +62,13 @@
 use crate::raw::bindings::VkResult;
 
 mod allocator;
+pub mod auto;
 mod buffer;
 mod command;
 mod debug;
 mod descriptor;
-mod device;
+pub(crate) mod device;
+mod extensions;
 mod features;
 mod graphics_pipeline;
 mod image;
@@ -81,6 +83,7 @@ pub mod shaderc;
 pub mod slang;
 mod physical;
 mod pipeline;
+pub mod pnext;
 mod query;
 mod render_pass;
 mod shader;
@@ -93,7 +96,7 @@ pub use allocator::{
     Allocation, AllocationCreateInfo, AllocationStatistics, AllocationStrategy, AllocationUsage,
     Allocator, DefragmentationMove, DefragmentationPlan, PoolCreateInfo, PoolHandle,
 };
-pub use buffer::{Buffer, BufferCreateInfo, BufferUsage};
+pub use buffer::{Buffer, BufferCreateInfo, BufferUsage, MemoryRequirements};
 pub use command::{BufferCopy, ClearValue, CommandBuffer, CommandBufferRecording, CommandPool};
 pub use debug::{
     DebugCallback, DebugMessage, DebugMessageSeverity, DebugMessageType, default_callback,
@@ -105,6 +108,10 @@ pub use descriptor::{
 pub use device::{
     Device, DeviceCreateInfo, Queue, QueueCreateInfo, SignalSemaphore, WaitSemaphore,
 };
+pub use auto::{
+    CommandBufferRecordingExt, DeviceExt, InstanceExt, PhysicalDeviceExt, QueueExt,
+};
+pub use extensions::{DeviceExtensions, InstanceExtensions};
 pub use features::DeviceFeatures;
 pub use flags::{AccessFlags, AccessFlags2, PipelineStage, PipelineStage2};
 pub use graphics_pipeline::{
@@ -117,8 +124,8 @@ pub use image::{
     ImageView, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerFilter, SamplerMipmapMode,
 };
 pub use instance::{
-    ApiVersion, DEBUG_UTILS_EXTENSION, ExtensionProperties, Instance, InstanceCreateInfo,
-    KHRONOS_VALIDATION_LAYER, LayerProperties,
+    ApiVersion, ExtensionProperties, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER,
+    LayerProperties,
 };
 pub use memory::{DeviceMemory, MappedMemory, MemoryPropertyFlags};
 pub use physical::{
@@ -129,6 +136,7 @@ pub use physical::{
 pub use pipeline::{
     ComputePipeline, PipelineCache, PipelineLayout, PushConstantRange, SpecializationConstants,
 };
+pub use pnext::PNextChain;
 pub use query::{PipelineStatisticsFlags, QueryPool, QueryType};
 pub use render_pass::{
     AttachmentDescription, AttachmentLoadOp, AttachmentStoreOp, Framebuffer, RenderPass,
@@ -136,11 +144,7 @@ pub use render_pass::{
 };
 pub use shader::ShaderModule;
 pub use shaders::{ShaderLoadError, ShaderRegistry, ShaderSource};
-pub use surface::{
-    EXT_METAL_SURFACE_EXTENSION, KHR_SURFACE_EXTENSION, KHR_SWAPCHAIN_EXTENSION,
-    KHR_WAYLAND_SURFACE_EXTENSION, KHR_WIN32_SURFACE_EXTENSION, KHR_XCB_SURFACE_EXTENSION,
-    KHR_XLIB_SURFACE_EXTENSION, PresentMode, Surface, SurfaceCapabilities, SurfaceFormat,
-};
+pub use surface::{PresentMode, Surface, SurfaceCapabilities, SurfaceFormat};
 pub use swapchain::{Swapchain, SwapchainCreateInfo};
 pub use sync::{Fence, Semaphore, SemaphoreKind};
 

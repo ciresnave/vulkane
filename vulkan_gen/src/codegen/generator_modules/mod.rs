@@ -111,9 +111,13 @@ impl CodeFragment {
 
 // Export all generator modules
 pub mod const_gen;
+pub mod device_features_gen;
 pub mod enum_gen;
+pub mod extensions_builder_gen;
 pub mod extensions_gen;
 pub mod features_gen;
+pub mod safe_commands_gen;
+pub mod safe_handles_gen;
 pub mod function_gen;
 pub mod includes_gen;
 pub mod macros_gen;

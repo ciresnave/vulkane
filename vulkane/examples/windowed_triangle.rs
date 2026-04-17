@@ -27,15 +27,18 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use vulkane::raw::bindings::{
+    EXT_METAL_SURFACE_EXTENSION_NAME, KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+    KHR_WIN32_SURFACE_EXTENSION_NAME, KHR_XCB_SURFACE_EXTENSION_NAME,
+    KHR_XLIB_SURFACE_EXTENSION_NAME,
+};
 use vulkane::safe::{
     ApiVersion, AttachmentDescription, AttachmentLoadOp, AttachmentStoreOp, CommandBuffer,
-    CommandPool, DeviceCreateInfo, EXT_METAL_SURFACE_EXTENSION, Fence, Framebuffer,
-    GraphicsPipeline, GraphicsPipelineBuilder, GraphicsShaderStage, ImageLayout, ImageUsage,
-    ImageView, Instance, InstanceCreateInfo, KHR_SURFACE_EXTENSION, KHR_SWAPCHAIN_EXTENSION,
-    KHR_WAYLAND_SURFACE_EXTENSION, KHR_WIN32_SURFACE_EXTENSION, KHR_XCB_SURFACE_EXTENSION,
-    KHR_XLIB_SURFACE_EXTENSION, PipelineLayout, PipelineStage, PresentMode, QueueCreateInfo,
-    QueueFlags, RenderPass, RenderPassCreateInfo, Semaphore, ShaderModule, SignalSemaphore,
-    Surface, Swapchain, SwapchainCreateInfo, WaitSemaphore,
+    CommandPool, DeviceCreateInfo, DeviceExtensions, Fence, Framebuffer, GraphicsPipeline,
+    GraphicsPipelineBuilder, GraphicsShaderStage, ImageLayout, ImageUsage, ImageView, Instance,
+    InstanceCreateInfo, InstanceExtensions, PipelineLayout, PipelineStage, PresentMode,
+    QueueCreateInfo, QueueFlags, RenderPass, RenderPassCreateInfo, Semaphore, ShaderModule,
+    SignalSemaphore, Surface, Swapchain, SwapchainCreateInfo, WaitSemaphore,
 };
 
 const TITLE: &str = "vulkane — windowed triangle";
@@ -77,11 +80,13 @@ impl Renderer {
         let surface_ext_name = surface_extension_for(&raw_display)?;
 
         // 2. Build the instance with KHR_surface + the platform surface ext.
-        let extensions = [KHR_SURFACE_EXTENSION, surface_ext_name];
+        let instance_exts = InstanceExtensions::new()
+            .khr_surface()
+            .enable_raw(surface_ext_name);
         let instance = Instance::new(InstanceCreateInfo {
             application_name: Some(TITLE),
             api_version: ApiVersion::V1_0,
-            enabled_extensions: &extensions,
+            enabled_extensions: Some(&instance_exts),
             ..InstanceCreateInfo::default()
         })?;
 
@@ -110,10 +115,10 @@ impl Renderer {
         println!("Using GPU: {}", physical.properties().device_name());
 
         // 5. Create the device with KHR_swapchain enabled.
-        let device_extensions = [KHR_SWAPCHAIN_EXTENSION];
+        let device_exts = DeviceExtensions::new().khr_swapchain();
         let device = physical.create_device(DeviceCreateInfo {
             queue_create_infos: &[QueueCreateInfo::single(queue_family)],
-            enabled_extensions: &device_extensions,
+            enabled_extensions: Some(&device_exts),
             ..Default::default()
         })?;
         let queue = device.get_queue(queue_family, 0);
@@ -355,11 +360,11 @@ impl ApplicationHandler for App {
 
 fn surface_extension_for(display: &RawDisplayHandle) -> Result<&'static str, Box<dyn Error>> {
     Ok(match display {
-        RawDisplayHandle::Windows(_) => KHR_WIN32_SURFACE_EXTENSION,
-        RawDisplayHandle::Wayland(_) => KHR_WAYLAND_SURFACE_EXTENSION,
-        RawDisplayHandle::Xlib(_) => KHR_XLIB_SURFACE_EXTENSION,
-        RawDisplayHandle::Xcb(_) => KHR_XCB_SURFACE_EXTENSION,
-        RawDisplayHandle::AppKit(_) => EXT_METAL_SURFACE_EXTENSION,
+        RawDisplayHandle::Windows(_) => KHR_WIN32_SURFACE_EXTENSION_NAME,
+        RawDisplayHandle::Wayland(_) => KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+        RawDisplayHandle::Xlib(_) => KHR_XLIB_SURFACE_EXTENSION_NAME,
+        RawDisplayHandle::Xcb(_) => KHR_XCB_SURFACE_EXTENSION_NAME,
+        RawDisplayHandle::AppKit(_) => EXT_METAL_SURFACE_EXTENSION_NAME,
         other => return Err(format!("unsupported display handle: {other:?}").into()),
     })
 }

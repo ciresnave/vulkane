@@ -32,3 +32,8 @@ pub use result::VkResultExt;
 // Loader functionality
 pub mod loader;
 pub use loader::VulkanLibrary;
+
+// pNext chain trait (implemented for every generated struct with
+// sType/pNext head fields; impls are emitted by vulkan_gen).
+pub mod pnext;
+pub use pnext::PNextChainable;

@@ -85,8 +85,11 @@ impl Default for ApiVersion {
 
 /// The canonical name of the Khronos validation layer.
 pub const KHRONOS_VALIDATION_LAYER: &str = "VK_LAYER_KHRONOS_validation";
-/// The canonical name of the debug-utils instance extension.
-pub const DEBUG_UTILS_EXTENSION: &str = "VK_EXT_debug_utils";
+
+// `VK_EXT_debug_utils` extension-name string lives in
+// [`crate::raw::bindings::EXT_DEBUG_UTILS_EXTENSION_NAME`]. Use
+// [`InstanceExtensions::ext_debug_utils`](super::InstanceExtensions)
+// to enable it.
 
 /// Parameters for [`Instance::new`].
 ///
@@ -107,9 +110,13 @@ pub struct InstanceCreateInfo<'a> {
     /// Names of layers to enable. Each must be a layer that
     /// [`Instance::enumerate_layer_properties`] reports as available.
     pub enabled_layers: &'a [&'a str],
-    /// Names of instance extensions to enable. Each must be an extension that
-    /// [`Instance::enumerate_extension_properties`] reports as available.
-    pub enabled_extensions: &'a [&'a str],
+    /// Instance-level Vulkan extensions to enable.
+    ///
+    /// Pass a [`InstanceExtensions`](super::InstanceExtensions)
+    /// builder — every non-disabled instance extension in `vk.xml` has
+    /// a generated `<vendor>_<ext>()` method. `None` enables no
+    /// extensions.
+    pub enabled_extensions: Option<&'a super::InstanceExtensions>,
     /// Optional debug-utils callback. If `Some`, the resulting [`Instance`]
     /// will hold a `VkDebugUtilsMessengerEXT` that delivers messages to the
     /// callback. The `VK_EXT_debug_utils` extension *must* be present in
@@ -128,31 +135,33 @@ impl<'a> Default for InstanceCreateInfo<'a> {
             engine_version: ApiVersion::V1_0,
             api_version: ApiVersion::V1_0,
             enabled_layers: &[],
-            enabled_extensions: &[],
+            enabled_extensions: None,
             debug_callback: None,
         }
     }
 }
 
 impl<'a> InstanceCreateInfo<'a> {
-    /// Convenience that returns a [`InstanceCreateInfo`] preconfigured for
-    /// validation: enables [`KHRONOS_VALIDATION_LAYER`] and
-    /// [`DEBUG_UTILS_EXTENSION`], and installs a default `eprintln!`-based
-    /// callback that prints WARNING and ERROR messages to stderr.
+    /// Convenience that returns an [`InstanceCreateInfo`] preconfigured
+    /// for validation: enables [`KHRONOS_VALIDATION_LAYER`], leaves
+    /// `enabled_extensions` unset, and installs a default
+    /// `eprintln!`-based callback that prints WARNING and ERROR
+    /// messages to stderr.
     ///
-    /// Pair with `..InstanceCreateInfo::default()` if you also want to set
-    /// other fields:
+    /// Callers typically overlay a real extensions list on top:
     ///
     /// ```ignore
+    /// let exts = InstanceExtensions::new().ext_debug_utils();
     /// let info = InstanceCreateInfo {
     ///     application_name: Some("my-app"),
+    ///     enabled_extensions: Some(&exts),
     ///     ..InstanceCreateInfo::validation()
     /// };
     /// ```
     pub fn validation() -> Self {
         Self {
             enabled_layers: &[KHRONOS_VALIDATION_LAYER],
-            enabled_extensions: &[DEBUG_UTILS_EXTENSION],
+            enabled_extensions: None,
             debug_callback: Some(default_callback()),
             ..Self::default()
         }
@@ -161,6 +170,10 @@ impl<'a> InstanceCreateInfo<'a> {
 
 impl<'a> std::fmt::Debug for InstanceCreateInfo<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ext_names: &[&'static str] = self
+            .enabled_extensions
+            .map(|e| e.names())
+            .unwrap_or(&[]);
         f.debug_struct("InstanceCreateInfo")
             .field("application_name", &self.application_name)
             .field("application_version", &self.application_version)
@@ -168,7 +181,7 @@ impl<'a> std::fmt::Debug for InstanceCreateInfo<'a> {
             .field("engine_version", &self.engine_version)
             .field("api_version", &self.api_version)
             .field("enabled_layers", &self.enabled_layers)
-            .field("enabled_extensions", &self.enabled_extensions)
+            .field("enabled_extensions", &ext_names)
             .field("debug_callback", &self.debug_callback.is_some())
             .finish()
     }
@@ -367,11 +380,10 @@ impl Instance {
             .iter()
             .map(|s| CString::new(*s))
             .collect::<std::result::Result<_, _>>()?;
-        let ext_cstrings: Vec<CString> = info
-            .enabled_extensions
-            .iter()
-            .map(|s| CString::new(*s))
-            .collect::<std::result::Result<_, _>>()?;
+        let ext_cstrings: Vec<CString> = match info.enabled_extensions {
+            Some(exts) => exts.to_cstrings()?,
+            None => Vec::new(),
+        };
 
         // Vulkan's bindings declare these as `*const *mut c_char` (rather
         // than the const-correct `*const *const c_char`); cast through.

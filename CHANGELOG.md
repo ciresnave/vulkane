@@ -5,6 +5,41 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-04-16
+
+Major version: every Vulkan extension and feature bit is now reachable from safe code via generated builders. Layer 1 + Layer 2 + Layer 3 of the extension-handling architecture are all landed, plus **Phase 1 of Layer 4** — RAII wrappers for every previously-unwrapped Vulkan handle type.
+
+### Added
+
+- **`PNextChainable` trait and `PNextChain` builder** (Layer 2) — a generic pNext-chain mechanism replaces every hand-rolled pointer-patching site in the crate.
+  - `PNextChainable` is implemented by the generator for every `#[repr(C)]` struct in `vk.xml` whose first two fields are `sType: VkStructureType` and `pNext` — **1225 impls** emitted from the current spec.
+  - `PNextChain` owns heap-stable boxed nodes, relinks `pNext` pointers on push, and supports typed read-back (`get::<T>()` / `get_mut::<T>()`) for output-direction queries like `vkGetPhysicalDeviceMemoryProperties2` + `VK_EXT_memory_budget`.
+  - Every ad-hoc pNext site in `vulkane` has been rewritten to use the chain (device creation, queue submit, semaphore create, memory allocate, memory-budget query).
+- **Generated `DeviceFeatures`** (Layer 1) — `vulkan_gen` now emits one `with_<feature>()` builder method per unique feature bit across every struct that extends `VkPhysicalDeviceFeatures2`. **541 feature-bit methods** generated from the current spec. Name collisions between core-aggregate structs (`VkPhysicalDeviceVulkan12Features`) and promoted/extension structs (`VkPhysicalDeviceTimelineSemaphoreFeaturesKHR`) are resolved by routing the method to the highest-priority struct; the other path remains reachable via `chain_extension_feature()`.
+- **Generated `DeviceExtensions` / `InstanceExtensions`** (Layer 3) — one `<vendor>_<ext>()` enable-method per non-disabled extension, with transitive `requires` resolved at generation time. **416 device + 44 instance** methods emitted from the current spec. Fresh extensions not yet in your copy of `vk.xml` are reachable through `enable_raw(name)`.
+- **Generated RAII handle wrappers** (Layer 4 — Phase 1) — one safe, Drop-aware wrapper for every Vulkan handle type whose Create / Destroy pair fits the standard four-/three-parameter shape and isn't already covered by a hand-written wrapper. **25 new safe types** in `vulkane::safe::auto`, including `AccelerationStructureKHR`, `AccelerationStructureNV`, `MicromapEXT`, `VideoSessionKHR`, `VideoSessionParametersKHR`, `DeferredOperationKHR`, `DescriptorUpdateTemplate`, `PrivateDataSlot`, `ValidationCacheEXT`, `BufferView`, `SamplerYcbcrConversion`, `IndirectCommandsLayoutEXT/NV`, `IndirectExecutionSetEXT`, and more. Creating or destroying any of these previously required `unsafe { dispatch().vk… }` — now it's one safe call with automatic cleanup on drop.
+- **`Allocation` now implements `Drop`** — a forgotten `allocator.free()` no longer leaks the slot in the TLSF pool. `AllocationInner` carries a `Weak<AllocatorInner>` back-reference, so the slot is reclaimed when the last `Arc<AllocationInner>` clone goes out of scope. `Allocator::free(allocation)` is kept for callers who prefer the imperative style — it now just `drop`s. `vulkane::safe::MemoryRequirements` is now re-exported from the crate root so call sites that build it directly don't need to reach into the buffer module.
+- **Generated safe-method ext traits for every Vulkan command** (Layer 4 — Phase 2) — **600 safe methods** across 5 ext traits (`DeviceExt` 237, `CommandBufferRecordingExt` 266, `PhysicalDeviceExt` 78, `QueueExt` 15, `InstanceExt` 4). Every Vulkan command with a recognizable dispatch target now has a safe method — no `unsafe { dispatch().vkX.unwrap()(…) }` required anywhere in user code. Methods keep the `vk_` prefix (e.g. `vk_cmd_trace_rays_khr`), take raw Vulkan parameter types, and return `Result<VkResult>` for VkResult-returning commands (with error codes in `Err`, success codes like `VK_INCOMPLETE` / `VK_SUBOPTIMAL_KHR` in `Ok`). Users opt in per trait: `use vulkane::safe::CommandBufferRecordingExt;`. Ergonomic sugar (slice collapsing, typed output params, enumerate helpers) deferred to a future polish pass.
+- `camel_to_snake` helper in `vulkan_gen::codegen` for consistent Vulkan identifier → Rust method-name conversion across generators.
+
+### Breaking
+
+- **`DeviceCreateInfo::enabled_extensions` is now `Option<&DeviceExtensions>`** (previously `&[&str]`). Migrate:
+
+  ```rust
+  // before
+  let exts = [KHR_SWAPCHAIN_EXTENSION];
+  DeviceCreateInfo { enabled_extensions: &exts, .. }
+  // after
+  let exts = DeviceExtensions::new().khr_swapchain();
+  DeviceCreateInfo { enabled_extensions: Some(&exts), .. }
+  ```
+
+- **`InstanceCreateInfo::enabled_extensions` is now `Option<&InstanceExtensions>`** (previously `&[&str]`). Same migration pattern.
+- **`DeviceFeatures` fields and hand-written builder methods are gone**, replaced by the 541 generated `with_<feature>()` methods. Callers who were constructing `DeviceFeatures { features11: …, features12: …, .. }` manually should use the builder instead. The generator picks names identical to pre-existing ones (`with_timeline_semaphore`, `with_buffer_device_address`, …) so most call sites are unaffected.
+- **Hand-written extension-name constants removed** (`KHR_SURFACE_EXTENSION`, `KHR_SWAPCHAIN_EXTENSION`, `DEBUG_UTILS_EXTENSION`, `EXT_METAL_SURFACE_EXTENSION`, `KHR_WIN32/WAYLAND/XLIB/XCB_SURFACE_EXTENSION`). Use the generated `crate::raw::bindings::<NAME>_EXTENSION_NAME` constants or (preferred) the `<vendor>_<ext>()` builder methods.
+- **`PNextChainable` requires `Clone + Default + 'static`** (previously `Default + 'static`). All `vk.xml`-generated structs derive `Clone`, so this is only a source-level break for code that hand-implemented the trait.
+
 ## [0.5.0] — 2026-04-16
 
 ### Added

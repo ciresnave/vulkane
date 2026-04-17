@@ -26,6 +26,62 @@ pub fn generate_bindings(
     generate_rust_bindings(intermediate_dir, output_path)
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
 
+    // Step 3: Generate the safe-layer companion files (Layer 1 / 3).
+    // These live alongside `vulkan_bindings.rs` and are `include!`'d
+    // from the vulkane `safe` module.
+    let out_dir = output_path
+        .parent()
+        .ok_or("output_path must have a parent directory")?;
+
+    let features_out = out_dir.join("device_features_generated.rs");
+    let n_features =
+        codegen::generator_modules::device_features_gen::generate_device_features(
+            intermediate_dir,
+            &features_out,
+        )
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
+    codegen::logging::log_info(&format!(
+        "Generated DeviceFeatures with {} feature-bit methods",
+        n_features
+    ));
+
+    let ext_stats =
+        codegen::generator_modules::extensions_builder_gen::generate_extensions_builders(
+            intermediate_dir,
+            out_dir,
+        )
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
+    codegen::logging::log_info(&format!(
+        "Generated DeviceExtensions ({} methods) and InstanceExtensions ({} methods)",
+        ext_stats.device_methods, ext_stats.instance_methods
+    ));
+
+    let handles_out = out_dir.join("auto_handles_generated.rs");
+    let handle_stats = codegen::generator_modules::safe_handles_gen::generate_safe_handles(
+        intermediate_dir,
+        &handles_out,
+    )
+    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
+    codegen::logging::log_info(&format!(
+        "Generated {} auto-RAII handle wrappers ({} skipped)",
+        handle_stats.generated, handle_stats.skipped
+    ));
+
+    let cmd_stats = codegen::generator_modules::safe_commands_gen::generate_safe_commands(
+        intermediate_dir,
+        out_dir,
+    )
+    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
+    codegen::logging::log_info(&format!(
+        "Generated ext-trait methods: Device={}, Instance={}, PhysicalDevice={}, Queue={}, CommandBuffer={} ({} skipped)",
+        cmd_stats.device_methods,
+        cmd_stats.instance_methods,
+        cmd_stats.physical_device_methods,
+        cmd_stats.queue_methods,
+        cmd_stats.command_buffer_methods,
+        cmd_stats.skipped
+    ));
+
     Ok(())
 }
 

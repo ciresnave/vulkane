@@ -220,6 +220,22 @@ pub struct CommandBufferRecording<'a> {
 }
 
 impl<'a> CommandBufferRecording<'a> {
+    /// Raw `VkCommandBuffer` currently being recorded. Used by the
+    /// auto-generated `CommandBufferRecordingExt` impl; the `pub(crate)`
+    /// visibility keeps it off the public API surface while letting
+    /// generated code inside `vulkane::safe::auto` reach it.
+    #[inline]
+    pub(crate) fn raw_cmd(&self) -> VkCommandBuffer {
+        self.buffer.handle
+    }
+
+    /// Raw `VkDeviceDispatchTable` for the device this command buffer
+    /// belongs to.
+    #[inline]
+    pub(crate) fn device_dispatch(&self) -> &VkDeviceDispatchTable {
+        &self.buffer.device.dispatch
+    }
+
     /// Record `vkCmdFillBuffer`: fill `size` bytes of `buffer` starting at
     /// `dst_offset` with the constant `data`.
     pub fn fill_buffer(&mut self, buffer: &Buffer, dst_offset: u64, size: u64, data: u32) {

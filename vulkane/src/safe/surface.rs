@@ -35,20 +35,13 @@ use super::{Error, Instance, Result, check};
 use crate::raw::bindings::*;
 use std::sync::Arc;
 
-/// Standard names for the surface-related instance extensions.
-pub const KHR_SURFACE_EXTENSION: &str = "VK_KHR_surface";
-/// Required on Windows for [`Surface::from_win32`].
-pub const KHR_WIN32_SURFACE_EXTENSION: &str = "VK_KHR_win32_surface";
-/// Required on Wayland Linux for [`Surface::from_wayland`].
-pub const KHR_WAYLAND_SURFACE_EXTENSION: &str = "VK_KHR_wayland_surface";
-/// Required on Xlib Linux / *BSD for [`Surface::from_xlib`].
-pub const KHR_XLIB_SURFACE_EXTENSION: &str = "VK_KHR_xlib_surface";
-/// Required on Xcb Linux / *BSD for [`Surface::from_xcb`].
-pub const KHR_XCB_SURFACE_EXTENSION: &str = "VK_KHR_xcb_surface";
-/// Required on macOS / iOS for [`Surface::from_metal`].
-pub const EXT_METAL_SURFACE_EXTENSION: &str = "VK_EXT_metal_surface";
-/// Required on every device that owns a swapchain.
-pub const KHR_SWAPCHAIN_EXTENSION: &str = "VK_KHR_swapchain";
+// Extension name string constants live in [`crate::raw::bindings`] —
+// the code generator emits `KHR_SURFACE_EXTENSION_NAME` etc. from
+// vk.xml, so we don't hand-maintain a duplicate set here. Prefer the
+// generated `<vendor>_<ext>()` builder methods on
+// [`InstanceExtensions`](super::InstanceExtensions) and
+// [`DeviceExtensions`](super::DeviceExtensions) over reaching for the
+// raw strings directly.
 
 /// A safe wrapper around `VkSurfaceKHR`.
 ///

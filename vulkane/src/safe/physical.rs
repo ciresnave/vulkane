@@ -25,6 +25,7 @@
 
 use super::instance::{ApiVersion, ExtensionProperties, InstanceInner};
 use super::{Device, DeviceCreateInfo, Error, Result, check};
+use crate::raw::PNextChainable;
 use crate::raw::bindings::*;
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -302,19 +303,19 @@ impl PhysicalDevice {
             .dispatch
             .vkGetPhysicalDeviceMemoryProperties2?;
 
-        // Build a chain: VkPhysicalDeviceMemoryProperties2 -> budget.
-        let mut budget = VkPhysicalDeviceMemoryBudgetPropertiesEXT {
-            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
-            ..Default::default()
-        };
+        // Output-direction chain: driver writes into both structs.
+        let mut budget_chain = crate::safe::PNextChain::new();
+        budget_chain.push(VkPhysicalDeviceMemoryBudgetPropertiesEXT::new_pnext());
         let mut props2 = VkPhysicalDeviceMemoryProperties2 {
             sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
-            pNext: &mut budget as *mut _ as *mut _,
+            pNext: budget_chain.head_mut(),
             ..Default::default()
         };
-        // Safety: handle is valid; outputs live for the call.
+        // Safety: handle is valid; props2 and the chain both live for
+        // the call's duration.
         unsafe { get2(self.handle, &mut props2) };
 
+        let budget = budget_chain.get::<VkPhysicalDeviceMemoryBudgetPropertiesEXT>()?;
         Some(MemoryBudget {
             heap_count: props2.memoryProperties.memoryHeapCount,
             budget: budget.heapBudget,

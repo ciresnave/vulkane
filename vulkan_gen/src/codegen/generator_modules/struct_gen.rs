@@ -14,6 +14,12 @@ use crate::parser::vk_types::{EnumDefinition, StructDefinition, TypeDefinition};
 /// avoid undefined behavior from `mem::zeroed()`.
 type EnumDefaultMap = std::collections::HashMap<String, String>;
 
+/// Set of `VkStructureType` variant C names that are actually emitted
+/// into the generated `VkStructureType` enum. Used to skip
+/// `PNextChainable` impls for structs whose sType belongs to a disabled
+/// API variant (e.g. Vulkan SC) that vulkane doesn't compile in.
+type KnownStructureTypes = std::collections::HashSet<String>;
+
 /// Sanitize a type name to be a valid Rust identifier
 fn sanitize_type_name(name: &str) -> String {
     let mut s = String::with_capacity(name.len());
@@ -51,6 +57,7 @@ impl StructGenerator {
         struct_def: &StructDefinition,
         _all_type_names: &std::collections::HashSet<String>,
         enum_defaults: &EnumDefaultMap,
+        known_structure_types: &KnownStructureTypes,
         _output_dir: &Path,
     ) -> String {
         let mut code = String::new();
@@ -154,7 +161,95 @@ impl StructGenerator {
         code.push_str("    }\n");
         code.push_str("}\n\n");
 
+        // Emit `unsafe impl PNextChainable` for every struct whose first
+        // two fields are `sType: VkStructureType` and `pNext: *mut c_void`
+        // AND whose sType has a fixed `values="VK_STRUCTURE_TYPE_..."`
+        // attribute in vk.xml. This captures every extension / feature
+        // struct that can participate in a pNext chain, and skips:
+        //   - the generic base structs `VkBaseOutStructure` / `VkBaseInStructure`
+        //     which don't carry a fixed sType,
+        //   - any struct without the chain header layout,
+        //   - structs whose sType lives in a disabled API variant
+        //     (e.g. Vulkan SC), so the emitted impl never references a
+        //     variant that isn't in the generated `VkStructureType`.
+        if let Some(impl_code) = self.try_emit_pnext_chainable_impl(struct_def, known_structure_types) {
+            code.push_str(&impl_code);
+        }
+
         code
+    }
+
+    /// If `struct_def` is layout-compatible with the Vulkan `pNext`
+    /// chain header (sType+pNext first) and its sType has a fixed
+    /// `values="VK_STRUCTURE_TYPE_..."` attribute, produce the
+    /// `unsafe impl PNextChainable` block. Returns `None` if the struct
+    /// doesn't qualify.
+    ///
+    /// The emitted impl lives in the same file as the struct definition,
+    /// which is `include!`'d into `crate::raw::bindings`, so the
+    /// `super::pnext::PNextChainable` path resolves to
+    /// `crate::raw::pnext::PNextChainable` at compile time.
+    fn try_emit_pnext_chainable_impl(
+        &self,
+        struct_def: &StructDefinition,
+        known_structure_types: &KnownStructureTypes,
+    ) -> Option<String> {
+        // Skip aliases and unions — only concrete structs can carry the
+        // chain header.
+        if struct_def.is_alias || struct_def.category == "union" {
+            return None;
+        }
+
+        // Need at least two members to even consider this.
+        if struct_def.members.len() < 2 {
+            return None;
+        }
+
+        let first = &struct_def.members[0];
+        let second = &struct_def.members[1];
+
+        // First field must be `sType: VkStructureType`.
+        if first.name != "sType" || first.type_name != "VkStructureType" {
+            return None;
+        }
+
+        // Second field must be `pNext`. We don't insist on an exact type
+        // spelling because vk.xml encodes it as `void*` with optional
+        // const qualification; the struct itself is emitted with either
+        // `*mut c_void` or `*const c_void` depending on direction, but
+        // both layouts are identical for pNext-chain purposes.
+        if second.name != "pNext" {
+            return None;
+        }
+
+        // First field must have a fixed sType value (e.g.
+        // `values="VK_STRUCTURE_TYPE_APPLICATION_INFO"`). Skip any
+        // generic base structs (VkBaseInStructure / VkBaseOutStructure)
+        // that omit this attribute.
+        let stype_c_name_raw = first.values.as_deref()?;
+        // Spec values are comma-separated in principle; we only use the
+        // first entry (no struct in the current spec carries multiple).
+        let stype_c_name = stype_c_name_raw.split(',').next()?.trim();
+        if stype_c_name.is_empty() {
+            return None;
+        }
+        // Skip structs whose sType belongs to a disabled API variant —
+        // otherwise the impl would reference a variant that doesn't exist
+        // in the emitted `VkStructureType` enum and fail to compile.
+        if !known_structure_types.contains(stype_c_name) {
+            return None;
+        }
+        let variant = stype_c_name
+            .strip_prefix("VK_")
+            .unwrap_or(stype_c_name)
+            .to_string();
+
+        let struct_name = sanitize_type_name(&struct_def.name);
+        Some(format!(
+            "unsafe impl super::pnext::PNextChainable for {struct_name} {{\n\
+             \x20   const STRUCTURE_TYPE: VkStructureType = VkStructureType::{variant};\n\
+             }}\n\n"
+        ))
     }
 
     /// Determine if a struct can derive Copy trait
@@ -403,6 +498,29 @@ impl StructGenerator {
         map
     }
 
+    /// Build the set of `VkStructureType` variant C names present in
+    /// the parsed enums. Used to skip `PNextChainable` impls whose sType
+    /// was stripped by the api-variant filter in the parser.
+    fn build_known_structure_types(&self, input_dir: &Path) -> KnownStructureTypes {
+        let mut set = KnownStructureTypes::new();
+        let enums_path = input_dir.join("enums.json");
+        let Ok(content) = fs::read_to_string(&enums_path) else {
+            return set;
+        };
+        let Ok(enums) = serde_json::from_str::<Vec<EnumDefinition>>(&content) else {
+            return set;
+        };
+        for e in &enums {
+            if e.name != "VkStructureType" {
+                continue;
+            }
+            for v in &e.values {
+                set.insert(v.name.clone());
+            }
+        }
+        set
+    }
+
     /// Generate code for all structs in the input directory
     fn generate_all_structs(
         &self,
@@ -435,6 +553,13 @@ impl StructGenerator {
         // Default impls can use it instead of `mem::zeroed()` (which is UB).
         let enum_defaults = self.build_enum_defaults(input_dir);
 
+        // Build the set of VkStructureType variants that actually made it
+        // into the emitted enum. The parser already drops vulkansc-only
+        // `<feature>` blocks, so variants they introduced aren't present;
+        // we use this set to suppress PNextChainable impls that would
+        // otherwise reference missing variants.
+        let known_structure_types = self.build_known_structure_types(input_dir);
+
         // Generate code
         let mut generated_code = String::new();
 
@@ -450,6 +575,7 @@ impl StructGenerator {
                 struct_def,
                 all_type_names,
                 &enum_defaults,
+                &known_structure_types,
                 output_dir,
             ));
         }
@@ -560,6 +686,127 @@ mod tests {
             generator.map_type_to_rust("char", false, 0, true, &Some("256".to_string())),
             "[c_char; 256]"
         );
+    }
+
+    fn mk_member(name: &str, type_name: &str, values: Option<&str>) -> crate::parser::vk_types::StructMember {
+        crate::parser::vk_types::StructMember {
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+            optional: None,
+            len: None,
+            altlen: None,
+            noautovalidity: None,
+            values: values.map(|s| s.to_string()),
+            limittype: None,
+            selector: None,
+            selection: None,
+            externsync: None,
+            objecttype: None,
+            deprecated: None,
+            comment: None,
+            api: None,
+            definition: String::new(),
+            raw_content: String::new(),
+        }
+    }
+
+    fn mk_struct(name: &str, members: Vec<crate::parser::vk_types::StructMember>) -> StructDefinition {
+        StructDefinition {
+            name: name.to_string(),
+            category: "struct".to_string(),
+            structextends: None,
+            returnedonly: None,
+            comment: None,
+            allowduplicate: None,
+            deprecated: None,
+            alias: None,
+            api: None,
+            members,
+            raw_content: String::new(),
+            is_alias: false,
+            source_line: None,
+        }
+    }
+
+    fn known_stypes(names: &[&str]) -> KnownStructureTypes {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn emits_pnext_impl_for_chain_header_struct() {
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkPhysicalDeviceFooFeaturesKHR",
+            vec![
+                mk_member("sType", "VkStructureType", Some("VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FOO_FEATURES_KHR")),
+                mk_member("pNext", "void", None),
+                mk_member("foo", "VkBool32", None),
+            ],
+        );
+        let known = known_stypes(&["VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FOO_FEATURES_KHR"]);
+        let impl_code = g.try_emit_pnext_chainable_impl(&s, &known).expect("should emit impl");
+        assert!(impl_code.contains("unsafe impl super::pnext::PNextChainable for VkPhysicalDeviceFooFeaturesKHR"));
+        assert!(impl_code.contains("VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FOO_FEATURES_KHR"));
+    }
+
+    #[test]
+    fn skips_structs_without_chain_header() {
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkExtent2D",
+            vec![
+                mk_member("width", "uint32_t", None),
+                mk_member("height", "uint32_t", None),
+            ],
+        );
+        assert!(g.try_emit_pnext_chainable_impl(&s, &known_stypes(&[])).is_none());
+    }
+
+    #[test]
+    fn skips_base_structures_with_no_fixed_stype() {
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkBaseOutStructure",
+            vec![
+                mk_member("sType", "VkStructureType", None),
+                mk_member("pNext", "void", None),
+            ],
+        );
+        assert!(g.try_emit_pnext_chainable_impl(&s, &known_stypes(&[])).is_none());
+    }
+
+    #[test]
+    fn skips_unions_and_aliases() {
+        let g = StructGenerator::new();
+        let known = known_stypes(&["VK_STRUCTURE_TYPE_APPLICATION_INFO"]);
+        let mut s = mk_struct(
+            "VkWeirdUnion",
+            vec![
+                mk_member("sType", "VkStructureType", Some("VK_STRUCTURE_TYPE_APPLICATION_INFO")),
+                mk_member("pNext", "void", None),
+            ],
+        );
+        s.category = "union".to_string();
+        assert!(g.try_emit_pnext_chainable_impl(&s, &known).is_none());
+        s.category = "struct".to_string();
+        s.is_alias = true;
+        assert!(g.try_emit_pnext_chainable_impl(&s, &known).is_none());
+    }
+
+    #[test]
+    fn skips_struct_whose_stype_is_not_emitted() {
+        // Mirrors the Vulkan-SC case: the struct is defined but its sType
+        // enum variant is absent from VkStructureType, so we must skip.
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkDeviceObjectReservationCreateInfo",
+            vec![
+                mk_member("sType", "VkStructureType", Some("VK_STRUCTURE_TYPE_DEVICE_OBJECT_RESERVATION_CREATE_INFO")),
+                mk_member("pNext", "void", None),
+            ],
+        );
+        // known_stypes does NOT contain the variant.
+        assert!(g.try_emit_pnext_chainable_impl(&s, &known_stypes(&["VK_STRUCTURE_TYPE_APPLICATION_INFO"])).is_none());
     }
 
     #[test]

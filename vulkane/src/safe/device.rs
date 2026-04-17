@@ -31,6 +31,7 @@
 //! safe wrapper doesn't cover yet. Combine with [`.raw()`](Device::raw)
 //! for the first argument.
 
+use super::extensions::DeviceExtensions;
 use super::features::DeviceFeatures;
 use super::flags::PipelineStage;
 use super::physical::PhysicalDevice;
@@ -38,7 +39,7 @@ use super::sync::{Fence, Semaphore};
 use super::{Error, Result, check};
 use crate::raw::VulkanLibrary;
 use crate::raw::bindings::*;
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CString, c_char};
 use std::sync::Arc;
 
 /// One semaphore wait in [`Queue::submit_with_sync`].
@@ -152,16 +153,21 @@ impl SignalSemaphore<'_> {
 pub struct DeviceCreateInfo<'a> {
     /// One or more queues to create from queue families.
     pub queue_create_infos: &'a [QueueCreateInfo],
-    /// Names of device extensions to enable. Each must be one that
-    /// [`PhysicalDevice::enumerate_extension_properties`] reports as available.
-    pub enabled_extensions: &'a [&'a str],
-    /// Optional Vulkan feature bits to enable. When `Some`, the safe
-    /// wrapper builds a `VkPhysicalDeviceFeatures2` chain (with the 1.1
-    /// / 1.2 / 1.3 sub-structs as needed) and passes it via `pNext` to
-    /// `vkCreateDevice`.
+    /// Device-level Vulkan extensions to enable.
     ///
-    /// When `None`, no features are enabled — equivalent to passing
-    /// `DeviceFeatures::default()`.
+    /// Each `<vendor>_<ext>()` method on [`DeviceExtensions`] appends a
+    /// generated extension-name constant; transitive `requires`
+    /// dependencies are resolved at generation time. Pass `None` to
+    /// create a device with only core functionality.
+    pub enabled_extensions: Option<&'a DeviceExtensions>,
+    /// Optional Vulkan feature bits to enable. When `Some`, the safe
+    /// wrapper attaches the builder's pNext chain (with
+    /// `VkPhysicalDeviceFeatures2` at the head plus any per-version or
+    /// per-extension feature struct the caller toggled via
+    /// `with_<feature>()`) to `VkDeviceCreateInfo.pNext`.
+    ///
+    /// Pass `None` to enable no features — equivalent to
+    /// `DeviceFeatures::new()`.
     pub enabled_features: Option<&'a DeviceFeatures>,
 }
 
@@ -173,7 +179,7 @@ impl<'a> Default for DeviceCreateInfo<'a> {
     fn default() -> Self {
         Self {
             queue_create_infos: &[],
-            enabled_extensions: &[],
+            enabled_extensions: None,
             enabled_features: None,
         }
     }
@@ -274,109 +280,52 @@ impl Device {
             });
         }
 
-        // Owned CString vectors for extension names — kept alive across the
-        // create call.
-        let ext_cstrings: Vec<CString> = info
-            .enabled_extensions
-            .iter()
-            .map(|s| CString::new(*s))
-            .collect::<std::result::Result<_, _>>()?;
+        // Owned CString vectors for extension names — kept alive across
+        // the create call. Empty when the caller passes no extensions.
+        let ext_cstrings: Vec<CString> = match info.enabled_extensions {
+            Some(exts) => exts.to_cstrings()?,
+            None => Vec::new(),
+        };
         let ext_ptrs: Vec<*mut c_char> = ext_cstrings
             .iter()
             .map(|s| s.as_ptr() as *mut c_char)
             .collect();
 
-        // Build the optional VkPhysicalDeviceFeatures2 chain. Each
-        // sub-struct's pNext points at the next one. Both `chain_owned`
-        // and `features2_owned` must outlive the create call, so we
-        // bind them with explicit `let`.
-        let chain_owned: Option<(
-            VkPhysicalDeviceFeatures2,
-            VkPhysicalDeviceVulkan11Features,
-            VkPhysicalDeviceVulkan12Features,
-            VkPhysicalDeviceVulkan13Features,
-        )>;
-        let p_next: *const c_void;
-        let p_enabled_features: *const VkPhysicalDeviceFeatures;
+        // Build the pNext chain for VkDeviceCreateInfo. PNextChain owns
+        // each link on the heap so addresses stay stable until the chain
+        // is dropped at end of scope.
+        //
+        // Order (Vulkan is order-insensitive within a chain):
+        //   VkDeviceGroupDeviceCreateInfo (multi-GPU only)
+        //   [user's DeviceFeatures chain: features2 + core-version + extension structs]
+        let mut chain = super::pnext::PNextChain::new();
 
-        if let Some(f) = info.enabled_features {
-            // Lay out the chain in reverse (innermost first) so each
-            // pNext can point at a stable address.
-            //
-            //   features2 -> v11 -> v12 -> v13 -> null
-            //
-            // The pNext is a `*mut c_void` per Vulkan, so we have to
-            // const-cast our way out of immutable references.
-            let mut v13 = f.features13;
-            v13.pNext = std::ptr::null_mut();
-
-            let mut v12 = f.features12;
-            v12.pNext = (&v13 as *const _ as *mut c_void).cast();
-            // We need v12.pNext to point at v13. But v13 is a local — it
-            // moves into the tuple below; the address is only stable
-            // *after* the tuple is on the stack. So we patch pNext after
-            // construction. (See chain_owned binding below.)
-
-            let mut v11 = f.features11;
-            v11.pNext = std::ptr::null_mut();
-
-            let mut features2 = VkPhysicalDeviceFeatures2 {
-                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-                pNext: std::ptr::null_mut(),
-                features: f.features10,
-            };
-            features2.pNext = std::ptr::null_mut();
-
-            chain_owned = Some((features2, v11, v12, v13));
-
-            // Now patch pNext pointers to refer to the stable tuple.
-            // Safety: borrow_chain has Some so unwrap is fine. The tuple
-            // is bound for the rest of this function so the references
-            // are valid until vkCreateDevice returns.
-            let chain_ref = chain_owned.as_ref().unwrap();
-            // chain_ref is (&features2, &v11, &v12, &v13)
-            // We need to mutate the pNext fields, so cast through.
-            unsafe {
-                let f2_ptr = &chain_ref.0 as *const _ as *mut VkPhysicalDeviceFeatures2;
-                let v11_ptr = &chain_ref.1 as *const _ as *mut VkPhysicalDeviceVulkan11Features;
-                let v12_ptr = &chain_ref.2 as *const _ as *mut VkPhysicalDeviceVulkan12Features;
-                let v13_ptr = &chain_ref.3 as *const _ as *mut VkPhysicalDeviceVulkan13Features;
-                (*f2_ptr).pNext = v11_ptr.cast();
-                (*v11_ptr).pNext = v12_ptr.cast();
-                (*v12_ptr).pNext = v13_ptr.cast();
-                (*v13_ptr).pNext = std::ptr::null_mut();
-            }
-            p_next = &chain_ref.0 as *const _ as *const c_void;
-            // When using features2 in pNext, pEnabledFeatures must be null.
-            p_enabled_features = std::ptr::null();
-        } else {
-            chain_owned = None;
-            p_next = std::ptr::null();
-            p_enabled_features = std::ptr::null();
-        }
-
-        // If this is a multi-device group, prepend a
-        // VkDeviceGroupDeviceCreateInfo to the pNext chain.
-        let group_info_owned: Option<VkDeviceGroupDeviceCreateInfo>;
-        let final_p_next: *const c_void = if raw_physical_handles.len() > 1 {
-            let mut g = VkDeviceGroupDeviceCreateInfo {
+        if raw_physical_handles.len() > 1 {
+            chain.push(VkDeviceGroupDeviceCreateInfo {
                 sType: VkStructureType::STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO,
-                pNext: p_next, // chain in the existing pNext (features, etc.)
+                pNext: std::ptr::null_mut(),
                 physicalDeviceCount: raw_physical_handles.len() as u32,
                 pPhysicalDevices: raw_physical_handles.as_ptr(),
-            };
-            // Bind to a stable address.
-            group_info_owned = Some(g);
-            // Re-borrow once it's settled.
-            let g_ref = group_info_owned.as_ref().unwrap();
-            // Safety: g_ref lives until end of scope.
-            g = *g_ref;
-            let _ = g;
-            group_info_owned.as_ref().unwrap() as *const _ as *const c_void
+            });
+        }
+
+        let p_enabled_features: *const VkPhysicalDeviceFeatures = if let Some(features) =
+            info.enabled_features
+        {
+            // Clone the user's chain so repeated calls with the same
+            // `&DeviceFeatures` don't invalidate it. The chain's nodes
+            // are each heap-boxed — cloning means we build a parallel
+            // chain with fresh boxes of the same struct content.
+            //
+            // Using features2 in pNext requires pEnabledFeatures to be
+            // null.
+            chain.append(features.clone_chain_for_device_create());
+            std::ptr::null()
         } else {
-            group_info_owned = None;
-            p_next
+            std::ptr::null()
         };
+
+        let final_p_next = chain.head();
 
         let create_info = VkDeviceCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -394,14 +343,12 @@ impl Device {
         };
 
         let mut handle: VkDevice = std::ptr::null_mut();
-        // Safety: create_info is valid for the call. raw_infos, name
-        // CStrings, the chain_owned tuple, raw_physical_handles, and
-        // group_info_owned all live until end of scope.
+        // Safety: create_info is valid for the call. raw_infos, ext_cstrings,
+        // the PNextChain, and raw_physical_handles all live until end of
+        // scope (after this check call returns).
         check(unsafe { create(physical.handle, &create_info, std::ptr::null(), &mut handle) })?;
-        // Suppress dead-code warning for the chain bindings — their
-        // *purpose* is to live until after the call.
-        let _ = chain_owned;
-        let _ = group_info_owned;
+        // Keep the chain alive until after the Vulkan call returns.
+        drop(chain);
 
         // Load device-level dispatch table.
         // Safety: handle and instance are both valid.
@@ -627,43 +574,19 @@ impl Queue {
             .map(|s| s.device_index)
             .collect();
 
-        // Build the timeline submit info chain. We always include it; for
-        // binary-only submits the per-semaphore values are ignored by the
-        // implementation. The pointers must outlive the submit call, so we
-        // bind them with explicit `let`.
-        let timeline_info = VkTimelineSemaphoreSubmitInfo {
-            sType: VkStructureType::STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-            pNext: std::ptr::null(),
-            waitSemaphoreValueCount: raw_wait_values.len() as u32,
-            pWaitSemaphoreValues: if raw_wait_values.is_empty() {
-                std::ptr::null()
-            } else {
-                raw_wait_values.as_ptr()
-            },
-            signalSemaphoreValueCount: raw_signal_values.len() as u32,
-            pSignalSemaphoreValues: if raw_signal_values.is_empty() {
-                std::ptr::null()
-            } else {
-                raw_signal_values.as_ptr()
-            },
-        };
-
-        // If timeline semaphores aren't supported by the loaded device, we
-        // still pass the chain — the spec says implementations that don't
-        // recognise an unrecognised pNext chain entry must ignore it.
-        // (We could elide it for purely binary submits, but it's harmless.)
-        let mut p_next: *const std::ffi::c_void =
-            if self.device.dispatch.vkGetSemaphoreCounterValue.is_some() {
-                &timeline_info as *const _ as *const _
-            } else {
-                std::ptr::null()
-            };
-
-        // Decide whether we need a VkDeviceGroupSubmitInfo. Either the
-        // caller passed an explicit per-CB mask list, or any wait/signal
-        // device_index is non-zero. We materialize the per-CB mask vector
-        // (synthesizing the default mask when omitted) so the chain
-        // pointers are valid through the call.
+        // Build the submit-info pNext chain. Each link's pointers
+        // reference slices we allocated above (raw_wait_values,
+        // raw_signal_values, cb_masks_owned, ...) which all live until
+        // end of scope.
+        //
+        // Timeline submit info is always pushed — for binary-only
+        // submits its per-semaphore values are ignored by the driver,
+        // and the spec requires implementations to ignore pNext entries
+        // they don't recognise.
+        //
+        // Device-group submit info is only pushed when at least one
+        // wait/signal references a non-default device or the caller
+        // supplied explicit per-CB masks.
         let needs_group_chain = command_buffer_device_masks.is_some()
             || raw_wait_device_indices.iter().any(|&i| i != 0)
             || raw_signal_device_indices.iter().any(|&i| i != 0);
@@ -683,36 +606,55 @@ impl Queue {
             Vec::new()
         };
 
-        let group_info = VkDeviceGroupSubmitInfo {
-            sType: VkStructureType::STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO,
-            pNext: p_next,
-            waitSemaphoreCount: raw_wait_device_indices.len() as u32,
-            pWaitSemaphoreDeviceIndices: if raw_wait_device_indices.is_empty() {
-                std::ptr::null()
-            } else {
-                raw_wait_device_indices.as_ptr()
-            },
-            commandBufferCount: cb_masks_owned.len() as u32,
-            pCommandBufferDeviceMasks: if cb_masks_owned.is_empty() {
-                std::ptr::null()
-            } else {
-                cb_masks_owned.as_ptr()
-            },
-            signalSemaphoreCount: raw_signal_device_indices.len() as u32,
-            pSignalSemaphoreDeviceIndices: if raw_signal_device_indices.is_empty() {
-                std::ptr::null()
-            } else {
-                raw_signal_device_indices.as_ptr()
-            },
-        };
+        let mut chain = super::pnext::PNextChain::new();
+
+        if self.device.dispatch.vkGetSemaphoreCounterValue.is_some() {
+            chain.push(VkTimelineSemaphoreSubmitInfo {
+                sType: VkStructureType::STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                pNext: std::ptr::null_mut(),
+                waitSemaphoreValueCount: raw_wait_values.len() as u32,
+                pWaitSemaphoreValues: if raw_wait_values.is_empty() {
+                    std::ptr::null()
+                } else {
+                    raw_wait_values.as_ptr()
+                },
+                signalSemaphoreValueCount: raw_signal_values.len() as u32,
+                pSignalSemaphoreValues: if raw_signal_values.is_empty() {
+                    std::ptr::null()
+                } else {
+                    raw_signal_values.as_ptr()
+                },
+            });
+        }
 
         if needs_group_chain {
-            p_next = &group_info as *const _ as *const _;
+            chain.push(VkDeviceGroupSubmitInfo {
+                sType: VkStructureType::STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO,
+                pNext: std::ptr::null_mut(),
+                waitSemaphoreCount: raw_wait_device_indices.len() as u32,
+                pWaitSemaphoreDeviceIndices: if raw_wait_device_indices.is_empty() {
+                    std::ptr::null()
+                } else {
+                    raw_wait_device_indices.as_ptr()
+                },
+                commandBufferCount: cb_masks_owned.len() as u32,
+                pCommandBufferDeviceMasks: if cb_masks_owned.is_empty() {
+                    std::ptr::null()
+                } else {
+                    cb_masks_owned.as_ptr()
+                },
+                signalSemaphoreCount: raw_signal_device_indices.len() as u32,
+                pSignalSemaphoreDeviceIndices: if raw_signal_device_indices.is_empty() {
+                    std::ptr::null()
+                } else {
+                    raw_signal_device_indices.as_ptr()
+                },
+            });
         }
 
         let submit_info = VkSubmitInfo {
             sType: VkStructureType::STRUCTURE_TYPE_SUBMIT_INFO,
-            pNext: p_next,
+            pNext: chain.head(),
             waitSemaphoreCount: raw_wait.len() as u32,
             pWaitSemaphores: if raw_wait.is_empty() {
                 std::ptr::null()
@@ -736,10 +678,11 @@ impl Queue {
 
         let fence_handle = signal_fence.map_or(0u64, super::Fence::raw);
 
-        // Safety: submit_info is valid for the call, all the Vec backing
-        // pointers (raw_*, cb_masks_owned, timeline_info, group_info)
-        // outlive the call.
-        check(unsafe { submit(self.handle, 1, &submit_info, fence_handle) })
+        // Safety: submit_info is valid for the call; raw_*, cb_masks_owned,
+        // and the PNextChain all outlive this function.
+        let result = check(unsafe { submit(self.handle, 1, &submit_info, fence_handle) });
+        drop(chain);
+        result
     }
 
     /// Wait for the queue to become idle.

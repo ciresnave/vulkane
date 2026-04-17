@@ -168,23 +168,25 @@ impl Semaphore {
             .vkCreateSemaphore
             .ok_or(Error::MissingFunction("vkCreateSemaphore"))?;
 
-        let type_info = VkSemaphoreTypeCreateInfo {
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkSemaphoreTypeCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
             semaphoreType: VkSemaphoreType::SEMAPHORE_TYPE_TIMELINE,
             initialValue: initial_value,
             ..Default::default()
-        };
+        });
 
         let info = VkSemaphoreCreateInfo {
             sType: VkStructureType::STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            pNext: &type_info as *const _ as *const _,
+            pNext: chain.head(),
             ..Default::default()
         };
 
         let mut handle: VkSemaphore = 0;
-        // Safety: info is valid for the call (and pNext points at type_info,
-        // which lives until end of scope).
+        // Safety: info is valid for the call; the chain lives until
+        // end of scope.
         check(unsafe { create(device.inner.handle, &info, std::ptr::null(), &mut handle) })?;
+        drop(chain);
 
         Ok(Self {
             handle,

@@ -6,7 +6,7 @@
 use vulkane::safe::{
     AccessFlags, AccessFlags2, AllocationCreateInfo, AllocationStrategy, AllocationUsage, Allocator,
     ApiVersion, Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsage, CommandPool,
-    ComputePipeline, DEBUG_UTILS_EXTENSION, DebugMessage, DebugMessageSeverity,
+    ComputePipeline, DebugMessage, DebugMessageSeverity,
     DefragmentationMove, DefragmentationPlan, DescriptorPool, DescriptorPoolSize,
     DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo,
     DeviceFeatures, DeviceMemory, Fence, Format, Image, Image2dCreateInfo, ImageBarrier,
@@ -1163,7 +1163,7 @@ fn test_instance_with_no_layers_or_extensions() {
     let info = InstanceCreateInfo {
         application_name: Some("vulkane-empty-lists"),
         enabled_layers: &[],
-        enabled_extensions: &[],
+        enabled_extensions: None,
         ..InstanceCreateInfo::default()
     };
     if let Ok(_inst) = Instance::new(info) {
@@ -1210,7 +1210,10 @@ fn test_instance_with_validation_when_available() {
         return;
     }
     let exts = Instance::enumerate_extension_properties().unwrap();
-    if !exts.iter().any(|e| e.name() == DEBUG_UTILS_EXTENSION) {
+    if !exts
+        .iter()
+        .any(|e| e.name() == vulkane::raw::bindings::EXT_DEBUG_UTILS_EXTENSION_NAME)
+    {
         eprintln!("SKIP: debug utils extension not present");
         return;
     }
@@ -1220,10 +1223,11 @@ fn test_instance_with_validation_when_available() {
     let counter = StdArc::new(AtomicUsize::new(0));
     let counter_cb = StdArc::clone(&counter);
 
+    let debug_exts = vulkane::safe::InstanceExtensions::new().ext_debug_utils();
     let info = InstanceCreateInfo {
         application_name: Some("vulkane-validation"),
         enabled_layers: &[KHRONOS_VALIDATION_LAYER],
-        enabled_extensions: &[DEBUG_UTILS_EXTENSION],
+        enabled_extensions: Some(&debug_exts),
         debug_callback: Some(Box::new(move |msg: &DebugMessage<'_>| {
             // Only count WARN/ERROR so we don't spam on every INFO.
             if msg.severity.contains(DebugMessageSeverity::WARNING)
@@ -1844,6 +1848,76 @@ fn test_allocator_create_buffer_pool_path() {
     // Block stays around — pool keeps the underlying VkDeviceMemory until
     // the Allocator drops.
     assert!(stats.block_count >= 1);
+}
+
+#[test]
+fn test_allocation_drop_returns_to_pool() {
+    // Regression test for the auto-Drop on `Allocation`. Previously,
+    // a forgotten `allocator.free()` leaked the slot until the entire
+    // Allocator was dropped. Now dropping the Allocation directly is
+    // equivalent.
+    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let allocator = Allocator::new(&device, &physical).unwrap();
+
+    {
+        let allocation = allocator
+            .allocate(
+                vulkane::safe::MemoryRequirements {
+                    size: 4096,
+                    alignment: 16,
+                    memory_type_bits: u32::MAX,
+                },
+                AllocationCreateInfo {
+                    usage: AllocationUsage::HostVisible,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let stats = allocator.statistics();
+        assert_eq!(stats.allocation_count, 1, "allocation visible to allocator");
+        assert!(stats.allocation_bytes >= 4096);
+        // Walk out of scope without explicit free() — Drop must reclaim.
+        let _ = allocation;
+    }
+
+    let stats = allocator.statistics();
+    assert_eq!(
+        stats.allocation_count, 0,
+        "Allocation's Drop returned the slot to the pool"
+    );
+    assert_eq!(stats.allocation_bytes, 0);
+}
+
+#[test]
+fn test_allocation_clone_keeps_alive_until_last_drop() {
+    // `Allocation` is internally Arc-shared. The slot must only be
+    // returned when the *last* clone is dropped.
+    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let allocator = Allocator::new(&device, &physical).unwrap();
+    let allocation = allocator
+        .allocate(
+            vulkane::safe::MemoryRequirements {
+                size: 4096,
+                alignment: 16,
+                memory_type_bits: u32::MAX,
+            },
+            AllocationCreateInfo {
+                usage: AllocationUsage::HostVisible,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let clone = allocation.clone();
+    drop(allocation); // not the last reference
+    assert_eq!(allocator.statistics().allocation_count, 1);
+    drop(clone); // last reference — slot reclaimed now
+    assert_eq!(allocator.statistics().allocation_count, 0);
 }
 
 #[test]

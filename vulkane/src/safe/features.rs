@@ -1,26 +1,35 @@
 //! Device feature enable lists.
 //!
-//! Vulkan exposes optional functionality via "feature" booleans on the
-//! `VkPhysicalDeviceFeatures` struct (Vulkan 1.0 core features) and via
-//! per-version aggregate structs `VkPhysicalDeviceVulkan{11,12,13}Features`
-//! (added in 1.1, 1.2, and 1.3 respectively). To use a feature, the
+//! Vulkan exposes optional functionality via "feature" booleans —
+//! originally on the flat [`VkPhysicalDeviceFeatures`] struct in Vulkan
+//! 1.0, and now on ~100 additional `*Features` structs chained via
+//! `pNext` when a device is created. To enable a feature the
 //! application must:
 //!
 //! 1. Verify the device supports it via `vkGetPhysicalDeviceFeatures2`.
 //! 2. Re-pass the same feature struct chain when creating the device.
 //!
-//! [`DeviceFeatures`] wraps the entire chain (1.0 + optional 1.1 + 1.2 +
-//! 1.3) and supplies builder-style accessors for the most commonly
-//! requested features. Pass it via
-//! [`DeviceCreateInfo::enabled_features`](super::DeviceCreateInfo::enabled_features).
+//! [`DeviceFeatures`] hides all that plumbing. The struct owns a
+//! [`PNextChain`] pre-seeded with [`VkPhysicalDeviceFeatures2`] at the
+//! head; each `with_<feature>()` call either twiddles a bit in the
+//! core 1.0 struct (embedded in `features2.features`) or lazily
+//! appends the matching extension struct to the chain and sets the
+//! appropriate bit.
+//!
+//! The full list of `with_*` methods is **generated from `vk.xml`** —
+//! one per unique feature bit across every struct that extends
+//! `VkPhysicalDeviceFeatures2`. See
+//! `OUT_DIR/device_features_generated.rs` in a built workspace for the
+//! concrete list.
 //!
 //! ```ignore
 //! use vulkane::safe::{DeviceFeatures, DeviceCreateInfo, QueueCreateInfo};
 //!
-//! let features = DeviceFeatures::default()
-//!     .with_buffer_device_address()
-//!     .with_timeline_semaphore()
-//!     .with_synchronization2();
+//! let features = DeviceFeatures::new()
+//!     .with_buffer_device_address()      // Vulkan 1.2 core
+//!     .with_timeline_semaphore()         // Vulkan 1.2 core
+//!     .with_synchronization2()           // Vulkan 1.3 core
+//!     .with_cooperative_matrix();        // VK_KHR_cooperative_matrix
 //!
 //! let device = physical.create_device(DeviceCreateInfo {
 //!     queue_create_infos: &[QueueCreateInfo { /* ... */ }],
@@ -28,210 +37,216 @@
 //!     ..Default::default()
 //! })?;
 //! ```
+//!
+//! # Escape hatch
+//!
+//! Features whose bits end up routed through a priority collision
+//! (e.g. you want to set `timelineSemaphore` on the KHR extension
+//! struct instead of the Vulkan 1.2 aggregate — the generated method
+//! only targets the highest-priority struct) can be reached with
+//! [`DeviceFeatures::chain_extension_feature`]. The user supplies a
+//! fully-initialised feature struct and the wrapper chains it verbatim.
 
-use crate::raw::bindings::*;
+use crate::raw::PNextChainable;
+use crate::raw::bindings::{VkPhysicalDeviceFeatures, VkPhysicalDeviceFeatures2};
+use crate::safe::PNextChain;
 
-/// A set of device feature bits to enable at device creation time.
+/// Buildable list of Vulkan device features to enable at
+/// `vkCreateDevice` time.
 ///
-/// This wraps the Vulkan 1.0 `VkPhysicalDeviceFeatures` plus the optional
-/// 1.1 / 1.2 / 1.3 aggregate feature structs. Use the `with_*` builder
-/// methods to turn individual features on; unset fields default to
-/// `VK_FALSE` (the Vulkan-mandated "do not enable" value).
+/// Use [`DeviceFeatures::new`] as the starting point and chain
+/// `with_<feature>()` calls for each bit you want on. The call-site
+/// API is stable across Vulkan versions because it is generated from
+/// `vk.xml`; any new feature bit added to a future spec shows up as
+/// a new `with_*` method automatically.
 ///
-/// `DeviceFeatures` does not enforce that the requested features are
-/// actually supported by the physical device — that check happens inside
-/// `vkCreateDevice` and surfaces as `ERROR_FEATURE_NOT_PRESENT`. Query
-/// support up-front with [`PhysicalDevice::supported_features`](super::PhysicalDevice::supported_features)
-/// if you want to fall back gracefully.
-#[derive(Clone)]
+/// Supplying a feature that the device does not actually support
+/// produces `VK_ERROR_FEATURE_NOT_PRESENT` from `vkCreateDevice`.
+/// `DeviceFeatures` does no up-front validation — query support with
+/// [`PhysicalDevice::supported_features`](super::PhysicalDevice::supported_features)
+/// if you need to degrade gracefully.
 pub struct DeviceFeatures {
-    /// Vulkan 1.0 core features.
-    pub features10: VkPhysicalDeviceFeatures,
-    /// Vulkan 1.1 features (subgroup, multiview, 16-bit storage, ...).
-    /// Always populated; only chained into device creation if any field
-    /// is non-default.
-    pub features11: VkPhysicalDeviceVulkan11Features,
-    /// Vulkan 1.2 features (timeline semaphore, buffer device address,
-    /// descriptor indexing, ...).
-    pub features12: VkPhysicalDeviceVulkan12Features,
-    /// Vulkan 1.3 features (synchronization2, dynamic rendering, ...).
-    pub features13: VkPhysicalDeviceVulkan13Features,
+    chain: PNextChain,
 }
 
 impl Default for DeviceFeatures {
     fn default() -> Self {
-        Self {
-            features10: VkPhysicalDeviceFeatures::default(),
-            features11: VkPhysicalDeviceVulkan11Features {
-                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-                ..Default::default()
-            },
-            features12: VkPhysicalDeviceVulkan12Features {
-                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-                ..Default::default()
-            },
-            features13: VkPhysicalDeviceVulkan13Features {
-                sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-                ..Default::default()
-            },
-        }
+        Self::new()
     }
 }
 
 impl DeviceFeatures {
-    /// New zero-initialised feature set. Same as [`Default::default`].
+    /// Build an empty feature set. No bits are enabled yet.
     pub fn new() -> Self {
-        Self::default()
+        let mut chain = PNextChain::new();
+        chain.push(VkPhysicalDeviceFeatures2::new_pnext());
+        Self { chain }
     }
 
-    // ----- Vulkan 1.0 core features -----
-
-    /// Enable [`robustBufferAccess`](VkPhysicalDeviceFeatures::robustBufferAccess).
-    pub fn with_robust_buffer_access(mut self) -> Self {
-        self.features10.robustBufferAccess = 1;
+    /// Chain an arbitrary Vulkan feature struct onto the `pNext` list.
+    ///
+    /// Use this when the spec has a feature bit that the generated
+    /// `with_*` methods route through a higher-priority struct than you
+    /// want (for example to enable `timelineSemaphore` on
+    /// `VkPhysicalDeviceTimelineSemaphoreFeaturesKHR` for a driver that
+    /// doesn't expose the Vulkan 1.2 aggregate), or when a brand-new
+    /// extension struct isn't yet covered by `vk.xml` that your crate
+    /// was built against.
+    ///
+    /// The struct must fill in every field you care about before this
+    /// call; `PNextChain` only patches `pNext`, never body fields.
+    pub fn chain_extension_feature<T: PNextChainable>(mut self, item: T) -> Self {
+        self.chain.push(item);
         self
     }
 
-    /// Enable [`samplerAnisotropy`](VkPhysicalDeviceFeatures::samplerAnisotropy).
-    pub fn with_sampler_anisotropy(mut self) -> Self {
-        self.features10.samplerAnisotropy = 1;
-        self
+    /// Access the chain built so far (read-only). Mainly useful for
+    /// tests and diagnostics.
+    #[cfg(test)]
+    pub(crate) fn chain(&self) -> &PNextChain {
+        &self.chain
     }
 
-    /// Enable [`fillModeNonSolid`](VkPhysicalDeviceFeatures::fillModeNonSolid)
-    /// (line / point fill modes).
-    pub fn with_fill_mode_non_solid(mut self) -> Self {
-        self.features10.fillModeNonSolid = 1;
-        self
+    /// Return a cloned pNext chain suitable for attaching to a
+    /// `VkDeviceCreateInfo`. Used by
+    /// [`PhysicalDevice::create_device`](super::PhysicalDevice::create_device)
+    /// so the caller's `DeviceFeatures` remains usable for additional
+    /// device creations.
+    pub(crate) fn clone_chain_for_device_create(&self) -> PNextChain {
+        self.chain.clone()
     }
 
-    /// Enable [`pipelineStatisticsQuery`](VkPhysicalDeviceFeatures::pipelineStatisticsQuery)
-    /// — required for `QueryPool::pipeline_statistics`.
-    pub fn with_pipeline_statistics_query(mut self) -> Self {
-        self.features10.pipelineStatisticsQuery = 1;
-        self
+    /// Mutable access to the Vulkan 1.0 core `VkPhysicalDeviceFeatures`
+    /// struct embedded in the chain's head
+    /// `VkPhysicalDeviceFeatures2`. Called by generated core-1.0 bit
+    /// setters.
+    ///
+    /// Panics only if the chain header struct was somehow removed —
+    /// which cannot happen through the public API.
+    fn features10_mut(&mut self) -> &mut VkPhysicalDeviceFeatures {
+        &mut self
+            .chain
+            .get_mut::<VkPhysicalDeviceFeatures2>()
+            .expect("chain head is always VkPhysicalDeviceFeatures2")
+            .features
     }
 
-    /// Enable [`shaderInt64`](VkPhysicalDeviceFeatures::shaderInt64).
-    pub fn with_shader_int64(mut self) -> Self {
-        self.features10.shaderInt64 = 1;
-        self
-    }
-
-    /// Enable [`shaderFloat64`](VkPhysicalDeviceFeatures::shaderFloat64).
-    pub fn with_shader_float64(mut self) -> Self {
-        self.features10.shaderFloat64 = 1;
-        self
-    }
-
-    // ----- Vulkan 1.2 features -----
-
-    /// Enable
-    /// [`bufferDeviceAddress`](VkPhysicalDeviceVulkan12Features::bufferDeviceAddress)
-    /// — required to call [`Buffer::device_address`](super::Buffer::device_address).
-    pub fn with_buffer_device_address(mut self) -> Self {
-        self.features12.bufferDeviceAddress = 1;
-        self
-    }
-
-    /// Enable
-    /// [`timelineSemaphore`](VkPhysicalDeviceVulkan12Features::timelineSemaphore)
-    /// — required to construct [`Semaphore::timeline`](super::Semaphore::timeline).
-    pub fn with_timeline_semaphore(mut self) -> Self {
-        self.features12.timelineSemaphore = 1;
-        self
-    }
-
-    /// Enable
-    /// [`hostQueryReset`](VkPhysicalDeviceVulkan12Features::hostQueryReset).
-    pub fn with_host_query_reset(mut self) -> Self {
-        self.features12.hostQueryReset = 1;
-        self
-    }
-
-    /// Enable
-    /// [`descriptorIndexing`](VkPhysicalDeviceVulkan12Features::descriptorIndexing)
-    /// — required for bindless descriptor patterns.
-    pub fn with_descriptor_indexing(mut self) -> Self {
-        self.features12.descriptorIndexing = 1;
-        self
-    }
-
-    /// Enable
-    /// [`runtimeDescriptorArray`](VkPhysicalDeviceVulkan12Features::runtimeDescriptorArray).
-    pub fn with_runtime_descriptor_array(mut self) -> Self {
-        self.features12.runtimeDescriptorArray = 1;
-        self
-    }
-
-    /// Enable
-    /// [`shaderInt8`](VkPhysicalDeviceVulkan12Features::shaderInt8).
-    pub fn with_shader_int8(mut self) -> Self {
-        self.features12.shaderInt8 = 1;
-        self
-    }
-
-    /// Enable
-    /// [`shaderFloat16`](VkPhysicalDeviceVulkan12Features::shaderFloat16).
-    pub fn with_shader_float16(mut self) -> Self {
-        self.features12.shaderFloat16 = 1;
-        self
-    }
-
-    // ----- Vulkan 1.3 features -----
-
-    /// Enable
-    /// [`synchronization2`](VkPhysicalDeviceVulkan13Features::synchronization2)
-    /// — required for [`memory_barrier2`](super::CommandBufferRecording::memory_barrier2)
-    /// and [`image_barrier2`](super::CommandBufferRecording::image_barrier2).
-    pub fn with_synchronization2(mut self) -> Self {
-        self.features13.synchronization2 = 1;
-        self
-    }
-
-    /// Enable
-    /// [`dynamicRendering`](VkPhysicalDeviceVulkan13Features::dynamicRendering)
-    /// — lets you skip render-pass / framebuffer setup for graphics work.
-    pub fn with_dynamic_rendering(mut self) -> Self {
-        self.features13.dynamicRendering = 1;
-        self
-    }
-
-    /// Enable
-    /// [`maintenance4`](VkPhysicalDeviceVulkan13Features::maintenance4).
-    pub fn with_maintenance4(mut self) -> Self {
-        self.features13.maintenance4 = 1;
-        self
-    }
-
-    // ----- Bulk setters -----
-
-    /// Enable every feature flag in `features10` directly. Useful when
-    /// you've queried a device's supported features via
-    /// [`PhysicalDevice::supported_features`](super::PhysicalDevice::supported_features)
-    /// and want to enable all of them (the default for some apps).
-    pub fn with_all_features10(mut self, features10: VkPhysicalDeviceFeatures) -> Self {
-        self.features10 = features10;
-        self
+    /// Find or insert an extension feature struct of type `T` and
+    /// return a mutable reference so a generated setter can flip the
+    /// right bit. Called by every non-core `with_*` method in the
+    /// generated impl block.
+    fn ensure_ext<T: PNextChainable>(&mut self) -> &mut T {
+        if self.chain.get::<T>().is_none() {
+            self.chain.push(T::new_pnext());
+        }
+        self.chain
+            .get_mut::<T>()
+            .expect("struct was just pushed onto the chain")
     }
 }
 
 impl std::fmt::Debug for DeviceFeatures {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeviceFeatures")
-            .field(
-                "buffer_device_address",
-                &(self.features12.bufferDeviceAddress != 0),
-            )
-            .field(
-                "timeline_semaphore",
-                &(self.features12.timelineSemaphore != 0),
-            )
-            .field("synchronization2", &(self.features13.synchronization2 != 0))
-            .field(
-                "sampler_anisotropy",
-                &(self.features10.samplerAnisotropy != 0),
-            )
-            .finish_non_exhaustive()
+            .field("chain", &self.chain)
+            .finish()
+    }
+}
+
+// Generated `with_<feature>()` methods — one per unique feature bit
+// across every struct that extends `VkPhysicalDeviceFeatures2`. See
+// `vulkan_gen::codegen::generator_modules::device_features_gen`.
+include!(concat!(env!("OUT_DIR"), "/device_features_generated.rs"));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raw::bindings::{
+        VkPhysicalDeviceCooperativeMatrixFeaturesKHR, VkPhysicalDeviceVulkan12Features,
+        VkPhysicalDeviceVulkan13Features, VkStructureType,
+    };
+
+    #[test]
+    fn new_has_only_features2_head() {
+        let f = DeviceFeatures::new();
+        assert_eq!(f.chain().len(), 1);
+        let types: Vec<_> = f.chain().structure_types().collect();
+        assert_eq!(
+            types,
+            vec![VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2]
+        );
+    }
+
+    #[test]
+    fn core_1_0_bit_flips_inside_features2() {
+        let f = DeviceFeatures::new().with_sampler_anisotropy();
+        // Chain length is unchanged — the bit lives inside features2.
+        assert_eq!(f.chain().len(), 1);
+        let features2 = f
+            .chain()
+            .get::<VkPhysicalDeviceFeatures2>()
+            .expect("head present");
+        assert_eq!(features2.features.samplerAnisotropy, 1);
+    }
+
+    #[test]
+    fn v12_bit_lazily_pushes_struct() {
+        let f = DeviceFeatures::new().with_timeline_semaphore();
+        assert_eq!(f.chain().len(), 2);
+        let v12 = f
+            .chain()
+            .get::<VkPhysicalDeviceVulkan12Features>()
+            .expect("v12 pushed");
+        assert_eq!(v12.timelineSemaphore, 1);
+    }
+
+    #[test]
+    fn multiple_bits_on_same_struct_share_one_push() {
+        let f = DeviceFeatures::new()
+            .with_timeline_semaphore()
+            .with_buffer_device_address();
+        // features2 head + one VkPhysicalDeviceVulkan12Features.
+        assert_eq!(f.chain().len(), 2);
+        let v12 = f
+            .chain()
+            .get::<VkPhysicalDeviceVulkan12Features>()
+            .unwrap();
+        assert_eq!(v12.timelineSemaphore, 1);
+        assert_eq!(v12.bufferDeviceAddress, 1);
+    }
+
+    #[test]
+    fn mixing_core_versions_pushes_one_struct_per_version() {
+        let f = DeviceFeatures::new()
+            .with_sampler_anisotropy() // 1.0 -> no push
+            .with_timeline_semaphore() // 1.2 -> push v12
+            .with_synchronization2(); // 1.3 -> push v13
+        assert_eq!(f.chain().len(), 3);
+        assert!(f.chain().get::<VkPhysicalDeviceVulkan12Features>().is_some());
+        assert!(f.chain().get::<VkPhysicalDeviceVulkan13Features>().is_some());
+    }
+
+    #[test]
+    fn escape_hatch_chains_any_feature_struct() {
+        let mut coop = VkPhysicalDeviceCooperativeMatrixFeaturesKHR::new_pnext();
+        coop.cooperativeMatrix = 1;
+        let f = DeviceFeatures::new().chain_extension_feature(coop);
+        let back = f
+            .chain()
+            .get::<VkPhysicalDeviceCooperativeMatrixFeaturesKHR>()
+            .expect("coop chained");
+        assert_eq!(back.cooperativeMatrix, 1);
+    }
+
+    #[test]
+    fn cooperative_matrix_generated_method_works() {
+        // Fuel's request: a one-call enable path for
+        // VK_KHR_cooperative_matrix's `cooperativeMatrix` bit.
+        let f = DeviceFeatures::new().with_cooperative_matrix();
+        let coop = f
+            .chain()
+            .get::<VkPhysicalDeviceCooperativeMatrixFeaturesKHR>()
+            .expect("coop struct auto-pushed");
+        assert_eq!(coop.cooperativeMatrix, 1);
     }
 }
