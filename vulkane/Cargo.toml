@@ -58,7 +58,7 @@ vulkane_derive = { path = "../vulkane_derive", version = "0.1", optional = true 
 [build-dependencies]
 # Path is used for development; the version is what crates.io uses
 # when publishing — both are required by `cargo publish`.
-vulkan_gen = { path = "../vulkan_gen", version = "0.1" }
+vulkan_gen = { path = "../vulkan_gen", version = "0.2" }
 ureq = "3"
 
 # Example-only dependencies. Not pulled into the vulkane crate's own
