@@ -7,14 +7,11 @@
 // Based on webgpu-blas (MIT) optimization pattern.
 
 struct Params {
-    M: u32,
-    N: u32,
-    K: u32,
-    batch_stride_a: u32,  // M*K for batched, 0 for unbatched
-    batch_stride_b: u32,  // K*N
-    batch_stride_c: u32,  // M*N
-    n_rep: u32,
-    _pad: u32,
+    M: u32, N: u32, K: u32,
+    sa_batch: u32, sa_row: u32, sa_col: u32,
+    sb_batch: u32, sb_row: u32, sb_col: u32,
+    sc_batch: u32,
+    n_rep: u32, _pad: u32,
 };
 
 @group(0) @binding(0) var<storage, read> A: array<f32>;
@@ -33,9 +30,9 @@ fn main(
     let row_base = gid.y * TILE;
     let col_base = gid.x * TILE;
 
-    let a_off = batch * params.batch_stride_a;
-    let b_off = (batch / params.n_rep) * params.batch_stride_b;
-    let c_off = batch * params.batch_stride_c;
+    let a_off = batch * params.sa_batch;
+    let b_off = (batch / params.n_rep) * params.sb_batch;
+    let c_off = batch * params.sc_batch;
 
     // Accumulator: TILE x TILE register tile.
     var acc: array<array<f32, 4>, 4>;
@@ -53,13 +50,13 @@ fn main(
         for (var i = 0u; i < TILE; i++) {
             let r = row_base + i;
             if r < params.M {
-                a_col[i] = A[a_off + r * params.K + k];
+                a_col[i] = A[a_off + r * params.sa_row + k * params.sa_col];
             }
         }
         for (var j = 0u; j < TILE; j++) {
             let c = col_base + j;
             if c < params.N {
-                b_row[j] = B[b_off + k * params.N + c];
+                b_row[j] = B[b_off + k * params.sb_row + c * params.sb_col];
             }
         }
         // Outer product accumulate.

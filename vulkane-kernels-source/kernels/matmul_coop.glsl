@@ -33,12 +33,12 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint M;
     uint N;
     uint K;
-    uint batch_stride_a;
-    uint batch_stride_b;
-    uint batch_stride_c;
+    uint sa_batch;  uint sa_row;  uint sa_col;
+    uint sb_batch;  uint sb_row;  uint sb_col;
+    uint sc_batch;
     uint n_rep;
     uint _pad;
-} params;
+} p;
 
 const uint CM = 16u;    // cooperative matrix M
 const uint CN = 16u;    // cooperative matrix N
@@ -53,9 +53,9 @@ shared float16_t b_tile[CK * WG_N];   // 16 × 64 = 1024 elems = 2 KB
 
 void main() {
     uint batch = gl_WorkGroupID.z;
-    uint a_off = batch * params.batch_stride_a;
-    uint b_off = (batch / params.n_rep) * params.batch_stride_b;
-    uint c_off = batch * params.batch_stride_c;
+    uint a_off = batch * p.sa_batch;
+    uint b_off = (batch / p.n_rep) * p.sb_batch;
+    uint c_off = batch * p.sc_batch;
 
     uint row_base = gl_WorkGroupID.y * CM;
     uint col_base = gl_WorkGroupID.x * WG_N;
@@ -67,7 +67,7 @@ void main() {
     coopmat<float, gl_ScopeSubgroup, CM, CN, gl_MatrixUseAccumulator> acc =
         coopmat<float, gl_ScopeSubgroup, CM, CN, gl_MatrixUseAccumulator>(0.0);
 
-    uint k_tiles = (params.K + CK - 1u) / CK;
+    uint k_tiles = (p.K + CK - 1u) / CK;
 
     for (uint kt = 0u; kt < k_tiles; ++kt) {
         uint k_base = kt * CK;
@@ -82,8 +82,8 @@ void main() {
                 uint gr = row_base + ar;
                 uint gk = k_base + ak;
                 float v = 0.0;
-                if (gr < params.M && gk < params.K) {
-                    v = A[a_off + gr * params.K + gk];
+                if (gr < p.M && gk < p.K) {
+                    v = A[a_off + gr * p.sa_row + gk * p.sa_col];
                 }
                 a_tile[idx] = float16_t(v);
             }
@@ -99,11 +99,11 @@ void main() {
                 uint gk = k_base + bk;
                 uint gc = col_base + bn;
                 float16_t v = float16_t(0.0);
-                if (gk < params.K && gc < params.N) {
+                if (gk < p.K && gc < p.N) {
                     // bf16 → f32 → f16. bf16 bits in u16; extend to f32
                     // via left-shift, then narrow to f16 for the coop
                     // matrix input.
-                    uint bits32 = uint(B[b_off + gk * params.N + gc]) << 16;
+                    uint bits32 = uint(B[b_off + gk * p.sb_row + gc * p.sb_col]) << 16;
                     v = float16_t(uintBitsToFloat(bits32));
                 }
                 b_tile[bk * WG_N + bn] = v;
@@ -134,8 +134,8 @@ void main() {
     // Store accumulated 16x16 f32 result per subgroup.
     // Each subgroup writes to its column slice of the output.
     uint out_col = col_base + sg_idx * CN;
-    if (row_base < params.M && out_col < params.N) {
-        coopMatStore(acc, C, c_off + row_base * params.N + out_col, params.N,
+    if (row_base < p.M && out_col < p.N) {
+        coopMatStore(acc, C, c_off + row_base * p.N + out_col, p.N,
                      gl_CooperativeMatrixLayoutRowMajor);
     }
 }

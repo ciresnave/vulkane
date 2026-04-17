@@ -21,12 +21,12 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint M;
     uint N;
     uint K;
-    uint batch_stride_a;
-    uint batch_stride_b;
-    uint batch_stride_c;
+    uint sa_batch;  uint sa_row;  uint sa_col;
+    uint sb_batch;  uint sb_row;  uint sb_col;
+    uint sc_batch;
     uint n_rep;
     uint _pad;
-} params;
+} p;
 
 const uint TILE = 4u;   // per-thread output tile edge
 const uint BM = 64u;    // workgroup M-tile = 16 * TILE
@@ -38,9 +38,9 @@ shared float b_tile[BK][BN]; // 16 * 64 * 4 = 4 KB
 
 void main() {
     uint batch = gl_WorkGroupID.z;
-    uint a_off = batch * params.batch_stride_a;
-    uint b_off = (batch / params.n_rep) * params.batch_stride_b;
-    uint c_off = batch * params.batch_stride_c;
+    uint a_off = batch * p.sa_batch;
+    uint b_off = (batch / p.n_rep) * p.sb_batch;
+    uint c_off = batch * p.sc_batch;
 
     uint lx = gl_LocalInvocationID.x; // 0..16 -> col direction
     uint ly = gl_LocalInvocationID.y; // 0..16 -> row direction
@@ -56,7 +56,7 @@ void main() {
         }
     }
 
-    uint k_tiles = (params.K + BK - 1u) / BK;
+    uint k_tiles = (p.K + BK - 1u) / BK;
 
     for (uint kt = 0u; kt < k_tiles; ++kt) {
         uint k_base = kt * BK;
@@ -70,8 +70,8 @@ void main() {
             uint gr = row_base + ar;
             uint gk = k_base + ak;
             float v = 0.0;
-            if (gr < params.M && gk < params.K) {
-                v = A[a_off + gr * params.K + gk];
+            if (gr < p.M && gk < p.K) {
+                v = A[a_off + gr * p.sa_row + gk * p.sa_col];
             }
             a_tile[ar][ak] = v;
         }
@@ -84,8 +84,8 @@ void main() {
             uint gk = k_base + bk_i;
             uint gc = col_base + bn_j;
             float v = 0.0;
-            if (gk < params.K && gc < params.N) {
-                v = B[b_off + gk * params.N + gc];
+            if (gk < p.K && gc < p.N) {
+                v = B[b_off + gk * p.sb_row + gc * p.sb_col];
             }
             b_tile[bk_i][bn_j] = v;
         }
@@ -120,11 +120,11 @@ void main() {
     uint bc_base = lx * TILE;
     for (uint i = 0u; i < TILE; ++i) {
         uint r = row_base + ar_base + i;
-        if (r >= params.M) continue;
+        if (r >= p.M) continue;
         for (uint j = 0u; j < TILE; ++j) {
             uint c = col_base + bc_base + j;
-            if (c < params.N) {
-                C[c_off + r * params.N + c] = acc[i][j];
+            if (c < p.N) {
+                C[c_off + r * p.N + c] = acc[i][j];
             }
         }
     }

@@ -28,15 +28,15 @@ layout(set = 0, binding = 1, std430) readonly buffer BBuf { uint  B[]; };
 layout(set = 0, binding = 2, std430) buffer          CBuf { float C[]; };
 
 layout(set = 0, binding = 3, std140) uniform Params {
-    uint M;       // must be 1 when this pipeline is used
+    uint M;
     uint N;
     uint K;
-    uint batch_stride_a;   // in elements of A's dtype (f32)
-    uint batch_stride_b;   // in elements of B's dtype (bf16)
-    uint batch_stride_c;   // in elements of C's dtype (f32)
+    uint sa_batch;  uint sa_row;  uint sa_col;
+    uint sb_batch;  uint sb_row;  uint sb_col;
+    uint sc_batch;
     uint n_rep;
     uint _pad;
-} params;
+} p;
 
 shared float subgroup_partials[16];
 
@@ -53,19 +53,19 @@ float load_bf16(uint base_u32, uint i) {
 void main() {
     uint col = gl_WorkGroupID.x;
     uint batch = gl_WorkGroupID.z;
-    if (col >= params.N) return;
+    if (col >= p.N) return;
 
-    uint a_off = batch * params.batch_stride_a;
-    // batch_stride_b is in bf16 elements; the u32 base is half that.
-    uint b_off_u32 = ((batch / params.n_rep) * params.batch_stride_b) >> 1u;
-    uint c_off = batch * params.batch_stride_c;
+    uint a_off = batch * p.sa_batch;
+    // sb_batch is in bf16 elements; the u32 base is half that.
+    uint b_off_u32 = ((batch / p.n_rep) * p.sb_batch) >> 1u;
+    uint c_off = batch * p.sc_batch;
 
     uint tid = gl_LocalInvocationID.x;
 
     float partial = 0.0;
-    for (uint k = tid; k < params.K; k += 128u) {
-        float b_val = load_bf16(b_off_u32, k * params.N + col);
-        partial += A[a_off + k] * b_val;
+    for (uint k = tid; k < p.K; k += 128u) {
+        float b_val = load_bf16(b_off_u32, k * p.sb_row + col * p.sb_col);
+        partial += A[a_off + k * p.sa_col] * b_val;
     }
 
     float sg_sum = subgroupAdd(partial);
