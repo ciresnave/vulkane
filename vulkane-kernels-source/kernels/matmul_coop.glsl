@@ -36,6 +36,8 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint batch_stride_a;
     uint batch_stride_b;
     uint batch_stride_c;
+    uint n_rep;
+    uint _pad;
 } params;
 
 const uint CM = 16u;    // cooperative matrix M
@@ -52,7 +54,7 @@ shared float16_t b_tile[CK * WG_N];   // 16 × 64 = 1024 elems = 2 KB
 void main() {
     uint batch = gl_WorkGroupID.z;
     uint a_off = batch * params.batch_stride_a;
-    uint b_off = batch * params.batch_stride_b;
+    uint b_off = (batch / params.n_rep) * params.batch_stride_b;
     uint c_off = batch * params.batch_stride_c;
 
     uint row_base = gl_WorkGroupID.y * CM;

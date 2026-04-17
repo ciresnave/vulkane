@@ -27,6 +27,8 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint batch_stride_a;
     uint batch_stride_b;  // in bf16 elements
     uint batch_stride_c;
+    uint n_rep;
+    uint _pad;
 } params;
 
 const uint TILE = 4u;
@@ -47,7 +49,7 @@ void main() {
     uint batch = gl_WorkGroupID.z;
     uint a_off = batch * params.batch_stride_a;
     // batch_stride_b is in bf16 elements; the u32 base is half that.
-    uint b_off_u32 = (batch * params.batch_stride_b) >> 1u;
+    uint b_off_u32 = ((batch / params.n_rep) * params.batch_stride_b) >> 1u;
     uint c_off = batch * params.batch_stride_c;
 
     uint lx = gl_LocalInvocationID.x;

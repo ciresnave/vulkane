@@ -34,6 +34,8 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint batch_stride_a;   // in elements of A's dtype (f32)
     uint batch_stride_b;   // in elements of B's dtype (bf16)
     uint batch_stride_c;   // in elements of C's dtype (f32)
+    uint n_rep;
+    uint _pad;
 } params;
 
 shared float subgroup_partials[16];
@@ -55,7 +57,7 @@ void main() {
 
     uint a_off = batch * params.batch_stride_a;
     // batch_stride_b is in bf16 elements; the u32 base is half that.
-    uint b_off_u32 = (batch * params.batch_stride_b) >> 1u;
+    uint b_off_u32 = ((batch / params.n_rep) * params.batch_stride_b) >> 1u;
     uint c_off = batch * params.batch_stride_c;
 
     uint tid = gl_LocalInvocationID.x;

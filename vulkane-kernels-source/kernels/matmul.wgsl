@@ -13,6 +13,8 @@ struct Params {
     batch_stride_a: u32,  // M*K for batched, 0 for unbatched
     batch_stride_b: u32,  // K*N
     batch_stride_c: u32,  // M*N
+    n_rep: u32,
+    _pad: u32,
 };
 
 @group(0) @binding(0) var<storage, read> A: array<f32>;
@@ -32,7 +34,7 @@ fn main(
     let col_base = gid.x * TILE;
 
     let a_off = batch * params.batch_stride_a;
-    let b_off = batch * params.batch_stride_b;
+    let b_off = (batch / params.n_rep) * params.batch_stride_b;
     let c_off = batch * params.batch_stride_c;
 
     // Accumulator: TILE x TILE register tile.

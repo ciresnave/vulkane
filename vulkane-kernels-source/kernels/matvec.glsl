@@ -29,6 +29,8 @@ layout(set = 0, binding = 3, std140) uniform Params {
     uint batch_stride_a;
     uint batch_stride_b;
     uint batch_stride_c;
+    uint n_rep;   // GQA repeat factor (1 = no repeat)
+    uint _pad;
 } params;
 
 // One shared-memory slot per subgroup. Max reasonable subgroup count
@@ -43,7 +45,7 @@ void main() {
     if (col >= params.N) return;
 
     uint a_off = batch * params.batch_stride_a;
-    uint b_off = batch * params.batch_stride_b;
+    uint b_off = (batch / params.n_rep) * params.batch_stride_b;
     uint c_off = batch * params.batch_stride_c;
 
     uint tid = gl_LocalInvocationID.x;
