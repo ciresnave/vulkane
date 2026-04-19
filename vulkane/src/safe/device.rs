@@ -197,6 +197,12 @@ pub(crate) struct DeviceInner {
     /// created from. Always at least one element. Length 1 for the
     /// overwhelmingly common case of `physical.create_device(...)`.
     pub(crate) physical_devices: Vec<VkPhysicalDevice>,
+    /// Names of device-level extensions that were passed to
+    /// `vkCreateDevice`. Includes both extensions the caller explicitly
+    /// requested via [`DeviceCreateInfo::enabled_extensions`] and any
+    /// the safe wrapper auto-enabled when supported (currently only
+    /// `VK_EXT_memory_budget`).
+    pub(crate) enabled_extensions: Vec<String>,
 }
 
 // Safety: VkDevice is documented by the Vulkan spec as safe to share between
@@ -280,12 +286,37 @@ impl Device {
             });
         }
 
+        // Build the final enable-list: start from whatever the caller
+        // passed in (empty if None), then auto-enable VK_EXT_memory_budget
+        // when the physical device supports it but the caller didn't list
+        // it. The extension is passive: enabling it only causes the driver
+        // to populate `VkPhysicalDeviceMemoryBudgetPropertiesEXT` on
+        // `vkGetPhysicalDeviceMemoryProperties2` calls — no runtime cost
+        // when unused, and enabling it silently when unsupported is a
+        // Vulkan error, so we gate on `enumerate_extension_properties`.
+        let mut enabled_names: Vec<String> = info
+            .enabled_extensions
+            .map(|e| e.names().iter().map(|s| (*s).to_string()).collect())
+            .unwrap_or_default();
+
+        const MEMORY_BUDGET: &str = "VK_EXT_memory_budget";
+        if !enabled_names.iter().any(|n| n == MEMORY_BUDGET) {
+            let supports_memory_budget = physical
+                .enumerate_extension_properties()
+                .ok()
+                .map(|props| props.into_iter().any(|p| p.name() == MEMORY_BUDGET))
+                .unwrap_or(false);
+            if supports_memory_budget {
+                enabled_names.push(MEMORY_BUDGET.to_string());
+            }
+        }
+
         // Owned CString vectors for extension names — kept alive across
-        // the create call. Empty when the caller passes no extensions.
-        let ext_cstrings: Vec<CString> = match info.enabled_extensions {
-            Some(exts) => exts.to_cstrings()?,
-            None => Vec::new(),
-        };
+        // the create call.
+        let ext_cstrings: Vec<CString> = enabled_names
+            .iter()
+            .map(|s| CString::new(s.as_str()))
+            .collect::<std::result::Result<_, _>>()?;
         let ext_ptrs: Vec<*mut c_char> = ext_cstrings
             .iter()
             .map(|s| s.as_ptr() as *mut c_char)
@@ -361,6 +392,7 @@ impl Device {
                 dispatch,
                 instance: Arc::clone(&physical.instance),
                 physical_devices: raw_physical_handles,
+                enabled_extensions: enabled_names,
             }),
         })
     }
@@ -405,6 +437,21 @@ impl Device {
     /// Returns the raw `VkDevice` handle.
     pub fn raw(&self) -> VkDevice {
         self.inner.handle
+    }
+
+    /// Returns every device-level extension that was enabled when this
+    /// `Device` was created. Includes any the safe wrapper auto-enabled
+    /// (currently `VK_EXT_memory_budget` when the physical device
+    /// supports it).
+    pub fn enabled_extensions(&self) -> &[String] {
+        &self.inner.enabled_extensions
+    }
+
+    /// `true` iff the given extension name was enabled on this device.
+    /// Comparison is case-sensitive and matches the full spec name, e.g.
+    /// `"VK_EXT_memory_budget"`.
+    pub fn is_extension_enabled(&self, name: &str) -> bool {
+        self.inner.enabled_extensions.iter().any(|n| n == name)
     }
 
     /// Get the i-th queue of the given family.

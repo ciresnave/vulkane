@@ -5,6 +5,24 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-04-19
+
+Allocator-side VRAM observability: the `Allocator` can now surface the driver's per-heap budget numbers in one call, fire budget-pressure callbacks when usage crosses a configurable threshold, and predictively check whether a prospective allocation would exceed the budget — all without requiring the user to opt into `VK_EXT_memory_budget` manually.
+
+### Added
+
+- **`Allocator::vram_budget()` / `Allocator::vram_used()`** — scalar-byte convenience helpers that sum the driver-reported budget and usage across every `DEVICE_LOCAL` memory heap. The single-number answer ML schedulers, profilers, and UI indicators typically want.
+- **`Allocator::has_memory_budget_support()`** — returns `true` iff the budget numbers are authoritative (both `vkGetPhysicalDeviceMemoryProperties2` is loaded *and* `VK_EXT_memory_budget` is enabled on the device). Use this to distinguish "heap is empty" from "no query support".
+- **Budget-pressure callback registry** — `Allocator::register_pressure_callback(threshold, hysteresis, closure)` fires a `PressureEvent` when a heap's `usage / budget` fraction rises past `threshold` (`PressureKind::Crossed`), falls back below `threshold - hysteresis` (`PressureKind::Relieved`), or — via `would_fit` — is projected to rise past `threshold` on a pending allocation (`PressureKind::Predictive`). Per-heap hysteresis latching prevents flutter near the threshold. Callbacks are invoked after every internal allocator lock has been released, so they may call back into the `Allocator` without deadlocking. `unregister_pressure_callback(id)` removes a registration.
+- **`Allocator::would_fit(size, memory_type_index) -> FitStatus`** — proactively computes whether a forthcoming allocation would keep usage under the driver's soft budget, fires `Predictive` events for any threshold it would cross, and returns the projected heap stats (`current_usage`, `budget`, `projected_usage`, `projected_fraction`, `fits`). Lets schedulers free resources *before* attempting an allocation rather than reacting to a `Crossed` event after the fact.
+- **`Device::enabled_extensions()` / `Device::is_extension_enabled(name)`** — introspect the final extension list sent to `vkCreateDevice`. Captures both explicit user requests and any extension the safe wrapper auto-enabled.
+- **New documentation**: `vulkane/docs/DEFRAG_FOR_ML.md` — a dedicated walkthrough of the existing `build_defragmentation_plan` / `apply_defragmentation_plan` API aimed at ML-framework integrators, including a full worked tensor-pool compaction example and guidance on layering defrag under budget-based eviction.
+
+### Changed
+
+- **Device creation now auto-enables `VK_EXT_memory_budget`** when the physical device advertises it. The extension is passive — enabling it only causes the driver to populate `VkPhysicalDeviceMemoryBudgetPropertiesEXT` on `vkGetPhysicalDeviceMemoryProperties2` calls — so this is observable in `Device::enabled_extensions()` but has no runtime cost when unused. Opt-out is not currently exposed; file an issue if you need it.
+- `Allocator::query_budget()` doc comment clarified: budget numbers are meaningful when `has_memory_budget_support()` returns `true`, which the auto-enable path makes the default on supported drivers.
+
 ## [0.6.0] — 2026-04-16
 
 Major version: every Vulkan extension and feature bit is now reachable from safe code via generated builders. Layer 1 + Layer 2 + Layer 3 of the extension-handling architecture are all landed, plus **Phase 1 of Layer 4** — RAII wrappers for every previously-unwrapped Vulkan handle type.

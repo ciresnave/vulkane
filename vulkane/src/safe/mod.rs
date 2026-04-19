@@ -94,7 +94,8 @@ mod sync;
 
 pub use allocator::{
     Allocation, AllocationCreateInfo, AllocationStatistics, AllocationStrategy, AllocationUsage,
-    Allocator, DefragmentationMove, DefragmentationPlan, PoolCreateInfo, PoolHandle,
+    Allocator, DefragmentationMove, DefragmentationPlan, FitStatus, PoolCreateInfo, PoolHandle,
+    PressureCallbackId, PressureEvent, PressureKind,
 };
 pub use buffer::{Buffer, BufferCreateInfo, BufferUsage, MemoryRequirements};
 pub use command::{BufferCopy, ClearValue, CommandBuffer, CommandBufferRecording, CommandPool};

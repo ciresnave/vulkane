@@ -125,6 +125,86 @@ pub enum AllocationStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PoolHandle(u64);
 
+/// Opaque identifier for a registered budget-pressure callback.
+/// Returned by [`Allocator::register_pressure_callback`]; pass to
+/// [`Allocator::unregister_pressure_callback`] to remove it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PressureCallbackId(u64);
+
+/// What triggered a [`PressureEvent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressureKind {
+    /// The heap's usage-vs-budget fraction just **rose past** the
+    /// registered threshold. Fired after an allocation succeeded.
+    Crossed,
+    /// The heap's usage-vs-budget fraction just **fell below**
+    /// `threshold - hysteresis`. Fired after a free,
+    /// [`Allocator::reset_pool`], or
+    /// [`Allocator::apply_defragmentation_plan`].
+    Relieved,
+    /// A proactive check (via [`Allocator::would_fit`]) found that the
+    /// pending allocation would push the heap past the registered
+    /// threshold **if it were attempted**. Does not imply the
+    /// allocation was actually issued, and does not latch the
+    /// callback's internal "currently over" flag — a subsequent
+    /// successful allocation will still fire [`PressureKind::Crossed`].
+    Predictive,
+}
+
+/// Payload delivered to a pressure-callback closure.
+///
+/// See [`Allocator::register_pressure_callback`] for the contract.
+#[derive(Debug, Clone, Copy)]
+pub struct PressureEvent {
+    /// Which memory heap crossed the threshold. Matches the indices
+    /// used by [`crate::safe::MemoryBudget`].
+    pub heap_index: u32,
+    /// The heap's bytes-in-use at the moment of firing.
+    pub current_usage: u64,
+    /// The driver's soft budget for this heap at the moment of firing.
+    pub budget: u64,
+    /// `current_usage / budget`, or 0.0 when `budget == 0`.
+    pub fraction: f64,
+    /// The threshold that fired. For [`PressureKind::Crossed`] and
+    /// [`PressureKind::Predictive`] this is the registered threshold;
+    /// for [`PressureKind::Relieved`] it is also the registered
+    /// threshold (the callback fires once when usage drops below
+    /// `threshold - hysteresis`).
+    pub threshold: f64,
+    /// What caused the event to fire.
+    pub kind: PressureKind,
+    /// For [`PressureKind::Predictive`] only: the byte size the caller
+    /// asked about in [`Allocator::would_fit`]. Zero for
+    /// [`PressureKind::Crossed`] and [`PressureKind::Relieved`].
+    pub predictive_size: u64,
+}
+
+/// Result of [`Allocator::would_fit`]: the proactive check that
+/// predicts whether a forthcoming allocation will violate the driver's
+/// soft budget on the relevant heap.
+#[derive(Debug, Clone, Copy)]
+pub struct FitStatus {
+    /// Heap that would back this allocation.
+    pub heap_index: u32,
+    /// Current bytes in use on this heap per the driver's estimate.
+    /// (Zero when the budget query is unsupported — compare with
+    /// [`Allocator::has_memory_budget_support`] to distinguish "heap
+    /// is empty" from "no query support".)
+    pub current_usage: u64,
+    /// Driver-provided soft budget on this heap.
+    pub budget: u64,
+    /// Byte size the caller asked about.
+    pub requested: u64,
+    /// `current_usage + requested` — what usage would become.
+    pub projected_usage: u64,
+    /// `true` iff `projected_usage <= budget`. Also `true` when the
+    /// budget query is unsupported (we cannot prove the allocation
+    /// would fail).
+    pub fits: bool,
+    /// `projected_usage / budget`, or 0.0 when `budget == 0`.
+    pub projected_fraction: f64,
+}
+
 /// Parameters for [`Allocator::create_pool`]. Custom pools let users
 /// segregate allocations (e.g. all transient buffers from one frame go
 /// into a single linear pool that gets reset together) and pick a
@@ -332,9 +412,175 @@ pub(crate) struct AllocatorInner {
     memory_properties: VkPhysicalDeviceMemoryProperties,
     /// One pool per memory type. None until first use.
     pools: Mutex<PoolState>,
+    /// Registered budget-pressure callbacks + their per-heap latch state.
+    /// Held behind its own `Mutex` rather than folded into [`PoolState`]
+    /// so we can invoke callbacks *after* releasing the pool lock,
+    /// preventing callback code from re-entering the allocator and
+    /// deadlocking on itself.
+    pressure: Mutex<PressureState>,
+}
+
+/// Erased-type alias for a registered pressure callback. Used in a
+/// few places that would otherwise hit `clippy::type_complexity`.
+type PressureCallbackFn = Arc<dyn Fn(PressureEvent) + Send + Sync>;
+
+/// Internal state for the pressure-callback system.
+struct PressureState {
+    next_id: u64,
+    callbacks: Vec<PressureCallbackEntry>,
+}
+
+struct PressureCallbackEntry {
+    id: u64,
+    threshold: f64,
+    hysteresis: f64,
+    callback: PressureCallbackFn,
+    /// Per-heap latch: `latched[h]` is `true` iff this callback has
+    /// fired a `Crossed` event on heap `h` and has not yet fired the
+    /// matching `Relieved` event. Vulkan caps heap count at
+    /// `VK_MAX_MEMORY_HEAPS = 16`.
+    latched: [bool; 16],
 }
 
 impl AllocatorInner {
+    /// Accessor for the set of extensions enabled on the underlying
+    /// [`Device`]. Thin shim used by [`Allocator::has_memory_budget_support`]
+    /// so the allocator can ask "did VK_EXT_memory_budget get enabled?"
+    /// without re-exporting the full `Device` public surface.
+    fn device_enabled_extensions(&self) -> &[String] {
+        &self.device.enabled_extensions
+    }
+
+    /// Which memory heap backs the given memory type. Returns
+    /// `u32::MAX` for out-of-range indices (should never happen in
+    /// correct code — the allocator itself generates every
+    /// `memory_type_index` from a Vulkan query).
+    fn heap_index_for_memory_type(&self, memory_type_index: u32) -> u32 {
+        if memory_type_index >= self.memory_properties.memoryTypeCount {
+            return u32::MAX;
+        }
+        self.memory_properties.memoryTypes[memory_type_index as usize].heapIndex
+    }
+
+    /// Evaluate every registered pressure callback against the current
+    /// budget state for `heap_index`, latch the transitions, and invoke
+    /// any callbacks whose threshold was just crossed or relieved.
+    ///
+    /// `predictive_size`: when `Some`, this is a
+    /// [`PressureKind::Predictive`] check triggered from
+    /// [`Allocator::would_fit`] — we evaluate the transitions against
+    /// `current_usage + predictive_size` but **do not** update the
+    /// `latched` bits (predictive events are advisory and must not
+    /// suppress a real `Crossed` event on a subsequent allocation).
+    /// When `None`, this is a reactive pass after an allocate/free —
+    /// normal latch transitions apply.
+    ///
+    /// Never holds the [`PoolState`] lock; callers are expected to
+    /// have dropped it before entering.
+    fn fire_pressure_for_heap(&self, heap_index: u32, predictive_size: Option<u64>) {
+        if heap_index >= self.memory_properties.memoryHeapCount || heap_index >= 16 {
+            return;
+        }
+        // Snapshot budget. Safe to do without holding pools lock.
+        let Some(budget) = self.physical.memory_budget() else {
+            return;
+        };
+        let h = heap_index as usize;
+        if h >= budget.heap_count as usize {
+            return;
+        }
+        let raw_usage = budget.usage[h];
+        let raw_budget = budget.budget[h];
+        let projected_usage = match predictive_size {
+            Some(n) => raw_usage.saturating_add(n),
+            None => raw_usage,
+        };
+        let fraction = if raw_budget == 0 {
+            0.0
+        } else {
+            projected_usage as f64 / raw_budget as f64
+        };
+
+        // Collect events to fire under the pressure lock, update latches,
+        // then release the lock before invoking the callbacks so they
+        // can call back into the allocator without deadlocking.
+        let mut to_fire: Vec<(PressureCallbackFn, PressureEvent)> = Vec::new();
+        {
+            let mut ps = self.pressure.lock().unwrap();
+            for cb in ps.callbacks.iter_mut() {
+                let above = fraction >= cb.threshold;
+                let below_low = fraction < (cb.threshold - cb.hysteresis).max(0.0);
+                match predictive_size {
+                    Some(n) => {
+                        // Predictive: fire only when the projection
+                        // would push us above the threshold AND we're
+                        // not already latched (otherwise we'd be
+                        // notifying about a state the caller already
+                        // knows about via Crossed).
+                        if above && !cb.latched[h] {
+                            to_fire.push((
+                                Arc::clone(&cb.callback),
+                                PressureEvent {
+                                    heap_index,
+                                    current_usage: raw_usage,
+                                    budget: raw_budget,
+                                    fraction,
+                                    threshold: cb.threshold,
+                                    kind: PressureKind::Predictive,
+                                    predictive_size: n,
+                                },
+                            ));
+                        }
+                    }
+                    None => {
+                        if above && !cb.latched[h] {
+                            cb.latched[h] = true;
+                            to_fire.push((
+                                Arc::clone(&cb.callback),
+                                PressureEvent {
+                                    heap_index,
+                                    current_usage: raw_usage,
+                                    budget: raw_budget,
+                                    fraction,
+                                    threshold: cb.threshold,
+                                    kind: PressureKind::Crossed,
+                                    predictive_size: 0,
+                                },
+                            ));
+                        } else if below_low && cb.latched[h] {
+                            cb.latched[h] = false;
+                            to_fire.push((
+                                Arc::clone(&cb.callback),
+                                PressureEvent {
+                                    heap_index,
+                                    current_usage: raw_usage,
+                                    budget: raw_budget,
+                                    fraction,
+                                    threshold: cb.threshold,
+                                    kind: PressureKind::Relieved,
+                                    predictive_size: 0,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        for (cb, event) in to_fire {
+            cb(event);
+        }
+    }
+
+    /// Fire pressure for a memory-type index (resolves heap and
+    /// delegates). Used by the allocate/free hot paths.
+    fn fire_pressure_for_memory_type(&self, memory_type_index: u32, predictive_size: Option<u64>) {
+        let heap = self.heap_index_for_memory_type(memory_type_index);
+        if heap == u32::MAX {
+            return;
+        }
+        self.fire_pressure_for_heap(heap, predictive_size);
+    }
+
     /// Refresh the free-region count statistic across every pool. Called
     /// after any free/destroy that may have merged regions.
     fn refresh_free_region_count(&self, state: &mut PoolState) {
@@ -580,6 +826,9 @@ impl Drop for AllocationInner {
         };
         let location = self.location.lock().unwrap().clone();
         allocator.free_allocation_internal(&location, self.size);
+        // The pool lock is released inside free_allocation_internal;
+        // safe to re-enter the allocator now to evaluate callbacks.
+        allocator.fire_pressure_for_memory_type(self.memory_type_index, None);
     }
 }
 
@@ -704,6 +953,10 @@ impl Allocator {
                     statistics: AllocationStatistics::default(),
                     dedicated_blocks: Vec::new(),
                 }),
+                pressure: Mutex::new(PressureState {
+                    next_id: 1,
+                    callbacks: Vec::new(),
+                }),
             }),
         })
     }
@@ -726,11 +979,100 @@ impl Allocator {
     /// is not loaded (Vulkan 1.0 without
     /// `VK_KHR_get_physical_device_properties2`). The budget/usage values
     /// inside the returned [`crate::safe::MemoryBudget`] are only
-    /// meaningful when `VK_EXT_memory_budget` was enabled at instance
-    /// creation time, but the heap-count and structural shape are always
-    /// usable.
+    /// meaningful when `VK_EXT_memory_budget` was enabled on the device
+    /// (which [`Device`] does automatically when the physical device
+    /// supports it — see [`Allocator::has_memory_budget_support`]).
     pub fn query_budget(&self) -> Option<crate::safe::MemoryBudget> {
         self.inner.physical.memory_budget()
+    }
+
+    /// `true` iff this allocator can return meaningful budget numbers.
+    ///
+    /// Requires both `vkGetPhysicalDeviceMemoryProperties2` to be loaded
+    /// (Vulkan 1.1+ core, or `VK_KHR_get_physical_device_properties2`
+    /// as an instance extension) **and** `VK_EXT_memory_budget` to be
+    /// enabled on the device. The safe wrapper auto-enables the device
+    /// extension when the physical device supports it, so in practice
+    /// this returns `true` on any reasonably modern driver.
+    ///
+    /// When this returns `false`, [`query_budget`](Self::query_budget),
+    /// [`vram_budget`](Self::vram_budget), and
+    /// [`vram_used`](Self::vram_used) will still return values, but
+    /// the budget numbers come from the driver's fallback reporting and
+    /// should not be treated as authoritative.
+    pub fn has_memory_budget_support(&self) -> bool {
+        let get2_loaded = self
+            .inner
+            .physical
+            .instance()
+            .vkGetPhysicalDeviceMemoryProperties2
+            .is_some();
+        let ext_enabled = self
+            .inner
+            .device_enabled_extensions()
+            .iter()
+            .any(|n| n == "VK_EXT_memory_budget");
+        get2_loaded && ext_enabled
+    }
+
+    /// Total soft VRAM budget, in bytes, summed across every
+    /// `DEVICE_LOCAL` memory heap.
+    ///
+    /// This is the number ML schedulers typically mean when they say
+    /// "how much VRAM do I have to play with": the driver's suggested
+    /// cap across every heap that lives on the GPU. Does not include
+    /// system-memory heaps (CPU RAM exposed as host-visible memory on
+    /// integrated or UMA systems appears on a separate, non-device-local
+    /// heap).
+    ///
+    /// Returns `0` if the budget query fails for any reason (old driver,
+    /// extension not loaded). Check
+    /// [`has_memory_budget_support`](Self::has_memory_budget_support)
+    /// first if you need to distinguish "no budget" from "no query
+    /// support".
+    pub fn vram_budget(&self) -> u64 {
+        self.sum_device_local_heaps(|budget, heap| budget.budget[heap])
+    }
+
+    /// Total VRAM currently in use, in bytes, summed across every
+    /// `DEVICE_LOCAL` memory heap. The driver's estimate — includes
+    /// allocations from this process, other processes, and driver
+    /// internal state.
+    ///
+    /// Returns `0` if the budget query fails. Pair with
+    /// [`vram_budget`](Self::vram_budget) for a ratio:
+    ///
+    /// ```ignore
+    /// let frac = allocator.vram_used() as f64 / allocator.vram_budget() as f64;
+    /// if frac > 0.85 {
+    ///     scheduler.evict_least_recently_used();
+    /// }
+    /// ```
+    pub fn vram_used(&self) -> u64 {
+        self.sum_device_local_heaps(|budget, heap| budget.usage[heap])
+    }
+
+    /// Internal helper: sum `f(budget, heap_idx)` over every
+    /// `DEVICE_LOCAL` heap. Returns 0 if the budget query returns `None`.
+    fn sum_device_local_heaps<F>(&self, f: F) -> u64
+    where
+        F: Fn(&crate::safe::MemoryBudget, usize) -> u64,
+    {
+        let Some(budget) = self.query_budget() else {
+            return 0;
+        };
+        let props = self.inner.physical.memory_properties();
+        let mut total: u64 = 0;
+        for heap_idx in 0..(budget.heap_count as usize) {
+            if props
+                .memory_heap(heap_idx as u32)
+                .flags()
+                .contains(crate::safe::MemoryHeapFlags::DEVICE_LOCAL)
+            {
+                total = total.saturating_add(f(&budget, heap_idx));
+            }
+        }
+        total
     }
 
     /// Returns the cached `PhysicalDevice` this allocator was created
@@ -738,6 +1080,144 @@ impl Allocator {
     /// proxy directly.
     pub fn physical_device(&self) -> &PhysicalDevice {
         &self.inner.physical
+    }
+
+    /// Register a budget-pressure callback that fires when the
+    /// fraction `usage / budget` on any memory heap crosses a
+    /// threshold.
+    ///
+    /// # Arguments
+    ///
+    /// - `threshold` — the fraction (typically between 0.5 and 0.99)
+    ///   at which the callback fires. For example, `0.85` fires when a
+    ///   heap reaches 85 % of its driver-reported budget.
+    /// - `hysteresis` — the relief gap. After firing
+    ///   [`PressureKind::Crossed`], the matching
+    ///   [`PressureKind::Relieved`] event will not fire until usage
+    ///   drops below `threshold - hysteresis`. This prevents rapid
+    ///   re-firing as usage oscillates around the threshold. A
+    ///   reasonable default is `0.05` (5 % of budget).
+    /// - `callback` — the closure to invoke. Receives a
+    ///   [`PressureEvent`] describing which heap, the threshold, and
+    ///   the kind of transition.
+    ///
+    /// # When callbacks fire
+    ///
+    /// - After every successful allocation — reactive, fires
+    ///   [`PressureKind::Crossed`] if usage just rose past `threshold`.
+    /// - After every free, [`reset_pool`](Self::reset_pool),
+    ///   [`destroy_pool`](Self::destroy_pool), and
+    ///   [`apply_defragmentation_plan`](Self::apply_defragmentation_plan)
+    ///   — fires [`PressureKind::Relieved`] if usage dropped below
+    ///   `threshold - hysteresis`.
+    /// - From every call to [`would_fit`](Self::would_fit) — proactive,
+    ///   fires [`PressureKind::Predictive`] if the projected usage
+    ///   (current + requested) would cross `threshold`.
+    ///
+    /// # Re-entrancy
+    ///
+    /// Callbacks are invoked **after** every internal allocator lock
+    /// is released, so they may call back into this `Allocator` (to
+    /// query statistics, free other allocations, or trigger a defrag
+    /// cycle) without deadlocking. They must still be `Send + Sync`.
+    ///
+    /// Callbacks run on whatever thread issued the allocation or free.
+    /// If your callback does nontrivial work, hand off to a worker
+    /// thread rather than blocking the allocation path.
+    ///
+    /// # Meaningful budget requires the extension
+    ///
+    /// The budget numbers are only authoritative when
+    /// [`has_memory_budget_support`](Self::has_memory_budget_support)
+    /// is `true`. When it is `false`, callbacks still fire based on
+    /// whatever numbers the driver returns, but those numbers may not
+    /// reflect reality.
+    pub fn register_pressure_callback<F>(
+        &self,
+        threshold: f64,
+        hysteresis: f64,
+        callback: F,
+    ) -> PressureCallbackId
+    where
+        F: Fn(PressureEvent) + Send + Sync + 'static,
+    {
+        let mut ps = self.inner.pressure.lock().unwrap();
+        let id = ps.next_id;
+        ps.next_id += 1;
+        ps.callbacks.push(PressureCallbackEntry {
+            id,
+            threshold,
+            hysteresis,
+            callback: Arc::new(callback),
+            latched: [false; 16],
+        });
+        PressureCallbackId(id)
+    }
+
+    /// Remove a previously registered pressure callback. Returns
+    /// `true` if the callback was found and removed, `false` if the
+    /// id was already unregistered.
+    pub fn unregister_pressure_callback(&self, id: PressureCallbackId) -> bool {
+        let mut ps = self.inner.pressure.lock().unwrap();
+        let before = ps.callbacks.len();
+        ps.callbacks.retain(|c| c.id != id.0);
+        ps.callbacks.len() != before
+    }
+
+    /// Proactively check whether allocating `size` bytes from
+    /// `memory_type_index` would fit under the driver's soft budget
+    /// for the backing heap.
+    ///
+    /// Returns a [`FitStatus`] with the current heap usage, budget,
+    /// projected usage, and a boolean `fits`. Fires
+    /// [`PressureKind::Predictive`] events for any registered
+    /// callback whose threshold would be crossed by the projected
+    /// usage — letting a scheduler free resources *before* the
+    /// allocation is attempted, rather than reacting to a Crossed
+    /// event after the fact.
+    ///
+    /// Pick `memory_type_index` the same way you would for a real
+    /// allocation — e.g. via
+    /// [`PhysicalDevice::find_memory_type`](crate::safe::PhysicalDevice::find_memory_type).
+    /// When the budget query is unsupported, `fits` is `true` (we
+    /// cannot prove failure) and `current_usage`/`budget` are `0`.
+    ///
+    /// This method never actually allocates and has no effect on the
+    /// allocator state beyond firing callbacks.
+    pub fn would_fit(&self, size: u64, memory_type_index: u32) -> FitStatus {
+        let heap_index = self.inner.heap_index_for_memory_type(memory_type_index);
+        let (current_usage, budget) = match self.query_budget() {
+            Some(b) if (heap_index as usize) < b.heap_count as usize => {
+                let h = heap_index as usize;
+                (b.usage[h], b.budget[h])
+            }
+            _ => (0u64, 0u64),
+        };
+        let projected_usage = current_usage.saturating_add(size);
+        let fits = budget == 0 || projected_usage <= budget;
+        let projected_fraction = if budget == 0 {
+            0.0
+        } else {
+            projected_usage as f64 / budget as f64
+        };
+
+        // Fire predictive callbacks for thresholds the projection
+        // would cross. Only do this when the heap index is a real heap
+        // and we have a meaningful budget number to compare against.
+        if heap_index != u32::MAX && budget != 0 {
+            self.inner
+                .fire_pressure_for_heap(heap_index, Some(size));
+        }
+
+        FitStatus {
+            heap_index,
+            current_usage,
+            budget,
+            requested: size,
+            projected_usage,
+            fits,
+            projected_fraction,
+        }
     }
 
     /// Create a custom user pool. Returns an opaque [`PoolHandle`] you
@@ -763,8 +1243,14 @@ impl Allocator {
     /// `VkDeviceMemory` blocks. The caller must ensure no live
     /// allocations from this pool are still in use.
     pub fn destroy_pool(&self, handle: PoolHandle) {
-        let mut state = self.inner.pools.lock().unwrap();
-        if let Some(mut pool) = state.custom_pools.remove(&handle.0) {
+        let affected_heap = {
+            let mut state = self.inner.pools.lock().unwrap();
+            let Some(mut pool) = state.custom_pools.remove(&handle.0) else {
+                return;
+            };
+            let heap = self
+                .inner
+                .heap_index_for_memory_type(pool.memory_type_index);
             for block in pool.blocks.drain(..) {
                 self.free_block_memory(&block);
                 state.statistics.block_bytes =
@@ -778,6 +1264,10 @@ impl Allocator {
                     .saturating_sub(alloc_count);
             }
             self.refresh_free_region_count(&mut state);
+            heap
+        };
+        if affected_heap != u32::MAX {
+            self.inner.fire_pressure_for_heap(affected_heap, None);
         }
     }
 
@@ -785,10 +1275,17 @@ impl Allocator {
     /// become invalid; the user is responsible for ensuring no live
     /// references remain. No-op for `FreeList` pools.
     pub fn reset_pool(&self, handle: PoolHandle) {
-        let mut state = self.inner.pools.lock().unwrap();
-        if let Some(pool) = state.custom_pools.get_mut(&handle.0)
-            && pool.strategy == AllocationStrategy::Linear
-        {
+        let affected_heap = {
+            let mut state = self.inner.pools.lock().unwrap();
+            let Some(pool) = state.custom_pools.get_mut(&handle.0) else {
+                return;
+            };
+            if pool.strategy != AllocationStrategy::Linear {
+                return;
+            }
+            let heap = self
+                .inner
+                .heap_index_for_memory_type(pool.memory_type_index);
             // Count all the allocations we're about to invalidate.
             let mut total_count = 0u32;
             let mut total_bytes = 0u64;
@@ -808,6 +1305,15 @@ impl Allocator {
                 .allocation_bytes
                 .saturating_sub(total_bytes);
             self.refresh_free_region_count(&mut state);
+            heap
+        };
+        // Resetting a linear pool doesn't free `VkDeviceMemory`, so the
+        // driver-reported budget `usage` typically doesn't move — but
+        // we still evaluate pressure so callbacks that watch only
+        // the allocator's own state (via `statistics`) have a hook if
+        // future helpers surface that view.
+        if affected_heap != u32::MAX {
+            self.inner.fire_pressure_for_heap(affected_heap, None);
         }
     }
 
@@ -857,6 +1363,21 @@ impl Allocator {
     /// already determined the memory type at create time). Otherwise the
     /// per-memory-type default pool is used.
     pub fn allocate(
+        &self,
+        requirements: MemoryRequirements,
+        info: AllocationCreateInfo,
+    ) -> Result<Allocation> {
+        let result = self.allocate_inner(requirements, info);
+        if let Ok(ref alloc) = result {
+            // `allocate_inner` already dropped the pool lock before
+            // returning the Allocation; safe to fire pressure here.
+            self.inner
+                .fire_pressure_for_memory_type(alloc.memory_type_index(), None);
+        }
+        result
+    }
+
+    fn allocate_inner(
         &self,
         requirements: MemoryRequirements,
         info: AllocationCreateInfo,
@@ -1656,6 +2177,22 @@ impl Allocator {
         }
 
         self.refresh_free_region_count(&mut state);
+
+        // Resolve the pool's heap before dropping `state` so we can
+        // fire pressure with the lock released. Defrag doesn't actually
+        // free VRAM (it just relocates inside existing blocks), but
+        // users typically destroy no-longer-needed blocks after
+        // applying a plan — evaluating callbacks here lets them see
+        // the resulting state.
+        let affected_heap = state
+            .custom_pools
+            .get(&pool_id)
+            .map(|p| self.inner.heap_index_for_memory_type(p.memory_type_index))
+            .unwrap_or(u32::MAX);
+        drop(state);
+        if affected_heap != u32::MAX {
+            self.inner.fire_pressure_for_heap(affected_heap, None);
+        }
     }
 }
 

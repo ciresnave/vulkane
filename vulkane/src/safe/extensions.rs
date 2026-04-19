@@ -93,14 +93,6 @@ impl DeviceExtensions {
             self.enabled.push(name);
         }
     }
-
-    /// Convert the enable list into heap-owned `CString`s for embedding
-    /// in a `VkDeviceCreateInfo`. The returned `CString` vector must
-    /// outlive the `vkCreateDevice` call — callers typically bind it
-    /// with `let`.
-    pub(crate) fn to_cstrings(&self) -> std::result::Result<Vec<CString>, std::ffi::NulError> {
-        self.enabled.iter().map(|s| CString::new(*s)).collect()
-    }
 }
 
 impl InstanceExtensions {
