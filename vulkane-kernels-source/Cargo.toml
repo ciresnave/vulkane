@@ -1,0 +1,21 @@
+[package]
+categories.workspace = true
+description          = "Kernel source files (.slang / .wgsl / .glsl) shared across Fuel GPU backends. Compile ahead of time with src/compile.sh; compiled artifacts live in fuel-vulkan-kernels (SPIR-V) and fuel-cuda-kernels (PTX / cubin)."
+edition.workspace    = true
+keywords.workspace   = true
+license.workspace    = true
+name                 = "fuel-kernels-source"
+repository.workspace = true
+version.workspace    = true
+
+# No Rust code in this crate — it's a home for kernel sources and the
+# compile script. Downstream backend crates read the compiled
+# artifacts from their respective kernel crates (fuel-vulkan-kernels,
+# fuel-cuda-kernels), not from here.
+#
+# We still need a lib target so cargo recognizes it as a workspace
+# member. The lib is empty.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

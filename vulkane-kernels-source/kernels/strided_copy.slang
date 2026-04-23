@@ -8,41 +8,45 @@
 // `shape_strides` storage buffer layout:
 //   [shape[0], shape[1], ..., shape[rank-1],
 //    stride[0], stride[1], ..., stride[rank-1]]
+//
+// Replaces strided_copy.wgsl. Written in Slang per the shader policy.
 
 struct Params {
-    out_size: u32,
-    rank: u32,
-    src_offset: u32,
-    dst_offset: u32,
+    uint out_size;
+    uint rank;
+    uint src_offset;
+    uint dst_offset;
 };
 
-@group(0) @binding(0) var<storage, read> input: array<f32>;
-@group(0) @binding(1) var<storage, read_write> output: array<f32>;
-@group(0) @binding(2) var<storage, read> shape_strides: array<u32>;
-@group(0) @binding(3) var<uniform> params: Params;
+[[vk::binding(0, 0)]] StructuredBuffer<float>   input;
+[[vk::binding(1, 0)]] RWStructuredBuffer<float> output;
+[[vk::binding(2, 0)]] StructuredBuffer<uint>    shape_strides;
+[[vk::binding(3, 0)]] ConstantBuffer<Params>    p;
 
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let out_idx = gid.x;
-    if out_idx >= params.out_size { return; }
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void main(uint3 gid : SV_DispatchThreadID)
+{
+    uint out_idx = gid.x;
+    if (out_idx >= p.out_size) return;
 
     // Unflatten out_idx in row-major order using the output shape.
     // Output is contiguous; compute coord per dim by successive division.
-    var remainder = out_idx;
-    var src_flat = params.src_offset;
+    uint remainder = out_idx;
+    uint src_flat = p.src_offset;
 
     // Compute the contiguous stride for each dim of the output shape.
     // We build strides[d] = product of shape[d+1..rank].
     // Then coord = remainder / strides[d], remainder %= strides[d].
-    for (var d = 0u; d < params.rank; d++) {
-        var dim_stride: u32 = 1u;
-        for (var e = d + 1u; e < params.rank; e++) {
+    for (uint d = 0u; d < p.rank; d++) {
+        uint dim_stride = 1u;
+        for (uint e = d + 1u; e < p.rank; e++) {
             dim_stride *= shape_strides[e];
         }
-        let coord = remainder / dim_stride;
+        uint coord = remainder / dim_stride;
         remainder -= coord * dim_stride;
-        src_flat += coord * shape_strides[params.rank + d];
+        src_flat += coord * shape_strides[p.rank + d];
     }
 
-    output[params.dst_offset + out_idx] = input[src_flat];
+    output[p.dst_offset + out_idx] = input[src_flat];
 }

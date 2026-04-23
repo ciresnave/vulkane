@@ -11,13 +11,11 @@
 // backward by hand because the autodiff machinery doesn't handle
 // cross-invocation dependencies.
 //
-// Build produces two entry points from one source:
-//   slangc autodiff_poc.slang -target spirv -entry silu_forward  -o silu_forward.spv
-//   slangc autodiff_poc.slang -target spirv -entry silu_backward -o silu_backward.spv
-//
-// The compile.sh currently emits only entry point `main`; it would
-// need extension for multi-entry builds. Left as TODO; this file is
-// referenced only for pattern reference.
+// compile.sh picks up the `entries:` directive below and builds one
+// SPIR-V output per listed entry point (silu_forward.spv,
+// silu_backward.spv).
+
+// entries: silu_forward, silu_backward
 
 // SiLU activation: f(x) = x * sigmoid(x). Pointwise. The derivative
 // is f'(x) = sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x)).

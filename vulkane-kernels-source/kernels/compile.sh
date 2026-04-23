@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compile every shader source (*.wgsl, *.glsl, *.slang) in this
-# directory to SPIR-V, writing the output to ../shaders_spirv/.
+# directory to SPIR-V, writing the output to ../../fuel-vulkan-kernels/spv/.
 #
 # Toolchain: requires the Vulkan SDK (for slangc + glslangValidator)
 # and naga-cli (cargo install naga-cli) on PATH.
@@ -16,7 +16,12 @@
 # Conventions:
 #   .wgsl   -> naga (Vulkan 1.1 / SPIR-V 1.3)
 #   .glsl   -> glslangValidator, compute stage, Vulkan 1.1
-#   .slang  -> slangc, SPIR-V, entry point 'main', profile glsl_450
+#   .slang  -> slangc, SPIR-V, profile glsl_450
+#             Default entry point is 'main', output is <basename>.spv.
+#             To compile multiple entry points from one source, add a
+#             directive line near the top:
+#                 // entries: silu_forward, silu_backward
+#             Each listed entry becomes its own <entry>.spv.
 #
 # GLSL files that need a specific entry or non-default SPIR-V version
 # can override via a sidecar comment line `// compile: <flags>` at
@@ -25,7 +30,9 @@
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
-OUT_DIR="$(cd "$SRC_DIR/.." && pwd)/shaders_spirv"
+# Outputs land in the fuel-vulkan-kernels crate's spv/ directory.
+# Layout: fuel-kernels-source/kernels/  →  fuel-vulkan-kernels/spv/
+OUT_DIR="$(cd "$SRC_DIR/../.." && pwd)/fuel-vulkan-kernels/spv"
 mkdir -p "$OUT_DIR"
 
 # Resolve tools. slangc and glslangValidator come from the Vulkan SDK.
@@ -53,7 +60,7 @@ compile_wgsl() {
   local src="$1"
   local base; base="$(basename "$src" .wgsl)"
   local out="$OUT_DIR/$base.spv"
-  echo "  wgsl  $base.wgsl -> shaders_spirv/$base.spv"
+  echo "  wgsl  $base.wgsl -> ../fuel-vulkan-kernels/spv/$base.spv"
   "$NAGA" "$src" "$out"
 }
 
@@ -61,16 +68,37 @@ compile_glsl() {
   local src="$1"
   local base; base="$(basename "$src" .glsl)"
   local out="$OUT_DIR/$base.spv"
-  echo "  glsl  $base.glsl -> shaders_spirv/$base.spv"
+  echo "  glsl  $base.glsl -> ../fuel-vulkan-kernels/spv/$base.spv"
   "$GLSLANG" -V -S comp --target-env vulkan1.1 "$src" -o "$out" >/dev/null
 }
 
 compile_slang() {
   local src="$1"
   local base; base="$(basename "$src" .slang)"
-  local out="$OUT_DIR/$base.spv"
-  echo "  slang $base.slang -> shaders_spirv/$base.spv"
-  "$SLANGC" "$src" -target spirv -profile glsl_450 -entry main -o "$out"
+
+  # Look for a `// entries: a, b, c` directive anywhere in the first
+  # 40 lines. If present, compile each listed entry to <entry>.spv.
+  # Otherwise compile the default `main` entry to <basename>.spv.
+  local entries_line
+  entries_line="$(head -n 40 "$src" | grep -E '^\s*//\s*entries\s*:' | head -n 1 || true)"
+
+  if [[ -n "$entries_line" ]]; then
+    # Strip the comment prefix, the 'entries:' keyword, and split on commas.
+    local list
+    list="$(echo "$entries_line" | sed -E 's|^\s*//\s*entries\s*:\s*||; s|,| |g')"
+    for entry in $list; do
+      # Trim whitespace.
+      entry="$(echo "$entry" | tr -d '[:space:]')"
+      [[ -z "$entry" ]] && continue
+      local out="$OUT_DIR/$entry.spv"
+      echo "  slang $base.slang[$entry] -> ../fuel-vulkan-kernels/spv/$entry.spv"
+      "$SLANGC" "$src" -target spirv -profile glsl_450 -entry "$entry" -o "$out"
+    done
+  else
+    local out="$OUT_DIR/$base.spv"
+    echo "  slang $base.slang -> ../fuel-vulkan-kernels/spv/$base.spv"
+    "$SLANGC" "$src" -target spirv -profile glsl_450 -entry main -o "$out"
+  fi
 }
 
 compile_one() {
