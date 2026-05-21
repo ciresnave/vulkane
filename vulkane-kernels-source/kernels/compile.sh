@@ -93,11 +93,29 @@ compile_slang() {
       local out="$OUT_DIR/$entry.spv"
       echo "  slang $base.slang[$entry] -> ../fuel-vulkan-kernels/spv/$entry.spv"
       "$SLANGC" "$src" -target spirv -profile glsl_450 -entry "$entry" -o "$out"
+      hoist_imports_if_needed "$out"
     done
   else
     local out="$OUT_DIR/$base.spv"
     echo "  slang $base.slang -> ../fuel-vulkan-kernels/spv/$base.spv"
     "$SLANGC" "$src" -target spirv -profile glsl_450 -entry main -o "$out"
+    hoist_imports_if_needed "$out"
+  fi
+}
+
+# Post-process: if the SPV contains OpExtInstImport instructions
+# inside function bodies (slang's `spirv_asm` lowers them there
+# instead of module scope, which spirv-val rejects), run the hoist
+# script to move them up + dedupe. The script is a no-op when there
+# are no in-function imports.
+hoist_imports_if_needed() {
+  local spv="$1"
+  if command -v python >/dev/null 2>&1; then
+    python "$SRC_DIR/hoist_extinst_imports.py" "$spv"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 "$SRC_DIR/hoist_extinst_imports.py" "$spv"
+  else
+    echo "    warning: python not found; skipping OpExtInstImport hoist on $spv" >&2
   fi
 }
 
