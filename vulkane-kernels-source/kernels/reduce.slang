@@ -1,38 +1,43 @@
-// Parallel reduction: sum, max, or min of all elements → single value.
+// Parallel reduction: sum, max, min, or mean of all elements → single value.
 // One workgroup, tree reduction.
+//
+// op_id: 0=sum, 1=max, 2=min, 3=mean (sum / n).
 //
 // Replaces reduce.wgsl. Written in Slang per the shader policy.
 
 struct Params {
     uint n;
-    uint op_id; // 0=sum, 1=max, 2=min
+    uint op_id; // 0=sum, 1=max, 2=min, 3=mean
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<float>   input;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float> output;
 [[vk::binding(2, 0)]] ConstantBuffer<Params>    p;
 
-static const uint OP_SUM = 0;
-static const uint OP_MAX = 1;
-static const uint OP_MIN = 2;
+static const uint OP_SUM  = 0;
+static const uint OP_MAX  = 1;
+static const uint OP_MIN  = 2;
+static const uint OP_MEAN = 3;
 
 groupshared float wg_data[256];
 
 float identity(uint op) {
     switch (op) {
-        case OP_SUM: return 0.0f;
-        case OP_MAX: return -3.402823e+38f;
-        case OP_MIN: return 3.402823e+38f;
-        default:     return 0.0f;
+        case OP_SUM:  return 0.0f;
+        case OP_MEAN: return 0.0f;
+        case OP_MAX:  return -3.402823e+38f;
+        case OP_MIN:  return 3.402823e+38f;
+        default:      return 0.0f;
     }
 }
 
 float combine(uint op, float a, float b) {
     switch (op) {
-        case OP_SUM: return a + b;
-        case OP_MAX: return max(a, b);
-        case OP_MIN: return min(a, b);
-        default:     return a;
+        case OP_SUM:  return a + b;
+        case OP_MEAN: return a + b;
+        case OP_MAX:  return max(a, b);
+        case OP_MIN:  return min(a, b);
+        default:      return a;
     }
 }
 
@@ -64,6 +69,10 @@ void main(uint3 lid : SV_GroupThreadID)
     }
 
     if (tid == 0u) {
-        output[0] = wg_data[0];
+        float r = wg_data[0];
+        if (op == OP_MEAN) {
+            r = r / float(p.n);
+        }
+        output[0] = r;
     }
 }

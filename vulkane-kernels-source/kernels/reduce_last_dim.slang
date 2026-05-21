@@ -3,7 +3,7 @@
 // Input: [n_rows, n_cols]  contiguous, row-major.
 // Output: [n_rows]         one element per row.
 //
-// op_id: 0 = sum, 1 = max, 2 = min.
+// op_id: 0 = sum, 1 = max, 2 = min, 3 = mean (sum / n_cols).
 //
 // Slang port of the WGSL reducer. Uses subgroup arithmetic
 // (`WaveActiveSum`, `WaveActiveMax`, `WaveActiveMin`) instead of a
@@ -28,17 +28,20 @@ groupshared float wg_data[32];
 static const float F32_NEG_INF = -3.402823e+38;
 static const float F32_POS_INF =  3.402823e+38;
 
-// Identity value per op.
+// Identity value per op. Sum and Mean share identity (0); Mean only
+// differs from Sum by a final divide by n_cols.
 float identity_of(uint op) {
-    if (op == 0u) return 0.0;
-    if (op == 1u) return F32_NEG_INF;
-    return F32_POS_INF;
+    if (op == 0u) return 0.0;        // sum
+    if (op == 1u) return F32_NEG_INF; // max
+    if (op == 2u) return F32_POS_INF; // min
+    return 0.0;                       // mean
 }
 
 float combine(uint op, float a, float b) {
     if (op == 0u) return a + b;
     if (op == 1u) return max(a, b);
-    return min(a, b);
+    if (op == 2u) return min(a, b);
+    return a + b;                     // mean accumulates as sum
 }
 
 // Subgroup reduction dispatched by op_id. Slang's subgroup intrinsics
@@ -46,7 +49,8 @@ float combine(uint op, float a, float b) {
 float subgroup_reduce(uint op, float x) {
     if (op == 0u) return WaveActiveSum(x);
     if (op == 1u) return WaveActiveMax(x);
-    return WaveActiveMin(x);
+    if (op == 2u) return WaveActiveMin(x);
+    return WaveActiveSum(x);          // mean: sum then divide outside
 }
 
 [shader("compute")]
@@ -78,6 +82,9 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID) {
         float v = (tid < n_sg) ? wg_data[tid] : identity_of(op);
         float r = subgroup_reduce(op, v);
         if (WaveIsFirstLane()) {
+            if (op == 3u) {
+                r = r / float(params.n_cols);
+            }
             output[row] = r;
         }
     }
