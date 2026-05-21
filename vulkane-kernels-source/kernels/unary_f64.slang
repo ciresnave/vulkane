@@ -1,15 +1,21 @@
 // Element-wise unary ops for f64. Mirrors unary.slang's 13-op
 // surface but operates on `double` (shaderFloat64 required).
 //
-// IMPORTANT NVIDIA driver quirk: if-chains across f64 math functions
-// (`exp`, `log`, `sin`, `cos`, `tanh`) appear to JIT-compile poorly
-// (host-side STATUS_ACCESS_VIOLATION at vkCmdDispatch on Windows + RTX
-// 4070, even when the runtime op_id only takes the simple branches).
-// Workaround: split into two pipelines — fast ops (Neg/Sqr/Sqrt/Max/
-// Step) in this file, transcendentals (Exp/Log/Sin/Cos/Tanh/Sigmoid/
-// Silu/Gelu) deferred to V.3.E.5 follow-up once the driver behavior
-// is understood. Slang itself emits clean SPIR-V (verified via
-// spirv-dis) — the issue is downstream in NVK's JIT.
+// Surface limited to Neg / Sqr / Sqrt / Relu / Step because
+// GLSL.std.450's Exp / Log / Sin / Cos / Tanh / Sigmoid / Silu /
+// Gelu instructions are spec-restricted to 16-bit and 32-bit float
+// inputs — they reject `double`. Slang silently emits an invalid
+// `OpExtInst Exp %double ...`, which spirv-val flags
+// ("GLSL.std.450 Exp: expected Result Type to be a 16 or 32-bit
+// scalar or vector float type"); on RTX 4070 + NVIDIA Windows the
+// driver doesn't catch this at pipeline-create and crashes inside
+// vkCmdDispatch instead.
+//
+// To add f64 transcendentals later: either (a) use OpenCL.std
+// extended instruction set instead of GLSL.std.450 (its double
+// variants are spec-allowed), or (b) compute in f32 and round-trip
+// (acceptable precision for activations; loses range for log/exp
+// of large magnitudes), or (c) hand-coded series expansion.
 
 struct Params {
     uint n;
