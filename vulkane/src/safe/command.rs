@@ -319,6 +319,19 @@ impl Drop for CommandPool {
 /// [`CommandBufferRecording`] guard. Recording is finished automatically
 /// when the guard is dropped (or you can call [`end`](CommandBufferRecording::end)
 /// explicitly to detect errors).
+///
+/// # Thread safety
+///
+/// `CommandBuffer` is `Send + Sync`. Recording APIs ([`begin`](Self::begin)
+/// and the resulting [`CommandBufferRecording`]) take `&mut self`, so the
+/// Rust borrow checker already prevents concurrent recording on the same
+/// buffer. Sharing `&CommandBuffer` across threads (e.g. recording on one
+/// thread and submitting on another) is sound.
+///
+/// The Vulkan spec also requires external synchronization per parent pool
+/// for `vkFreeCommandBuffers`/`vkResetCommandPool`; this wrapper's `Drop`
+/// calls `vkFreeCommandBuffers`, so do not drop a `CommandBuffer` while
+/// another thread is resetting its pool.
 pub struct CommandBuffer {
     pub(crate) handle: VkCommandBuffer,
     pub(crate) device: Arc<DeviceInner>,
@@ -329,6 +342,15 @@ pub struct CommandBuffer {
     #[allow(dead_code)]
     pool: VkCommandPool,
 }
+
+// SAFETY: `VkCommandBuffer` is a dispatchable handle (an opaque pointer),
+// so the auto-derived `Send`/`Sync` would be missing. The handle has no
+// thread affinity. Recording entry points on this wrapper take `&mut self`,
+// so the Rust type system enforces single-threaded recording without us
+// needing to forbid `Sync`. Callers remain responsible for the per-pool
+// external-sync contract documented on `CommandBuffer`.
+unsafe impl Send for CommandBuffer {}
+unsafe impl Sync for CommandBuffer {}
 
 impl CommandBuffer {
     /// Returns the raw `VkCommandBuffer` handle.
@@ -1785,5 +1807,21 @@ impl<'a> Drop for CommandBufferRecording<'a> {
             // We ignore errors here; users who care should call end() explicitly.
             unsafe { end(self.buffer.handle) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Compile-time lock-in: `CommandBuffer` must stay `Send + Sync`.
+    /// Downstreams (Fuel) build command buffers on worker threads and
+    /// submit them from a scheduler thread. If a future field addition
+    /// reintroduces a non-`Send`/`Sync` type, this assertion will fail
+    /// to compile.
+    #[test]
+    fn command_buffer_is_send_sync() {
+        fn _assert<T: Send + Sync>() {}
+        _assert::<CommandBuffer>();
     }
 }

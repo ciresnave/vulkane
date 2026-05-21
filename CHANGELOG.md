@@ -5,6 +5,14 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-05-21
+
+### Added — thread-safety markers
+
+- `safe::Queue` is now `Send + Sync` via `unsafe impl`. Vulkan queues have no thread affinity at the API level, but the application owns external synchronization per `VkQueue` for `vkQueueSubmit` / `vkQueueWaitIdle` / `vkQueueBindSparse` / `vkQueuePresentKHR`. Callers can share `&Queue` across threads (e.g. via `Arc<Mutex<Queue>>` or a scheduler) so long as concurrent submissions on the same queue handle are prevented. Unblocks downstream consumers (Fuel) that build work on worker threads and submit through a serializer.
+- `safe::CommandBuffer` is now `Send + Sync` via `unsafe impl`, for the same reason. Recording APIs take `&mut self`, so the Rust borrow checker already prevents concurrent recording on the same buffer; sharing `&CommandBuffer` across threads is sound. The per-pool external-sync contract for `vkFreeCommandBuffers` (called from `Drop`) remains the caller's responsibility.
+- Compile-time `Send + Sync` lock-in assertions added for both types so future field additions cannot silently regress this guarantee.
+
 ## [0.8.0] — 2026-04-21
 
 Coverage release: full ray-tracing surface, external-memory / external-semaphore interop, synchronization-2 barriers, push descriptors, dynamic rendering, descriptor-buffer binding, timeline semaphores, subgroup-size control, memory priority, and generator-emitted ergonomic safe signatures for ~545 Vulkan commands. Two latent codegen correctness bugs fixed along the way.

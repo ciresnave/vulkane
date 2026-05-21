@@ -517,11 +517,34 @@ impl Device {
 ///
 /// Queues are owned by the device and cannot be destroyed independently.
 /// This handle keeps the device alive via an `Arc`.
+///
+/// # Thread safety
+///
+/// `Queue` is `Send + Sync`. A `Queue` value can be moved between threads,
+/// and `&Queue` references can be held on multiple threads simultaneously.
+///
+/// However, the Vulkan spec requires the application to externally
+/// synchronize all queue operations (`vkQueueSubmit`, `vkQueueWaitIdle`,
+/// `vkQueueBindSparse`, `vkQueuePresentKHR`, …) **per queue handle**.
+/// Two threads calling [`submit`](Self::submit) on the same `Queue` (or on
+/// two `Queue` clones backed by the same `VkQueue`) concurrently is
+/// undefined behavior at the Vulkan level. Wrap the queue in a `Mutex`,
+/// route submissions through a single thread, or otherwise ensure
+/// non-overlapping use.
 #[derive(Clone)]
 pub struct Queue {
     pub(crate) handle: VkQueue,
     pub(crate) device: Arc<DeviceInner>,
 }
+
+// SAFETY: `VkQueue` is a dispatchable handle (an opaque pointer), so the
+// auto-derived `Send`/`Sync` would be missing. The handle itself has no
+// thread affinity — it can be used from any thread that owns external
+// synchronization for the call. `Arc<DeviceInner>` is already `Send + Sync`,
+// so the only obstacle is the raw pointer field. Callers are responsible
+// for the external-sync contract documented on `Queue`.
+unsafe impl Send for Queue {}
+unsafe impl Sync for Queue {}
 
 impl Queue {
     /// Returns the raw `VkQueue` handle.
@@ -968,5 +991,20 @@ impl Queue {
         })?;
 
         Ok((image, img_mem, view))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Compile-time lock-in: `Queue` must stay `Send + Sync`. Fuel and
+    /// other downstreams share `Queue` across threads with their own
+    /// external sync; if a future field addition reintroduces a
+    /// non-`Send`/`Sync` type, this assertion will fail to compile.
+    #[test]
+    fn queue_is_send_sync() {
+        fn _assert<T: Send + Sync>() {}
+        _assert::<Queue>();
     }
 }
