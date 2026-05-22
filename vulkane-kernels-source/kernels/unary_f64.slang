@@ -45,6 +45,19 @@ static const double PI_2        = 0x1.921fb54442d18p+0L;
 static const double TWO_PI      = 0x1.921fb54442d18p+2L;
 static const double SQRT2       = 0x1.6a09e667f3bcdp+0L;
 
+// Cody-Waite splits — bottom 19 mantissa bits zeroed, so for any
+// integer k with |k| < 2^20 the product k * X_HI is exact in f64.
+// Then (x - k*X_HI) - k*X_LO preserves ~52 bits across the reduction.
+// LN2 = LN2_HI + LN2_LO (exact at f64 precision).
+static const double LN2_HI      = 0x1.62e42fef80000p-1L;
+static const double LN2_LO      = 0x1.1cf7800000000p-36L;
+// π/2 = PI_2_HI + PI_2_LO (exact at f64 precision).
+static const double PI_2_HI     = 0x1.921fb54400000p+0L;
+static const double PI_2_LO     = 0x1.0b46000000000p-34L;
+// 2π for stage-1 sin/cos reduction (full 2π = TWO_PI_HI + TWO_PI_LO)
+static const double TWO_PI_HI   = 0x1.921fb54400000p+2L;
+static const double TWO_PI_LO   = 0x1.0b46000000000p-32L;
+
 // ----- Helper: 2^k for integer k in [-1022, 1023] ------------------------
 //
 // IEEE 754 double: bit pattern with biased exponent (k + 1023),
@@ -62,29 +75,29 @@ double pow2_int(int k) {
 // ----- exp(x) ------------------------------------------------------------
 //
 // Range reduction: x = k*ln(2) + r where k = round(x / ln(2)) and
-// |r| <= ln(2)/2 ≈ 0.347. Then exp(x) = 2^k * exp(r). On the reduced
-// interval, exp(r) is approximated by a Taylor polynomial of degree
-// 13, evaluated via Horner's scheme. Worst-case truncation error
+// |r| <= ln(2)/2 ≈ 0.347. Uses Cody-Waite split of ln(2) so that
+// the reduction loses ≤1 ULP across the full operating range:
+//   r = (x - k*LN2_HI) - k*LN2_LO
+// Then exp(x) = 2^k * exp(r), with exp(r) approximated by a
+// 14-term Taylor (through r^14, c_n = 1/n!). Worst-case truncation
 // for |r| <= ln(2)/2:
-//   (ln(2)/2)^14 / 14! ≈ 4.3e-14
-// well within target.
-//
-// All coefficients are explicit double literals (precomputed at
-// double precision via Python). Slang defaults float literals to
-// f32, so writing `1.0 / 6227020800.0` would round the divide at
-// f32 and silently lose ~9 decimal digits.
+//   (ln(2)/2)^15 / 15! ≈ 5.5e-15
+// well below 1 ULP for any non-tiny result.
 double poly_exp_d(double x) {
     // Overflow / underflow saturation. exp(709) ≈ 8e307 (max double),
     // exp(-746) ≈ 5e-324 (smallest subnormal).
     if (x > 709.0L)  return 1.0L / 0.0L;   // +inf
     if (x < -745.0L) return 0.0L;
 
-    int k = int(floor(x * INV_LN2 + 0.5L));
-    double r = x - double(k) * LN2;
+    double k_d = floor(x * INV_LN2 + 0.5L);
+    int k = int(k_d);
+    // Cody-Waite: k_d * LN2_HI is exact for |k| < 2^20 (LN2_HI has
+    // 19 trailing zero mantissa bits). Subtracting recovers all bits.
+    double r = (x - k_d * LN2_HI) - k_d * LN2_LO;
 
-    // c_n = 1/n!, as IEEE 754 hex literals (Slang silently downcasts
-    // decimal double literals; hex literals are preserved exactly).
-    double poly = 0x1.6124613a86d09p-33L;                // 1/13!
+    // 14-term Taylor of exp(r) via Horner; c_n = 1/n! as hex literals.
+    double poly = 0x1.93974a8c07c9dp-37L;                // 1/14!
+    poly = 0x1.6124613a86d09p-33L  + r * poly;           // 1/13!
     poly = 0x1.1eed8eff8d898p-29L  + r * poly;           // 1/12!
     poly = 0x1.ae64567f544e4p-26L  + r * poly;           // 1/11!
     poly = 0x1.27e4fb7789f5cp-22L  + r * poly;           // 1/10!
@@ -149,45 +162,58 @@ double poly_log_d(double x) {
 
 // ----- sin(x), cos(x) ---------------------------------------------------
 //
-// Range reduction: y = x mod 2π, then y mapped to z in [-π/4, π/4]
-// by quadrant. sin(z) and cos(z) approximated by 7-term Taylor on
-// the reduced interval. The final result is selected by quadrant:
-//   j=0: +sin(z)    j=1: +cos(z)
-//   j=2: -sin(z)    j=3: -cos(z)
-// Worst-case error ≈ 1e-15 from the polynomials; range reduction
-// loses a few digits for |x| >> 1 (no Cody-Waite reduction yet).
+// Two-stage Cody-Waite range reduction:
+//   Stage 1: y = x mod 2π, computed as
+//     (x - k1*TWO_PI_HI) - k1*TWO_PI_LO   where k1 = round(x / 2π)
+//   Stage 2: z = y mod (π/2), into [-π/4, π/4]:
+//     (y - j*PI_2_HI) - j*PI_2_LO         where j = round(y / (π/2))
+// Each stage's high constant has 19 trailing zero mantissa bits,
+// so for |k1| < 2^20 (i.e. |x| ≲ 2^21 ≈ 2.1M) both `k_d * HI`
+// products are exact in f64. Result: ~1 ULP precision over that
+// range. For |x| beyond 2^20, accuracy degrades — full Payne-Hanek
+// reduction would extend it but is V.3.E.5 follow-up work.
+//
+// Polynomials: 7-term Taylor each for sin(z), cos(z) on [-π/4, π/4].
+// Quadrant select:
+//   j=0: +sin(z)    j=1: +cos(z)    j=2: -sin(z)    j=3: -cos(z)
 double poly_sin_d(double x) {
-    // Reduce x to [-π, π]
-    double k_full = floor(x / TWO_PI + 0.5);
-    double y = x - k_full * TWO_PI;
+    // Stage 1: reduce to [-π, π].
+    double k1_d = floor(x / TWO_PI + 0.5L);
+    double y = (x - k1_d * TWO_PI_HI) - k1_d * TWO_PI_LO;
 
-    // Map y to z in [-π/4, π/4] via quadrant j (0..3)
-    double jf = floor(y / PI_2 + 0.5);
-    double z = y - jf * PI_2;
-    int j = int(jf) & 3;
+    // Stage 2: reduce y to [-π/4, π/4] via quadrant.
+    double j_d = floor(y / PI_2 + 0.5L);
+    double z = (y - j_d * PI_2_HI) - j_d * PI_2_LO;
+    int j = int(j_d) & 3;
 
     double z2 = z * z;
 
-    // sin(z) = z * P(z²) where P is 7-term Taylor through z^13
-    //   P(u) = sum_{k=0}^{6} (-1)^k * u^k / (2k+1)!
-    double sin_p =  0x1.6124613a86d09p-33L;              // +1/13!
-    sin_p = -0x1.ae64567f544e4p-26L  + z2 * sin_p;       // -1/11!
-    sin_p =  0x1.71de3a556c734p-19L  + z2 * sin_p;       // +1/9!
-    sin_p = -0x1.a01a01a01a01ap-13L  + z2 * sin_p;       // -1/7!
-    sin_p =  0x1.1111111111111p-7L   + z2 * sin_p;       // +1/5!
-    sin_p = -0x1.5555555555555p-3L   + z2 * sin_p;       // -1/3!
-    sin_p =  0x1.0000000000000p+0L   + z2 * sin_p;
+    // sin(z) = z * P(z²) where P(u) = sum_{k=0}^{8} (-1)^k u^k / (2k+1)!
+    // 9-term Taylor through z^17. Truncation at |z|=π/4:
+    //   (π/4)^19 / 19! ≈ 5e-19 — well below 1 ULP.
+    double sin_p =  0x1.952c77030ad4ap-49L;               // +1/17!
+    sin_p = -0x1.ae7f3e733b81fp-41L  + z2 * sin_p;        // -1/15!
+    sin_p =  0x1.6124613a86d09p-33L  + z2 * sin_p;        // +1/13!
+    sin_p = -0x1.ae64567f544e4p-26L  + z2 * sin_p;        // -1/11!
+    sin_p =  0x1.71de3a556c734p-19L  + z2 * sin_p;        // +1/9!
+    sin_p = -0x1.a01a01a01a01ap-13L  + z2 * sin_p;        // -1/7!
+    sin_p =  0x1.1111111111111p-7L   + z2 * sin_p;        // +1/5!
+    sin_p = -0x1.5555555555555p-3L   + z2 * sin_p;        // -1/3!
+    sin_p =  0x1.0000000000000p+0L   + z2 * sin_p;        // +1
     double sz = z * sin_p;
 
-    // cos(z) = Q(z²) where Q is 7-term Taylor through z^12
-    //   Q(u) = sum_{k=0}^{6} (-1)^k * u^k / (2k)!
-    double cos_p =  0x1.1eed8eff8d898p-29L;              // +1/12!
-    cos_p = -0x1.27e4fb7789f5cp-22L  + z2 * cos_p;       // -1/10!
-    cos_p =  0x1.a01a01a01a01ap-16L  + z2 * cos_p;       // +1/8!
-    cos_p = -0x1.6c16c16c16c17p-10L  + z2 * cos_p;       // -1/6!
-    cos_p =  0x1.5555555555555p-5L   + z2 * cos_p;       // +1/4!
-    cos_p = -0x1.0000000000000p-1L   + z2 * cos_p;       // -1/2!
-    cos_p =  0x1.0000000000000p+0L   + z2 * cos_p;
+    // cos(z) = Q(z²) where Q(u) = sum_{k=0}^{8} (-1)^k u^k / (2k)!
+    // 9-term Taylor through z^16. Truncation at |z|=π/4:
+    //   (π/4)^18 / 18! ≈ 6e-18 — well below 1 ULP.
+    double cos_p =  0x1.ae7f3e733b81fp-45L;               // +1/16!
+    cos_p = -0x1.93974a8c07c9dp-37L  + z2 * cos_p;        // -1/14!
+    cos_p =  0x1.1eed8eff8d898p-29L  + z2 * cos_p;        // +1/12!
+    cos_p = -0x1.27e4fb7789f5cp-22L  + z2 * cos_p;        // -1/10!
+    cos_p =  0x1.a01a01a01a01ap-16L  + z2 * cos_p;        // +1/8!
+    cos_p = -0x1.6c16c16c16c17p-10L  + z2 * cos_p;        // -1/6!
+    cos_p =  0x1.5555555555555p-5L   + z2 * cos_p;        // +1/4!
+    cos_p = -0x1.0000000000000p-1L   + z2 * cos_p;        // -1/2!
+    cos_p =  0x1.0000000000000p+0L   + z2 * cos_p;        // +1
     double cz = cos_p;
 
     if (j == 0) return  sz;
