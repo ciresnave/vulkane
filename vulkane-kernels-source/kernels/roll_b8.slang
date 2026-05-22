@@ -1,10 +1,11 @@
 // Cyclic shift along a single axis, 8-byte elements (f64 / i64).
+// See roll_b4.slang for the algorithm comment.
 
 struct Params {
     uint outer_count;
     uint dim_size;
     uint inner_count;
-    int  shift;
+    uint offset;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<uint>   input;
@@ -25,11 +26,7 @@ void main(uint3 gid : SV_DispatchThreadID)
     uint j = rest / p.inner_count;
     uint n = rest % p.inner_count;
 
-    int  d = int(p.dim_size);
-    int  src_j_signed = (int(j) - p.shift) % d;
-    if (src_j_signed < 0) src_j_signed += d;
-    uint src_j = uint(src_j_signed);
-
+    uint src_j = (j + p.offset) % p.dim_size;
     uint src_elem = (o * p.dim_size + src_j) * p.inner_count + n;
     uint src_w = src_elem * 2u;
     uint dst_w = tid * 2u;

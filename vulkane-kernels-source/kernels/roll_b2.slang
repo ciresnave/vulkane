@@ -1,11 +1,12 @@
 // Cyclic shift along a single axis, 2-byte elements (f16 / bf16).
-// 16-bit-storage access; see flip_b2.slang for the rationale.
+// See roll_b4.slang for the algorithm comment; this variant only
+// changes the storage element type.
 
 struct Params {
     uint outer_count;
     uint dim_size;
     uint inner_count;
-    int  shift;
+    uint offset;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<uint16_t>   input;
@@ -26,11 +27,7 @@ void main(uint3 gid : SV_DispatchThreadID)
     uint j = rest / p.inner_count;
     uint n = rest % p.inner_count;
 
-    int  d = int(p.dim_size);
-    int  src_j_signed = (int(j) - p.shift) % d;
-    if (src_j_signed < 0) src_j_signed += d;
-    uint src_j = uint(src_j_signed);
-
+    uint src_j = (j + p.offset) % p.dim_size;
     uint src_idx = (o * p.dim_size + src_j) * p.inner_count + n;
     output[tid] = input[src_idx];
 }

@@ -1,12 +1,11 @@
 // Cyclic shift along a single axis. View input/output as a flat
 // 3-tuple (outer, dim_size, inner).
 //
-// Rule: out[o, j, n] = in[o, (j - shift) mod dim_size, n]
-// where the modulo is Euclidean — negative shifts wrap forward.
-//
-// `shift` is passed as `i32` since dim_size fits in u32; the wrapper
-// normalizes shift to (-dim_size, dim_size) before dispatch so we
-// don't need int64 arithmetic inside the kernel.
+// Wrapper passes `offset` already normalized to [0, dim_size) such
+// that `src_j = (j + offset) mod dim_size`. (offset = (dim_size -
+// shift_normalized) mod dim_size encodes the original `(j - shift)
+// mod dim_size` semantics — keeps all arithmetic inside the kernel
+// unsigned.)
 //
 // 4-byte element variant (f32 / i32 / u32).
 
@@ -14,7 +13,7 @@ struct Params {
     uint outer_count;
     uint dim_size;
     uint inner_count;
-    int  shift;
+    uint offset;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<uint>   input;
@@ -35,11 +34,7 @@ void main(uint3 gid : SV_DispatchThreadID)
     uint j = rest / p.inner_count;
     uint n = rest % p.inner_count;
 
-    int  d = int(p.dim_size);
-    int  src_j_signed = (int(j) - p.shift) % d;
-    if (src_j_signed < 0) src_j_signed += d;
-    uint src_j = uint(src_j_signed);
-
+    uint src_j = (j + p.offset) % p.dim_size;
     uint src_idx = (o * p.dim_size + src_j) * p.inner_count + n;
     output[tid] = input[src_idx];
 }
