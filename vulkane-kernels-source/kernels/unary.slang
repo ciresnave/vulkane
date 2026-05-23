@@ -1,10 +1,32 @@
-// Element-wise unary operations. One thread per element.
+// Element-wise unary operations with per-input stride support.
+//
+// Output is always contiguous. The input is read via its own per-dim
+// strides, which supports:
+//   * Lazy-permuted inputs (non-contiguous strides)
+//   * Implicit broadcasting (stride=0 on a dim means "repeat")
+//   * Sliced views (any strides; auto-Contiguize handles non-zero
+//     start_offset separately)
+//
+// Supports ranks 1-4. Output shape padded to rank 4 with leading 1s
+// (and matching stride=0) so the decomposition is uniform.
+//
+// Fast path: when the input is contiguous AND matches output shape
+// exactly, uses simple linear indexing (zero overhead). Mirrors
+// binary.slang's stride-aware pattern.
 //
 // Replaces unary.wgsl. Written in Slang per the shader policy.
 
 struct Params {
-    uint n;
+    uint out_size;        // output element count
     uint op_id;
+    uint rank;            // effective rank (1-4)
+    uint flags;           // bit 0: input_contiguous
+
+    // Output shape, padded to rank 4 with 1s in leading dims.
+    uint shape0, shape1, shape2, shape3;
+
+    // Input strides in output-space (0 means broadcast along that dim).
+    uint in_s0, in_s1, in_s2, in_s3;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<float>   input;
@@ -40,11 +62,30 @@ float sigmoid(float x) {
 void main(uint3 gid : SV_DispatchThreadID)
 {
     uint idx = gid.x;
-    if (idx >= p.n) return;
+    if (idx >= p.out_size) return;
 
-    float x = input[idx];
+    float x;
+    bool in_contig = (p.flags & 1u) != 0u;
+
+    if (in_contig) {
+        // Fast path: input contiguous and same shape as output.
+        x = input[idx];
+    } else {
+        // Decompose linear idx into per-dim coordinates, then apply
+        // per-input strides. Output is contiguous, so we use the
+        // output shape's contiguous strides to decompose.
+        uint c3 = idx % p.shape3;
+        uint r2 = idx / p.shape3;
+        uint c2 = r2 % p.shape2;
+        uint r1 = r2 / p.shape2;
+        uint c1 = r1 % p.shape1;
+        uint c0 = r1 / p.shape1;
+
+        uint in_off = c0 * p.in_s0 + c1 * p.in_s1 + c2 * p.in_s2 + c3 * p.in_s3;
+        x = input[in_off];
+    }
+
     float y;
-
     switch (p.op_id) {
         case OP_NEG:     y = -x; break;
         case OP_SQR:     y = x * x; break;
