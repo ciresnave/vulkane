@@ -62,7 +62,10 @@ float apply(uint op, float x) {
         return 0.5 * x * (1.0 + tanh(inner));
     }
     if (op == 11u) return max(x, 0.0);                               // Relu
-    return (x > 0.0) ? 1.0 : 0.0;                                    // Step
+    if (op == 12u) return (x > 0.0) ? 1.0 : 0.0;                     // Step
+    if (op == 13u) return abs(x);                                    // Abs
+    if (op == 14u) return sign(x);                                   // Sign
+    return 1.0 / x;                                                  // Recip
 }
 
 [shader("compute")]

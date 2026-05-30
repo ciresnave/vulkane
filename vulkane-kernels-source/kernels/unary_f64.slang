@@ -546,8 +546,14 @@ void main(uint3 gid : SV_DispatchThreadID)
         y = 0.5L * x * (1.0L + poly_tanh_d(inner));
     } else if (op == 11u) {
         y = max(x, 0.0L);                                        // Relu
-    } else {
+    } else if (op == 12u) {
         y = (x > 0.0L) ? 1.0L : 0.0L;                            // Step
+    } else if (op == 13u) {
+        y = abs(x);                                              // Abs
+    } else if (op == 14u) {
+        y = sign(x);                                             // Sign
+    } else {
+        y = 1.0L / x;                                            // Recip
     }
     output[idx] = y;
 }
