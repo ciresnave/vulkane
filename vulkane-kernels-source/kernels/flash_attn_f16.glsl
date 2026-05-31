@@ -1,0 +1,136 @@
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+// FlashAttention forward, f16. Sibling of flash_attn_f32 / _bf16
+// with native float16_t inputs/outputs and f32 accumulators.
+
+const uint TPB = 256u;
+const uint MAX_SK = 4096u;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer QBuf { float16_t Q[]; };
+layout(set = 0, binding = 1, std430) readonly buffer KBuf { float16_t K[]; };
+layout(set = 0, binding = 2, std430) readonly buffer VBuf { float16_t V[]; };
+layout(set = 0, binding = 3, std430) buffer OBuf { float16_t O[]; };
+layout(set = 0, binding = 4, std430) readonly buffer ABuf { float16_t alibi_slopes[]; };
+
+layout(set = 0, binding = 5, std140) uniform Params {
+    uint B;
+    uint Hq;
+    uint Hkv;
+    uint Sq;
+    uint Sk;
+    uint D;
+    float softmax_scale;
+    uint causal;
+    uint use_alibi;
+    uint _pad0, _pad1, _pad2;
+} p;
+
+shared float scores[MAX_SK];
+shared float partial_max[TPB];
+shared float partial_sum[TPB];
+shared float row_max_shared;
+shared float row_sum_shared;
+
+void main() {
+    uint linear = gl_WorkGroupID.z;
+    uint qi = linear % p.Sq;
+    uint t1 = linear / p.Sq;
+    uint hi = t1 % p.Hq;
+    uint bi = t1 / p.Hq;
+    if (bi >= p.B) return;
+
+    uint tid = gl_LocalInvocationID.x;
+
+    uint groups = p.Hq / p.Hkv;
+    uint kv_h = hi / groups;
+
+    uint q_row_off = ((bi * p.Hq + hi) * p.Sq + qi) * p.D;
+    uint k_off     = (bi * p.Hkv + kv_h) * p.Sk * p.D;
+    uint v_off     = k_off;
+    uint o_row_off = ((bi * p.Hq + hi) * p.Sq + qi) * p.D;
+
+    float alibi_h = (p.use_alibi != 0u) ? float(alibi_slopes[hi]) : 0.0;
+
+    for (uint kj = tid; kj < p.Sk; kj += TPB) {
+        bool admissible = true;
+        if (p.causal != 0u && kj > qi) admissible = false;
+        if (!admissible) {
+            scores[kj] = -3.402823e+38;
+            continue;
+        }
+        float acc = 0.0;
+        for (uint dx = 0u; dx < p.D; ++dx) {
+            float qx = float(Q[q_row_off + dx]);
+            float kx = float(K[k_off + kj * p.D + dx]);
+            acc += qx * kx;
+        }
+        float s = acc * p.softmax_scale;
+        if (p.use_alibi != 0u) {
+            float delta = float(kj) - float(qi);
+            s += alibi_h * delta;
+        }
+        scores[kj] = s;
+    }
+    barrier();
+
+    float local_max = -3.402823e+38;
+    for (uint kj = tid; kj < p.Sk; kj += TPB) {
+        if (scores[kj] > local_max) local_max = scores[kj];
+    }
+    partial_max[tid] = local_max;
+    barrier();
+    for (uint stride = TPB >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            float other = partial_max[tid + stride];
+            if (other > partial_max[tid]) partial_max[tid] = other;
+        }
+        barrier();
+    }
+    if (tid == 0u) row_max_shared = partial_max[0];
+    barrier();
+    float row_max = row_max_shared;
+
+    if (row_max < -1e30) {
+        for (uint dx = tid; dx < p.D; dx += TPB) {
+            O[o_row_off + dx] = float16_t(0.0);
+        }
+        return;
+    }
+
+    float local_sum = 0.0;
+    for (uint kj = tid; kj < p.Sk; kj += TPB) {
+        float e = (scores[kj] < -1e30) ? 0.0 : exp(scores[kj] - row_max);
+        scores[kj] = e;
+        local_sum += e;
+    }
+    partial_sum[tid] = local_sum;
+    barrier();
+    for (uint stride = TPB >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            partial_sum[tid] += partial_sum[tid + stride];
+        }
+        barrier();
+    }
+    if (tid == 0u) row_sum_shared = partial_sum[0];
+    barrier();
+    float row_sum = row_sum_shared;
+
+    if (row_sum == 0.0) {
+        for (uint dx = tid; dx < p.D; dx += TPB) {
+            O[o_row_off + dx] = float16_t(0.0);
+        }
+        return;
+    }
+    float inv_sum = 1.0 / row_sum;
+
+    for (uint dx = tid; dx < p.D; dx += TPB) {
+        float acc = 0.0;
+        for (uint kj = 0u; kj < p.Sk; ++kj) {
+            float vd = float(V[v_off + kj * p.D + dx]);
+            acc += scores[kj] * vd;
+        }
+        O[o_row_off + dx] = float16_t(acc * inv_sum);
+    }
+}
