@@ -23,8 +23,7 @@
 //!   and
 //!   [`CommandBufferRecording::trace_rays`](safe::CommandBufferRecording::trace_rays).
 //! - **External memory / semaphore interop**:
-//!   [`DeviceMemory::get_win32_handle`](safe::DeviceMemory::get_win32_handle) /
-//!   [`::get_fd`](safe::DeviceMemory::get_fd) and the corresponding
+//!   `DeviceMemory::get_win32_handle` / `get_fd` and the corresponding
 //!   [`Semaphore`](safe::Semaphore) methods for CUDA / HIP / DX12
 //!   bridging.
 //! - **pNext extension points** on every safe create-info builder

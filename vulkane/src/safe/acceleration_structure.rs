@@ -358,7 +358,8 @@ impl AccelerationStructure {
     /// Create a fresh acceleration-structure handle over a backing
     /// buffer range. Does *not* build the structure — the returned
     /// handle contains no geometry yet; call
-    /// [`CommandBufferRecording::build_acceleration_structure`] next.
+    /// [`CommandBufferRecording::build_acceleration_structure`](crate::safe::CommandBufferRecording::build_acceleration_structure)
+    /// next.
     pub fn new(device: &Device, info: AccelerationStructureCreateInfo<'_>) -> Result<Self> {
         let raw_info = VkAccelerationStructureCreateInfoKHR {
             sType: VkStructureType::STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,

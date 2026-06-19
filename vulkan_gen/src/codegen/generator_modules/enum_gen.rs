@@ -194,12 +194,12 @@ impl EnumGenerator {
                         Some(Tok::Shift(s)) if s == "<<" => {
                             *idx += 1;
                             let rhs = parse_primary(toks, idx)?;
-                            lhs = (lhs << rhs) as i128;
+                            lhs <<= rhs;
                         }
                         Some(Tok::Shift(s)) if s == ">>" => {
                             *idx += 1;
                             let rhs = parse_primary(toks, idx)?;
-                            lhs = (lhs >> rhs) as i128;
+                            lhs >>= rhs;
                         }
                         _ => break,
                     }

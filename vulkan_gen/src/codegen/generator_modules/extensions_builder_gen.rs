@@ -210,8 +210,8 @@ pub fn generate_extensions_builders(
     }
 
     // Sort by method name so emission is deterministic.
-    device.sort_by(|a, b| method_name_for(&a.name).cmp(&method_name_for(&b.name)));
-    instance.sort_by(|a, b| method_name_for(&a.name).cmp(&method_name_for(&b.name)));
+    device.sort_by_key(|a| method_name_for(&a.name));
+    instance.sort_by_key(|a| method_name_for(&a.name));
 
     fs::create_dir_all(output_dir).map_err(GeneratorError::Io)?;
 

@@ -165,7 +165,7 @@ pub struct RayTracingStage<'a> {
 
 /// A single strided region of the shader-binding table.
 ///
-/// Four of these are passed to [`CommandBufferRecording::trace_rays`] —
+/// Four of these are passed to [`CommandBufferRecording::trace_rays`](crate::safe::CommandBufferRecording::trace_rays) —
 /// one each for rgen / miss / hit / callable. Each region points at a
 /// contiguous run of group handles inside the SBT buffer with a
 /// per-entry `stride` (which must be ≥ `shaderGroupHandleSize` and a

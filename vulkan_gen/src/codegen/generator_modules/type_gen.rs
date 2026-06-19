@@ -344,35 +344,34 @@ impl TypeGenerator {
                 // Already handled above
                 return String::new();
             }
-            "" => {
-                // External types with no category — these come from
-                // platform headers (X11/Xlib.h, xcb/xcb.h, windows.h, …).
-                // vk.xml only carries the requires="header" attribute, not
-                // the actual C type, so we hard-map the well-known X11 /
-                // XCB integer ID types to their canonical widths. Anything
-                // else falls back to *mut c_void (the safe default for
-                // pointer-shaped opaque platform handles like Display* /
-                // wl_display* / xcb_connection_t* / HWND).
-                if type_def.requires.is_some() {
-                    let rust_type = match sanitized_name.as_str() {
-                        // Xlib XIDs are `unsigned long` — 32-bit on
-                        // Win32, 64-bit on Linux x86_64. c_ulong matches.
-                        "Window" | "VisualID" | "RROutput" => "c_ulong",
-                        // XCB IDs are uint32_t.
-                        "xcb_window_t" | "xcb_visualid_t" => "u32",
-                        // Direct-to-display.
-                        "zx_handle_t" => "u32",
-                        // Everything else is a pointer-shaped opaque
-                        // platform handle.
-                        _ => "*mut c_void",
-                    };
-                    code.push_str(&format!("pub type {} = {};\n\n", sanitized_name, rust_type));
-                } else {
-                    return String::new();
-                }
+            // External types with no category — these come from
+            // platform headers (X11/Xlib.h, xcb/xcb.h, windows.h, …).
+            // vk.xml only carries the requires="header" attribute, not
+            // the actual C type, so we hard-map the well-known X11 /
+            // XCB integer ID types to their canonical widths. Anything
+            // else falls back to *mut c_void (the safe default for
+            // pointer-shaped opaque platform handles like Display* /
+            // wl_display* / xcb_connection_t* / HWND).
+            //
+            // A "" category with no `requires` carries no type info at all,
+            // so it falls through to the `_` arm below and emits nothing.
+            "" if type_def.requires.is_some() => {
+                let rust_type = match sanitized_name.as_str() {
+                    // Xlib XIDs are `unsigned long` — 32-bit on
+                    // Win32, 64-bit on Linux x86_64. c_ulong matches.
+                    "Window" | "VisualID" | "RROutput" => "c_ulong",
+                    // XCB IDs are uint32_t.
+                    "xcb_window_t" | "xcb_visualid_t" => "u32",
+                    // Direct-to-display.
+                    "zx_handle_t" => "u32",
+                    // Everything else is a pointer-shaped opaque
+                    // platform handle.
+                    _ => "*mut c_void",
+                };
+                code.push_str(&format!("pub type {} = {};\n\n", sanitized_name, rust_type));
             }
             _ => {
-                // Skip unknown categories
+                // Skip unknown categories (including "" with no `requires`).
                 return String::new();
             }
         }

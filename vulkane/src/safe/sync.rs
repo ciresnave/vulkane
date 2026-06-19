@@ -156,8 +156,7 @@ impl Semaphore {
     ///
     /// - `VkExportSemaphoreCreateInfo` — mark the semaphore as exportable
     ///   to an external handle type. Required before calling
-    ///   [`get_win32_handle`](Self::get_win32_handle) /
-    ///   [`get_fd`](Self::get_fd).
+    ///   `get_win32_handle` / `get_fd`.
     pub fn binary_with_pnext(
         device: &Device,
         pnext: Option<&crate::safe::PNextChain>,

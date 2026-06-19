@@ -108,9 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!(
-                "SKIP: acceleration-structure extension not supported on this device: {e:?}"
-            );
+            eprintln!("SKIP: acceleration-structure extension not supported on this device: {e:?}");
             return Ok(());
         }
     };

@@ -29,9 +29,7 @@
 
 use std::sync::Arc;
 use vulkane::raw::PNextChainable;
-use vulkane::raw::bindings::{
-    VkExportMemoryAllocateInfo, VkExternalMemoryBufferCreateInfo,
-};
+use vulkane::raw::bindings::{VkExportMemoryAllocateInfo, VkExternalMemoryBufferCreateInfo};
 use vulkane::safe::{
     ApiVersion, Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceExtensions,
     DeviceMemory, Instance, InstanceCreateInfo, InstanceExtensions, MemoryAllocateInfo,

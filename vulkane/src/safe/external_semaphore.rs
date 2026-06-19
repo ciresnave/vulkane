@@ -88,10 +88,7 @@ impl Semaphore {
         // Safety: info valid for the call; output handle written on success.
         check(unsafe { f(self.device.handle, &info, &mut raw) })?;
 
-        Ok(super::Win32Handle {
-            raw,
-            handle_type,
-        })
+        Ok(super::Win32Handle { raw, handle_type })
     }
 
     /// Import a Win32 handle payload into this semaphore.

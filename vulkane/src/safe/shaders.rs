@@ -8,7 +8,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use vulkane::safe::{ShaderRegistry, ShaderSource};
 //!
 //! // Embedded at compile time. `include_bytes!` resolves paths relative

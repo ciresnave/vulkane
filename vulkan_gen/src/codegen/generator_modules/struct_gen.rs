@@ -388,13 +388,12 @@ impl StructGenerator {
         while let Some(start) = rest.find('[') {
             if let Some(end) = rest[start..].find(']') {
                 let size_str = rest[start + 1..start + end].trim();
-                let dim = if !size_str.is_empty()
-                    && !size_str.chars().next().unwrap().is_ascii_digit()
-                {
-                    format!("{} as usize", size_str)
-                } else {
-                    size_str.to_string()
-                };
+                let dim =
+                    if !size_str.is_empty() && !size_str.chars().next().unwrap().is_ascii_digit() {
+                        format!("{} as usize", size_str)
+                    } else {
+                        size_str.to_string()
+                    };
                 if !dim.is_empty() {
                     array_dims.push(dim);
                 }
@@ -669,10 +668,7 @@ mod tests {
     fn test_type_mapping() {
         let generator = StructGenerator::new();
 
-        assert_eq!(
-            generator.map_type_to_rust("uint32_t", false, 0, &[]),
-            "u32"
-        );
+        assert_eq!(generator.map_type_to_rust("uint32_t", false, 0, &[]), "u32");
         assert_eq!(
             generator.map_type_to_rust("uint32_t", true, 1, &[]),
             "*const u32"

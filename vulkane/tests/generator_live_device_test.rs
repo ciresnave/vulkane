@@ -24,8 +24,7 @@ fn bootstrap() -> Option<(Instance, vulkane::safe::Device, u32)> {
     // inherent `Instance::enumerate_physical_devices` shadows it by
     // returning the safe `Vec<PhysicalDevice>` wrapper. We want the
     // raw-handle version for this test.
-    let raw_phys =
-        <Instance as InstanceSafeExt>::enumerate_physical_devices(&instance).ok()?;
+    let raw_phys = <Instance as InstanceSafeExt>::enumerate_physical_devices(&instance).ok()?;
     if raw_phys.is_empty() {
         return None;
     }

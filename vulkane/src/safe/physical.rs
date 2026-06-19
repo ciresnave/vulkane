@@ -65,8 +65,8 @@ impl PhysicalDevice {
     }
 
     /// Query the physical device's supported Vulkan 1.0 feature bits.
-    /// Combine with [`super::DeviceFeatures::with_all_features10`] when
-    /// enabling all device-supported features.
+    /// Combine with the [`DeviceFeatures`](super::DeviceFeatures) builder
+    /// when enabling all device-supported features.
     pub fn supported_features(&self) -> VkPhysicalDeviceFeatures {
         let get = self
             .instance

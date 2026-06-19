@@ -2,8 +2,8 @@
 //!
 //! # `#[derive(Vertex)]`
 //!
-//! Automatically generates [`VertexInputBinding`] and
-//! [`VertexInputAttribute`] descriptors from a `#[repr(C)]` struct,
+//! Automatically generates `VertexInputBinding` and
+//! `VertexInputAttribute` descriptors from a `#[repr(C)]` struct,
 //! so you never have to manually compute strides, offsets, or format
 //! enums again.
 //!
