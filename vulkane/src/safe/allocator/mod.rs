@@ -393,6 +393,32 @@ impl Pool {
     }
 }
 
+/// Allocator-wide options set once at construction via
+/// [`Allocator::new_with_options`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AllocatorOptions {
+    /// When `true`, every `VkDeviceMemory` block this allocator allocates
+    /// is created with `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`, so any
+    /// buffer sub-allocated from it (and created with
+    /// [`BufferUsage::SHADER_DEVICE_ADDRESS`](super::BufferUsage::SHADER_DEVICE_ADDRESS))
+    /// returns a valid GPU virtual address from
+    /// [`Buffer::device_address`](super::Buffer::device_address).
+    ///
+    /// The flag lives on the *block*, not the buffer, because one block
+    /// backs many sub-allocations — so it must be requested allocator-wide
+    /// rather than per-buffer. This mirrors VMA's
+    /// `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT`.
+    ///
+    /// Requires the `bufferDeviceAddress` device feature to have been
+    /// enabled at device creation
+    /// ([`DeviceFeatures::with_buffer_device_address`](super::DeviceFeatures::with_buffer_device_address));
+    /// setting this without the feature is a validation error at the first
+    /// allocation. Leave `false` if you don't use buffer device addresses —
+    /// the bit has a small cost and some drivers reserve address space for
+    /// it.
+    pub buffer_device_address: bool,
+}
+
 /// Top-level allocator. Owns one pool per memory type and synthesizes
 /// dedicated allocations for resources that don't fit the pool model.
 ///
@@ -418,6 +444,10 @@ pub(crate) struct AllocatorInner {
     /// preventing callback code from re-entering the allocator and
     /// deadlocking on itself.
     pressure: Mutex<PressureState>,
+    /// When set, every block is allocated with
+    /// `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`. See
+    /// [`AllocatorOptions::buffer_device_address`].
+    buffer_device_address: bool,
 }
 
 /// Erased-type alias for a registered pressure callback. Used in a
@@ -921,8 +951,29 @@ impl Allocation {
 }
 
 impl Allocator {
-    /// Create a new allocator for the given device.
+    /// Create a new allocator for the given device with default options.
+    ///
+    /// Equivalent to [`new_with_options`](Self::new_with_options) with
+    /// [`AllocatorOptions::default()`]. To allocate buffers whose
+    /// [`device_address`](super::Buffer::device_address) you intend to read
+    /// (e.g. for `buffer_reference` in a shader), use
+    /// [`new_with_options`](Self::new_with_options) with
+    /// `buffer_device_address: true` instead.
     pub fn new(device: &Device, physical: &PhysicalDevice) -> Result<Self> {
+        Self::new_with_options(device, physical, AllocatorOptions::default())
+    }
+
+    /// Create a new allocator with explicit [`AllocatorOptions`].
+    ///
+    /// The main reason to use this over [`new`](Self::new) is to set
+    /// [`buffer_device_address`](AllocatorOptions::buffer_device_address),
+    /// which makes every block device-address-capable so sub-allocated
+    /// buffers can return a valid [`Buffer::device_address`](super::Buffer::device_address).
+    pub fn new_with_options(
+        device: &Device,
+        physical: &PhysicalDevice,
+        options: AllocatorOptions,
+    ) -> Result<Self> {
         let get = physical
             .instance()
             .vkGetPhysicalDeviceMemoryProperties
@@ -953,6 +1004,7 @@ impl Allocator {
                     next_id: 1,
                     callbacks: Vec::new(),
                 }),
+                buffer_device_address: options.buffer_device_address,
             }),
         })
     }
@@ -1793,16 +1845,29 @@ impl Allocator {
             .vkAllocateMemory
             .ok_or(Error::MissingFunction("vkAllocateMemory"))?;
 
-        // When the user supplies a device mask, chain a
-        // VkMemoryAllocateFlagsInfo so the driver pins the allocation to
-        // the requested subset of physical devices in the group.
+        // Chain a VkMemoryAllocateFlagsInfo when either:
+        //   * the allocator was created with `buffer_device_address`, so the
+        //     block must carry DEVICE_ADDRESS_BIT for `device_address()` to
+        //     be valid on buffers sub-allocated from it, and/or
+        //   * the user supplied a device mask, pinning the allocation to a
+        //     subset of physical devices in the group.
+        // Both bits can be set on the same allocation.
         let mut chain = crate::safe::PNextChain::new();
-        if let Some(mask) = device_mask {
+        let mut flags: VkMemoryAllocateFlags = 0;
+        if self.inner.buffer_device_address {
+            flags |= MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+        }
+        if device_mask.is_some() {
+            flags |= MEMORY_ALLOCATE_DEVICE_MASK_BIT;
+        }
+        if flags != 0 {
             chain.push(VkMemoryAllocateFlagsInfo {
                 sType: VkStructureType::STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
                 pNext: std::ptr::null_mut(),
-                flags: MEMORY_ALLOCATE_DEVICE_MASK_BIT,
-                deviceMask: mask,
+                flags,
+                // deviceMask is ignored by the driver unless DEVICE_MASK_BIT
+                // is set, so 0 is correct for the address-only case.
+                deviceMask: device_mask.unwrap_or(0),
             });
         }
 

@@ -5,7 +5,8 @@
 
 use vulkane::safe::{
     AccessFlags, AccessFlags2, AllocationCreateInfo, AllocationStrategy, AllocationUsage,
-    Allocator, ApiVersion, Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsage,
+    Allocator, AllocatorOptions, ApiVersion, Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy,
+    BufferUsage,
     CommandPool, ComputePipeline, DebugMessage, DebugMessageSeverity, DefragmentationMove,
     DefragmentationPlan, DescriptorPool, DescriptorPoolSize, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo, DeviceFeatures, DeviceMemory,
@@ -2385,6 +2386,63 @@ fn test_device_features_buffer_device_address_round_trip() {
             eprintln!("SKIP: vkGetBufferDeviceAddress returned: {e}");
         }
     }
+}
+
+#[test]
+fn test_allocator_buffer_device_address() {
+    // An allocator created with `buffer_device_address: true` must back
+    // every buffer with memory carrying VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+    // so a sub-allocated buffer with SHADER_DEVICE_ADDRESS usage returns a
+    // valid (non-zero) GPU address. This is the BDA path the Fuel backend
+    // depends on — unlike the manual round-trip test above, it must NOT skip
+    // on the missing-flag path, because the allocator now sets the flag.
+    let features = DeviceFeatures::default().with_buffer_device_address();
+    let Some((_inst, physical, device, _q, _qf)) = try_init_with_features(features) else {
+        eprintln!("SKIP: bufferDeviceAddress not supported by device");
+        return;
+    };
+
+    let allocator = Allocator::new_with_options(
+        &device,
+        &physical,
+        AllocatorOptions {
+            buffer_device_address: true,
+        },
+    )
+    .unwrap();
+
+    let (buffer, allocation) = match allocator.create_buffer(
+        BufferCreateInfo {
+            size: 4096,
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::SHADER_DEVICE_ADDRESS,
+        },
+        AllocationCreateInfo {
+            usage: AllocationUsage::DeviceLocal,
+            ..Default::default()
+        },
+    ) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("SKIP: device-address buffer allocation failed: {e}");
+            return;
+        }
+    };
+
+    match buffer.device_address() {
+        Ok(addr) => assert!(
+            addr != 0,
+            "device_address() returned zero from a buffer_device_address allocator"
+        ),
+        Err(e) => {
+            // vkGetBufferDeviceAddress fn pointer not loaded on this ICD
+            // (e.g. a 1.0 driver without VK_KHR_buffer_device_address). The
+            // allocator wiring is still exercised by the successful bind above.
+            eprintln!("SKIP: vkGetBufferDeviceAddress unavailable: {e}");
+        }
+    }
+
+    allocator.free(allocation);
+    drop(buffer);
 }
 
 #[test]

@@ -103,8 +103,8 @@ pub use acceleration_structure::{
 };
 pub use allocator::{
     Allocation, AllocationCreateInfo, AllocationStatistics, AllocationStrategy, AllocationUsage,
-    Allocator, DefragmentationMove, DefragmentationPlan, FitStatus, PoolCreateInfo, PoolHandle,
-    PressureCallbackId, PressureEvent, PressureKind,
+    Allocator, AllocatorOptions, DefragmentationMove, DefragmentationPlan, FitStatus,
+    PoolCreateInfo, PoolHandle, PressureCallbackId, PressureEvent, PressureKind,
 };
 pub use auto::{
     CommandBufferRecordingExt, CommandBufferRecordingSafeExt, DeviceExt, DeviceSafeExt,

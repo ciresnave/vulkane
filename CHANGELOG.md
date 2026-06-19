@@ -5,6 +5,12 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-06-19
+
+### Added — device-address-capable allocator
+
+- `Allocator::new_with_options(device, physical, AllocatorOptions { buffer_device_address: true })` makes every `VkDeviceMemory` block the allocator allocates carry `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`. Buffers sub-allocated from such an allocator (created with `BufferUsage::SHADER_DEVICE_ADDRESS`) now return a valid GPU virtual address from `Buffer::device_address()`. Previously the flag was only set on the manual `DeviceMemory::allocate_with` path, so addresses read from pooled or `Buffer::new_bound` buffers were invalid on strict drivers. The flag lives on the block (not the buffer) because one block backs many sub-allocations, mirroring VMA's `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT`. Requires the `bufferDeviceAddress` device feature. `Allocator::new` is unchanged (defaults to `buffer_device_address: false`). Unblocks downstream consumers (Fuel) that address tensors via `buffer_reference` in shaders, where the tensor's data pointer is a `VkDeviceAddress`.
+
 ## [0.8.1] — 2026-05-21
 
 ### Added — thread-safety markers
