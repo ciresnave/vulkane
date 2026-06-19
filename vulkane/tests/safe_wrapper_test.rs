@@ -6,15 +6,15 @@
 use vulkane::safe::{
     AccessFlags, AccessFlags2, AllocationCreateInfo, AllocationStrategy, AllocationUsage,
     Allocator, AllocatorOptions, ApiVersion, Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy,
-    BufferUsage,
-    CommandPool, ComputePipeline, DebugMessage, DebugMessageSeverity, DefragmentationMove,
-    DefragmentationPlan, DescriptorPool, DescriptorPoolSize, DescriptorSetLayout,
-    DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo, DeviceFeatures, DeviceMemory,
-    Fence, Format, Image, Image2dCreateInfo, ImageBarrier, ImageLayout, ImageUsage, ImageView,
-    Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER, MemoryPropertyFlags, PipelineCache,
-    PipelineLayout, PipelineStage, PipelineStage2, PipelineStatisticsFlags, PoolCreateInfo,
-    PushConstantRange, QueryPool, QueueCreateInfo, QueueFlags, Semaphore, SemaphoreKind,
-    ShaderModule, ShaderStageFlags, SignalSemaphore, SpecializationConstants, WaitSemaphore,
+    BufferUsage, CommandPool, ComputePipeline, DebugMessage, DebugMessageSeverity,
+    DefragmentationMove, DefragmentationPlan, DescriptorPool, DescriptorPoolSize,
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DeviceCreateInfo,
+    DeviceFeatures, DeviceMemory, Fence, Format, Image, Image2dCreateInfo, ImageBarrier,
+    ImageLayout, ImageUsage, ImageView, Instance, InstanceCreateInfo, KHRONOS_VALIDATION_LAYER,
+    MemoryPropertyFlags, PipelineCache, PipelineLayout, PipelineStage, PipelineStage2,
+    PipelineStatisticsFlags, PoolCreateInfo, PushConstantRange, QueryPool, QueueCreateInfo,
+    QueueFlags, Semaphore, SemaphoreKind, ShaderModule, ShaderStageFlags, SignalSemaphore,
+    SpecializationConstants, WaitSemaphore,
 };
 
 #[test]
