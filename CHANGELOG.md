@@ -5,6 +5,12 @@ All notable changes to vulkane will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Profile v1 conformance lock-in
+
+- Vulkane is confirmed conformant to Fuel's **Kernel-Seam Interop Contract — Profile v1** (ratified 2026-06-20) in its **FDX-only, BDA-subset** role. No API change was required — the contract pins Vulkane to a *named surface*, all of which shipped in 0.8.2: `AllocatorOptions::buffer_device_address` / `Allocator::new_with_options`, `BufferUsage::SHADER_DEVICE_ADDRESS`, `DeviceFeatures::with_buffer_device_address`, and `Buffer::device_address`. Added [`tests/profile_v1_conformance.rs`](vulkane/tests/profile_v1_conformance.rs), a compile-time lock-in (mirroring the `Send + Sync` lock-ins on `Queue` / `CommandBuffer`) so a future rename, removal, or signature change of any named-surface item fails Vulkane's CI rather than `fuel-vulkan-backend`'s build. This operationalizes the contract's §7.2 rule that *a Vulkane major bump triggers a re-check of the named surface* — the surface is pinned by behavior, not by a `>= 0.8.2` version floor.
+
 ## [0.8.2] — 2026-06-19
 
 ### Added — device-address-capable allocator
