@@ -2264,6 +2264,41 @@ fn test_memory_budget_query_succeeds_or_skips() {
     );
 }
 
+#[test]
+fn test_device_identity_query_succeeds_or_skips() {
+    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let Some(identity) = physical.device_identity() else {
+        eprintln!("SKIP: vkGetPhysicalDeviceProperties2 not loaded");
+        return;
+    };
+    // device_uuid is always populated on a props2-capable loader (1.1
+    // core). We can't assert a specific value, but a real device never
+    // reports the all-zero UUID; software rasterizers may, so we only
+    // print rather than assert on it.
+    let uuid_hex: String = identity
+        .device_uuid
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    println!(
+        "device_uuid={uuid_hex}  luid_valid={}  pci={:?}",
+        identity.device_luid.is_some(),
+        identity.pci,
+    );
+    // LUID, when present, pairs with the node mask; PCI is Some only with
+    // VK_EXT_pci_bus_info. These are all honest-None when unavailable, so
+    // the only structural invariant to check is that the call returned.
+    if let Some(pci) = identity.pci {
+        println!(
+            "PCI {:04x}:{:02x}:{:02x}.{:x}",
+            pci.domain, pci.bus, pci.device, pci.function
+        );
+    }
+}
+
 // NOTE: We do not have a runtime test for
 // PhysicalDevice::cooperative_matrix_properties() because calling
 // vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR without the

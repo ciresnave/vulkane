@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-06-28
+
+### Added — physical-device identity
+
+- `PhysicalDevice::device_identity() -> Option<DeviceIdentity>` exposes the device's stable identity for out-of-band correlation: `device_uuid` / `driver_uuid` (always, from `VkPhysicalDeviceIDProperties`, Vulkan 1.1 core), `device_luid` (`Some` only when the platform marks it valid — Windows) plus its `device_node_mask`, and `pci: Option<PciBusInfo>` (`Some` only when the device advertises `VK_EXT_pci_bus_info`). One `vkGetPhysicalDeviceProperties2` call, gated honestly: `None` when props2 is unavailable, and each sub-field is `Some` only when its source is actually present. This is the *join key* a caller needs to match a `VkPhysicalDevice` against an out-of-band GPU source — NVML by UUID, DXGI/D3DKMT by LUID, Linux sysfs (`gpu_busy_percent`) by PCI address — or against the same device seen through CUDA/D3D/OpenGL. Added because Vulkan exposes **no** cross-process GPU load / utilization / queue-depth query beyond the VRAM `memory_budget`; identity is the most Vulkane can (and should) provide toward that, with the load lookup itself living in a separate, API-agnostic layer. New public types `safe::DeviceIdentity` and `safe::PciBusInfo`.
+
 ### Added — Profile v1 conformance lock-in
 
 - Vulkane is confirmed conformant to Fuel's **Kernel-Seam Interop Contract — Profile v1** (ratified 2026-06-20) in its **FDX-only, BDA-subset** role. No API change was required — the contract pins Vulkane to a *named surface*, all of which shipped in 0.8.2: `AllocatorOptions::buffer_device_address` / `Allocator::new_with_options`, `BufferUsage::SHADER_DEVICE_ADDRESS`, `DeviceFeatures::with_buffer_device_address`, and `Buffer::device_address`. Added [`tests/profile_v1_conformance.rs`](vulkane/tests/profile_v1_conformance.rs), a compile-time lock-in (mirroring the `Send + Sync` lock-ins on `Queue` / `CommandBuffer`) so a future rename, removal, or signature change of any named-surface item fails Vulkane's CI rather than `fuel-vulkan-backend`'s build. This operationalizes the contract's §7.2 rule that *a Vulkane major bump triggers a re-check of the named surface* — the surface is pinned by behavior, not by a `>= 0.8.2` version floor.

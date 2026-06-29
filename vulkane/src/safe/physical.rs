@@ -323,6 +323,76 @@ impl PhysicalDevice {
         })
     }
 
+    /// Query this device's stable identity — UUIDs, the LUID (where the
+    /// platform marks it valid), and the PCI bus address (where the
+    /// device advertises `VK_EXT_pci_bus_info`).
+    ///
+    /// This is the **join key** for correlating a `VkPhysicalDevice` with
+    /// the same GPU as seen by out-of-band sources and other APIs:
+    /// `device_uuid` matches NVML / CUDA / OpenGL (`nvmlDeviceGetUUID`);
+    /// `device_luid` matches a DXGI adapter or D3DKMT node on Windows;
+    /// `pci` matches a Linux `/sys/bus/pci/devices/...` node (and thus
+    /// amdgpu `gpu_busy_percent`). Vulkan itself exposes **no GPU
+    /// load / utilization / queue-depth query** beyond the VRAM
+    /// [`memory_budget`](Self::memory_budget) — identity is the hook that
+    /// lets a caller go ask the right vendor/OS source out of band.
+    ///
+    /// Returns `None` only when `vkGetPhysicalDeviceProperties2` is
+    /// unavailable (Vulkan 1.0 with no
+    /// `VK_KHR_get_physical_device_properties2`). Otherwise the UUID
+    /// fields are always populated; [`device_luid`](DeviceIdentity::device_luid)
+    /// is `Some` only when the platform reports it valid (Windows), and
+    /// [`pci`](DeviceIdentity::pci) is `Some` only when the device
+    /// advertises `VK_EXT_pci_bus_info`.
+    pub fn device_identity(&self) -> Option<DeviceIdentity> {
+        let get2 = self.instance.dispatch.vkGetPhysicalDeviceProperties2?;
+
+        // Only chain the PCI-bus-info struct when the device actually
+        // advertises the extension. A driver that doesn't implement it
+        // leaves the struct untouched, so chaining it unconditionally
+        // would report a bogus `0000:00:00.0` instead of an honest
+        // `None`.
+        let has_pci = self
+            .enumerate_extension_properties()
+            .map(|exts| exts.iter().any(|e| e.name() == "VK_EXT_pci_bus_info"))
+            .unwrap_or(false);
+
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkPhysicalDeviceIDProperties::new_pnext());
+        if has_pci {
+            chain.push(VkPhysicalDevicePCIBusInfoPropertiesEXT::new_pnext());
+        }
+        let mut props2 = VkPhysicalDeviceProperties2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            pNext: chain.head_mut(),
+            ..Default::default()
+        };
+        // Safety: handle valid; props2 + chain live for the call.
+        unsafe { get2(self.handle, &mut props2) };
+
+        let id = chain.get::<VkPhysicalDeviceIDProperties>()?;
+        let pci = if has_pci {
+            chain
+                .get::<VkPhysicalDevicePCIBusInfoPropertiesEXT>()
+                .map(|p| PciBusInfo {
+                    domain: p.pciDomain,
+                    bus: p.pciBus,
+                    device: p.pciDevice,
+                    function: p.pciFunction,
+                })
+        } else {
+            None
+        };
+
+        Some(DeviceIdentity {
+            device_uuid: id.deviceUUID,
+            driver_uuid: id.driverUUID,
+            device_luid: (id.deviceLUIDValid != 0).then_some(id.deviceLUID),
+            device_node_mask: id.deviceNodeMask,
+            pci,
+        })
+    }
+
     /// Query shader integer-dot-product acceleration properties
     /// (`VK_KHR_shader_integer_dot_product`, core in Vulkan 1.3).
     ///
@@ -716,6 +786,56 @@ impl MemoryBudget {
     pub fn total_usage(&self) -> u64 {
         self.usage[..self.heap_count as usize].iter().sum()
     }
+}
+
+/// Stable identity of a physical device, from
+/// [`PhysicalDevice::device_identity`].
+///
+/// Sourced from `VkPhysicalDeviceIDProperties` (Vulkan 1.1 core) plus,
+/// when the device advertises `VK_EXT_pci_bus_info`, its PCI bus address.
+/// The point of this struct is **out-of-band correlation**: Vulkan can
+/// tell you *which* GPU you hold but not how busy it is, so identity is
+/// what lets a caller match this device against a vendor/OS telemetry
+/// source (NVML by UUID, DXGI/D3DKMT by LUID, Linux sysfs by PCI address)
+/// — or against the same device exposed through CUDA, D3D, or OpenGL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceIdentity {
+    /// Universally-unique device identifier, stable across processes,
+    /// reboots, and driver reinstalls. The same value the device reports
+    /// to CUDA / OpenGL and to `nvmlDeviceGetUUID`. Always populated.
+    pub device_uuid: [u8; 16],
+    /// UUID of the driver build. Devices driven by the same driver share
+    /// this; useful for telling two ICDs apart.
+    pub driver_uuid: [u8; 16],
+    /// Locally-unique device identifier — `Some` only on platforms that
+    /// mark it valid (Windows, via `deviceLUIDValid`). Pair with
+    /// [`device_node_mask`](Self::device_node_mask) to match a DXGI
+    /// adapter (`IDXGIAdapter::GetDesc`) or a D3DKMT node. `None` on
+    /// Linux and other LUID-less platforms — match by
+    /// [`device_uuid`](Self::device_uuid) or [`pci`](Self::pci) there.
+    pub device_luid: Option<[u8; 8]>,
+    /// Node mask scoping [`device_luid`](Self::device_luid) within a
+    /// linked-adapter set. Meaningful only when `device_luid` is `Some`.
+    pub device_node_mask: u32,
+    /// PCI bus address, present only when the device advertises
+    /// `VK_EXT_pci_bus_info`. `None` on software rasterizers and any
+    /// platform that doesn't expose PCI topology.
+    pub pci: Option<PciBusInfo>,
+}
+
+/// PCI bus address of a physical device — `domain:bus:device.function`,
+/// from `VK_EXT_pci_bus_info`.
+///
+/// On Linux this maps directly to the
+/// `/sys/bus/pci/devices/<domain>:<bus>:<device>.<function>` sysfs node
+/// (and so to the amdgpu `gpu_busy_percent` file); on any platform it
+/// pins the device to a stable hardware slot for correlation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PciBusInfo {
+    pub domain: u32,
+    pub bus: u32,
+    pub device: u32,
+    pub function: u32,
 }
 
 /// A Vulkan physical device group: a set of one or more physical devices
