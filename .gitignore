@@ -22,6 +22,9 @@ desktop.ini
 
 # Claude Code agent state
 .claude/
+.remember/
+# Tooling binary dropped at the repo root by the supertool plugin — not project content
+/supertool
 
 # Local intermediates from prior runs (no longer used)
 /intermediate/
