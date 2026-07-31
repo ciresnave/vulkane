@@ -170,17 +170,19 @@ inconsistency to reconcile.
 We are deliberately *not* arriving with a finished vocabulary for what remains, because the
 open decisions change the shape of it.
 
-A strawman, to argue against rather than adopt — ordered fixed fields, canonical spelling,
-§6.8-0005-legal charset (no `|`, `;`, `/`, no whitespace or control bytes). Revised from the
-first draft to reflect §3a: every field names what the **kernel requires**, never what the
-device maximally offers.
+The grammar below now reflects the steward's Q3a/Q3b rulings (2026-07-31), which pin a
+**two-level delimiter discipline**: exactly one `:` (the namespace separator), `.` between
+fields, and `-` within a tuple — with an explicit separator between adjacent dtype tokens
+**required**, juxtaposition forbidden. Exact spelling within those constraints is ours as the
+§6.8-0004 namespace owner. Every field names what the **kernel requires**, never what the
+device maximally offers (§3a).
 
 ```
-vulkan:sg32.ops-abclqsv.f16i8.cm-f16f32
+vulkan:sg32.ops-abclqsv.f16i8.cm-16-16-16-f16-f16-f32-f32
         │    │           │     └─ cooperative-matrix shapes the kernel uses (`cm-none` if it doesn't)
         │    │           └─ arithmetic the kernel requires: shaderFloat16 + shaderInt8
         │    └─ subgroup op classes the kernel requires, canonically sorted
-        └─ the subgroup width the kernel is built for
+        └─ the subgroup width the kernel is built for (`sgdyn` if width-agnostic)
 ```
 
 Note what the first field is *not*: it is no longer the device's `32..=64` pinnable range. Per
@@ -250,17 +252,16 @@ algorithm-marker prefix so a future hash migration produces distinguishable rath
 silently colliding tokens, and the full-vs-digest choice is **length-triggered, never a
 deriver preference**. The reasoning below is retained because it is what the ruling settles.
 
-> **Defect found in the ruling as spelled — the marker prefix must not use a colon.** The
-> steward's example marker was `fnv1a64:`, which would make a digest-form token
+> **Defect found in the ruling as first spelled — CORRECTED by the steward same day.** The
+> original marker was `fnv1a64:`, which would make a digest-form token
 > `vulkan:<fields>.fnv1a64:<hex>` — **two** colons. §6.8-0001 requires *exactly one* and states
 > that a reader MUST reject a token with "zero or more than one `:`" via typed decline, so the
-> digest branch would be unusable by every conforming reader, and unusable specifically in the
-> large-device case that is hardest to test. The intent is right and worth keeping — a marker
-> that keeps retired and current digests distinguishable is §3.3's burn-the-retired-ID
-> discipline applied to the hash primitive. It needs only a non-colon delimiter: `fnv1a64-` or
-> `fnv1a64.` both satisfy §6.8-0005's charset. Raised with the steward 2026-07-31; the
-> delimiter should be chosen to match Q3b's intra-field separator so the capability-set has one
-> delimiter discipline rather than two.
+> digest branch would have been unusable by every conforming reader — and unusable specifically
+> in the large-device case that is hardest to test, so it could have shipped looking fine. The
+> intent was right and is retained: a marker keeping retired and current digests
+> distinguishable is §3.3's burn-the-retired-ID discipline applied to the hash primitive.
+> **Corrected marker: `fnv1a64.<hex>`** — the single `:` stays the namespace separator and
+> everything below it uses `.` / `-`, matching the Q3b delimiter discipline.
 
 The bundle the ruling pins, stated for implementers:
 
@@ -302,22 +303,41 @@ The failure is one token away and non-local: adding `uz` to the set would immedi
 tuple that contains it. A reviewer approving a new dtype has no reason to run a decodability
 check, because nothing says they must.
 
-Two things to pin together, in the same room:
+**Q3b — RULED (steward, 2026-07-31), both parts, harder than we asked for:**
 
-1. **An explicit intra-tuple separator**, chosen as a character that can appear in neither a
-   dtype token nor a dimension digit, so escaping is never needed. This makes tuple parsing
-   independent of how §6.1 evolves. The length cost is trivial — about 6% on the measured
-   248-byte field.
-2. **Unique decodability as an explicit standing constraint on §6.1's growth**, so it becomes a
-   reviewable rule rather than an accident. Even with (1) in place this is worth stating, since
-   other encodings may lean on it.
+1. **The explicit intra-tuple separator is NORMATIVE — juxtaposition is forbidden.** The
+   reasoning: a property nobody can check by eye, and that nobody is currently maintaining, is
+   not a property to build a wire identity on. Decoupling tuple parsing from §6.1's evolution
+   is the point. Two-level discipline pinned: `.` between fields, `-` within a tuple; the
+   single `:` remains the namespace separator.
+2. **Unique decodability becomes a machine-enforced §6.1 constraint, not prose.** The steward's
+   argument is the sharper version of ours: "a reviewer has no reason to run a decodability
+   check because nothing says they must" is exactly why the prefix property already rotted, and
+   *a second prose rule rots the same way*. So a Sardinas–Patterson check goes into the §6.1
+   dtype-vocab test suite and **fails CI** when a new token breaks unique decodability. The
+   steward owns landing it, as KISS-Classify infrastructure rather than Vulkan-specific work.
+   With (1) in force for `vulkan:` this is belt-and-suspenders here, but it protects any other
+   encoding that leans on the property.
 
-We are deliberately *not* minting a separator ourselves. kiss-ref confirmed (2026-07-31) that
-the reference implementation does not yet implement the §6.7 structure-key codec —
-`kiss-classify-vocab` is the §6.1 dtype vocabulary only — so there is no existing `cuda`-side
-intra-field convention to inherit, and inventing one per-namespace is precisely the divergence
-this proposal exists to prevent. The separator is a §6.7 codec decision and belongs to the
-steward, pinned once for every namespace.
+**Measured cost of the separator, re-run against the mandated spelling** (we had estimated this
+badly the first time and the estimate propagated, so it is worth stating precisely):
+
+| Encoding | Bytes | Share of `MAX_STRUCTURE_KEY_LEN` |
+|---|---|---|
+| Juxtaposed (`16x16x16-f16f16f32f32`) | 248 | 6.1% |
+| Separated (`16-16-16-f16-f16-f32-f32`) | **281** | **6.9%** |
+
+The separator costs **+33 bytes, +13.3% on the field** — not the "~6%" figure quoted earlier in
+this document and repeated back in review, which was the field's share of the total budget, a
+different quantity. The conclusion is unchanged and if anything better supported: a 13.3%
+increase on a field occupying 6.9% of the budget is negligible, and it leaves headroom for
+roughly **163 tuples** at this tuple width before the digest escape hatch is needed.
+
+We deliberately did not mint the separator ourselves. kiss-ref confirmed (2026-07-31) that the
+reference implementation does not yet implement the §6.7 structure-key codec —
+`kiss-classify-vocab` is the §6.1 dtype vocabulary only — so there was no `cuda`-side
+convention to inherit, and inventing one per-namespace is precisely the divergence this
+proposal exists to prevent.
 
 **Q4 — Is an API-version floor wanted in the token at all?** We argue no (§3), but if
 consumers want a coarse "at least Vulkan 1.3" signal we would rather put it in a fixed leading
