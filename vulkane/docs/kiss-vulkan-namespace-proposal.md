@@ -241,11 +241,26 @@ many type combinations could plausibly report several times as many; at ~22 byte
 (b) is not a theoretical hedge — it is the branch that a large device will actually need. We
 would like the escape-hatch trigger specified up front rather than discovered later.
 
-**Q3a (new, for the steward).** If (b) is adopted as the escape hatch, KISS must pin the hash
-function, and §6.9-0003 constrains it to something implementable from any language's standard
-library — which rules out pulling in a SHA-2 crate and points at something like FNV-1a or
-FxHash with an explicitly pinned width and endianness. Is that a KISS-level decision you want
-to make once for all namespaces, rather than each namespace maintainer picking their own?
+**Q3a (for the steward) — pin the enumerate→hash switch as one bundle, KISS-wide.** If (b) is
+adopted as the escape hatch, three things must be pinned together, and kiss-ref identified that
+**the trigger is itself an interop hazard, not merely an ergonomics choice**: two honest
+derivers on the same large device straddling a fuzzy threshold would emit different tokens —
+one enumerating, one hashing — and fail the very byte-exact gate this proposal is built to
+satisfy. The bundle:
+
+1. **The trigger** — a deterministic length test on the *encoded* field, e.g. "if the canonical
+   enumeration string exceeds N bytes, hash instead." Not a tuple count, not an
+   implementation-defined budget; a byte length on the produced string.
+2. **The hash input** — the hash MUST run over *that same canonically-sorted enumeration
+   string*, never over the raw tuple set. This is what keeps (a) and (b) faithful to one form:
+   the switch becomes a pure length-driven representation swap with identical input semantics,
+   so a deriver can disagree only about *whether* to hash, never about *what* is being hashed.
+3. **The function** — §6.9-0003's stdlib-only rule rules out reaching for SHA-2, pointing at
+   something like FNV-1a with explicitly pinned width and endianness.
+
+Our ask: pin all three **once, for all namespaces**, rather than letting each namespace
+maintainer choose. Divergent per-namespace hashes or thresholds are exactly the kind of thing
+that is invisible until two implementations meet.
 
 **Q4 — Is an API-version floor wanted in the token at all?** We argue no (§3), but if
 consumers want a coarse "at least Vulkan 1.3" signal we would rather put it in a fixed leading
@@ -314,6 +329,29 @@ structurally dissimilar underneath as §8-0004 wants — and what lets the refer
 without ever loading a Vulkan driver, consistent with §6.9-0003. Locking this framing now
 avoids a drift where one side builds toward cross-namespace consumption that the clause never
 asked for.
+
+**Which vectors actually carry the interop obligation.** That statement splits in two, and
+only one half is shared:
+
+- **Codec-neutral vectors** — envelope, field order, separator choice, escaping of the
+  type-tuple string, dedup and sort order, `MAX_STRUCTURE_KEY_LEN` discipline. **Both
+  implementations must encode these byte-identically regardless of namespace.** This is the
+  real interop surface, and it is what kiss-ref will diff against the `cuda` side's structure-key
+  encoding.
+- **Capability-value vectors** — `sm89` versus `cm-16x16x16-...`. Namespace-specific; each
+  implementation owns its own and they are not cross-emitted.
+
+If the codec-neutral layer matches byte-for-byte and only the payloads differ, the shared codec
+is proven identical, which is what §8-0004 should be testing. We will label each drafted
+`vulkan` vector as codec-neutral or capability-specific when we send them.
+
+**The `(device, choice) -> token` deriver shape is shared, not a Vulkan quirk.** kiss-ref
+confirmed §3a's resolution holds on the `cuda` side too: a physical Ada part runs kernels built
+for `sm_80` / `sm_86` / `sm_89` via binary and PTX-JIT compatibility, so a CUDA device likewise
+*admits a set* of tokens rather than having one. Both namespaces therefore share the same
+deriver shape while remaining structurally dissimilar underneath — which is a stronger position
+for the §8-0004 pair than a coincidence would be, and worth recording as a shared property of
+the descriptor rather than a per-namespace decision.
 
 **Turning the `min(instance, device)` trap into a caught failure.** The version-gating hazard
 in §5 is deriver-side and therefore ours, but kiss-ref identified a conformance-vector
