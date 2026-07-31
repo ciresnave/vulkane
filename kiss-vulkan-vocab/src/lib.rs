@@ -103,7 +103,7 @@ pub const NAMESPACE: &str = "vulkan";
 /// preference. Two honest implementations on the same target that disagreed
 /// about which form to emit would produce different tokens and fail
 /// §6.8-0002 byte-exact matching, which is the same determinism argument that
-/// motivates the digest having a pinned hash at all. See [`CoopMatrix::spell`].
+/// motivates the digest having a pinned hash at all. [`CoopMatrix`] applies it.
 ///
 /// *Rationale (not normative).* 512 is `2^9`, an eighth of
 /// `MAX_STRUCTURE_KEY_LEN` (4096), reserving the other seven eighths for the
