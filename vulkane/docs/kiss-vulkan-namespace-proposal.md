@@ -60,7 +60,8 @@ recourse, because it is forbidden from reasoning about what the token implies.
 
 ### Measured evidence
 
-From a live AMD RDNA device, read through the Vulkane queries described in §5 below:
+**(a) One device admitting two widths.** From a live AMD RDNA device, read through the Vulkane
+queries described in §5:
 
 ```
 subgroup_size = 64        pinnable range = 32..=64      (both wave32 and wave64)
@@ -69,8 +70,36 @@ driver: DRIVER_ID_AMD_PROPRIETARY, "26.7.1", CTS conformance 1.4.0.0
 ```
 
 A single `vulkan:spirv1.6` token cannot distinguish a wave32-specialized kernel from a
-wave64-specialized one on *this one device*, let alone across vendors. That is the concrete
-failure.
+wave64-specialized one on *this one device*, let alone across vendors.
+
+**(b) Two devices at different fixed widths, independently measured.** Produced by the Fuel
+session (cited with permission) from `fuel-vulkan-backend`'s device probe built against
+vulkane `v0.9.0` — a separate implementation, on different silicon, reached through the same
+public API:
+
+```
+AMD Radeon(TM) 610M             subgroup_width=64  DRIVER_ID_AMD_PROPRIETARY
+                                "AMD proprietary driver 26.7.1 (AMD proprietary shader compiler)"
+NVIDIA GeForce RTX 4070 Laptop  subgroup_width=32  DRIVER_ID_NVIDIA_PROPRIETARY
+                                "NVIDIA 610.88"
+```
+
+Both enumerated by one `vkEnumeratePhysicalDevices` call on one machine, instance at
+`ApiVersion::V1_2`. `size_control` was `None` on both, consistent with the 1.3 gate described
+in §5 — so these are the devices' **default** widths, not pinned ones, and should not be read
+as chosen specializations in the §3a sense.
+
+Three things make (b) the stronger citation:
+
+1. **It is a second, independent measurement.** §8-0004 asks for real non-CUDA usage; this is a
+   consumer of the API rather than its author reporting the same fact.
+2. **It separates on two orthogonal axes, not one.** The devices differ in wave width (64 vs 32)
+   *and* in ICD. Those are independent: an AMD device under RADV versus AMDVLK would share a
+   width while differing in codegen. A single encoding-envelope token encodes neither axis, let
+   alone their product — so the `spirv1.6` failure is not merely width-shaped.
+3. **This is an unremarkable consumer laptop** — an integrated 610M alongside a mobile 4070 —
+   not a curated test rig. That the divergence shows up *by accident* on ordinary hardware is a
+   stronger argument than a deliberately assembled pair would be.
 
 ## 3. The axes that actually specialize a Vulkan compute kernel
 
