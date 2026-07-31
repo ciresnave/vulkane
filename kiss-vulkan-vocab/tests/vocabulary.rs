@@ -150,7 +150,7 @@ fn rejects_leading_zeros() {
 
 #[test]
 fn rejects_uppercase_digest_hex() {
-    let e = VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-fnv1a64.DEADBEEF00000001")
+    let e = VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-fnv1a64-DEADBEEF00000001")
         .unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
@@ -219,7 +219,7 @@ fn never_panics_on_arbitrary_input() {
         "vulkan:sg-1.ops-none.arith-none.cm-none",
         "vulkan:sg99999999999999999999.ops-none.arith-none.cm-none",
         "vulkan:sgdyn.ops-zzz.arith-none.cm-none",
-        "vulkan:sgdyn.ops-none.arith-none.cm-fnv1a64.",
+        "vulkan:sgdyn.ops-none.arith-none.cm-fnv1a64-",
         "vulkan:sgdyn.ops-none.arith-none.cm-1-2-3-f16",
         "vulkan:sgdyn.ops-none.arith-none.cm-,",
     ];
@@ -236,6 +236,14 @@ fn digest_is_length_triggered_not_preferential() {
     // the switch happens exactly at the boundary — never earlier, never later.
     // A deriver that switched on preference rather than length would emit a
     // different token from an honest peer on the same target.
+    // The threshold is measured on the canonical ENUMERATION string — the
+    // comma-joined tuple list, excluding the `cm-` prefix — because that is
+    // the same string the digest hashes. Measuring the prefixed field instead
+    // shifts the boundary by three bytes, which a coarse step size can hide:
+    // shapes here grow the enumeration ~20 bytes at a time, so an off-by-three
+    // boundary would only be visible for enumerations of length 510..=512 and
+    // would otherwise pass by luck. `switches_at_the_exact_byte_boundary`
+    // below pins it exactly rather than relying on the sweep landing there.
     let mut shapes = Vec::new();
     let mut switched_at = None;
     for i in 1..400u32 {
@@ -248,23 +256,16 @@ fn digest_is_length_triggered_not_preferential() {
         };
         let tok = t.to_token();
         let field = tok.rsplit_once(".cm-").map(|(_, f)| f).unwrap_or("");
-        let is_digest = field.starts_with("fnv1a64.");
-        let inline_len = 3
-            + shapes
-                .iter()
-                .map(|s| {
-                    format!(
-                        "{}-{}-{}-{}-{}-{}-{}",
-                        s.m, s.n, s.k, "f16", "f16", "f32", "f32"
-                    )
-                    .len()
-                })
-                .sum::<usize>()
+        let is_digest = field.starts_with("fnv1a64-");
+        let enumeration_len = shapes
+            .iter()
+            .map(|s| format!("{}-{}-{}-f16-f16-f32-f32", s.m, s.n, s.k).len())
+            .sum::<usize>()
             + (shapes.len() - 1);
         assert_eq!(
             is_digest,
-            inline_len > COOP_DIGEST_THRESHOLD,
-            "at {} shapes the inline field is {inline_len} bytes; digest={is_digest}",
+            enumeration_len > COOP_DIGEST_THRESHOLD,
+            "at {} shapes the enumeration is {enumeration_len} bytes; digest={is_digest}",
             shapes.len()
         );
         if is_digest && switched_at.is_none() {
@@ -274,6 +275,97 @@ fn digest_is_length_triggered_not_preferential() {
     assert!(
         switched_at.is_some(),
         "the digest branch was never reached — it must be exercisable"
+    );
+}
+
+#[test]
+fn switches_at_the_exact_byte_boundary() {
+    // Pins the switch between an enumeration of exactly 512 bytes and one of
+    // exactly 513: `<= 512` enumerates, `> 512` digests. This is the assertion
+    // two independent implementations must agree on byte for byte.
+    //
+    // Constructed rather than swept. A sweep that grows shapes in coarse steps
+    // straddles the boundary without landing on it, so it passes even with the
+    // threshold defined a few bytes off — which is exactly the discrepancy
+    // that existed here while the prefixed field, rather than the bare
+    // enumeration, was the measured string.
+    //
+    // With `n`/`k` fixed at 16, a tuple spells as `<m>-16-16-f16-f16-f32-f32`,
+    // so its length is `digits(m) + 22` and the whole enumeration (tuples
+    // joined by commas) is `23*N - 1 + sum(digits(m_i))`. That inverts: pick
+    // `N`, solve for the digit budget, then mint distinct `m` values with
+    // those digit counts.
+    fn enumeration_of_len(target: usize) -> Option<Vec<CoopShape>> {
+        for n in 1..=40usize {
+            let need = target as isize + 1 - 23 * n as isize;
+            if need < n as isize || need > 9 * n as isize {
+                continue;
+            }
+            let mut digits = vec![1usize; n];
+            let mut rem = need as usize - n;
+            for d in digits.iter_mut() {
+                let add = rem.min(8);
+                *d += add;
+                rem -= add;
+                if rem == 0 {
+                    break;
+                }
+            }
+            if rem != 0 {
+                continue;
+            }
+            // Mint distinct m values per digit width, so no two shapes collide
+            // and dedup cannot silently shorten the list.
+            let mut next = [0u32; 10];
+            let mut shapes = Vec::new();
+            for d in digits {
+                let base = 10u32.pow(d as u32 - 1);
+                let m = base + next[d];
+                next[d] += 1;
+                if m >= base.saturating_mul(10) {
+                    return None;
+                }
+                shapes.push(shape(m, 16, 16, ComponentType::F16, ComponentType::F32));
+            }
+            return Some(shapes);
+        }
+        None
+    }
+
+    let enumeration_len = |shapes: &[CoopShape]| -> usize {
+        shapes
+            .iter()
+            .map(|s| format!("{}-{}-{}-f16-f16-f32-f32", s.m, s.n, s.k).len())
+            .sum::<usize>()
+            + shapes.len().saturating_sub(1)
+    };
+    let is_digest = |shapes: &[CoopShape]| -> bool {
+        VulkanTarget {
+            subgroup: Subgroup::Fixed(32),
+            ops: OpClasses::NONE,
+            arith: Arith::NONE,
+            coop: CoopMatrix::from_shapes(shapes.to_vec()),
+        }
+        .to_token()
+        .contains(".cm-fnv1a64-")
+    };
+
+    let at = enumeration_of_len(COOP_DIGEST_THRESHOLD)
+        .expect("could not construct an enumeration of exactly the threshold length");
+    let over = enumeration_of_len(COOP_DIGEST_THRESHOLD + 1)
+        .expect("could not construct an enumeration one byte over the threshold");
+
+    assert_eq!(enumeration_len(&at), COOP_DIGEST_THRESHOLD);
+    assert_eq!(enumeration_len(&over), COOP_DIGEST_THRESHOLD + 1);
+
+    assert!(
+        !is_digest(&at),
+        "an enumeration of exactly {COOP_DIGEST_THRESHOLD} bytes must be spelled inline"
+    );
+    assert!(
+        is_digest(&over),
+        "an enumeration of {} bytes must be digested",
+        COOP_DIGEST_THRESHOLD + 1
     );
 }
 
@@ -293,7 +385,7 @@ fn digest_runs_over_the_canonical_enumeration() {
         coop,
     };
     let tok = t.to_token();
-    let hex = tok.rsplit_once("fnv1a64.").expect("expected digest form").1;
+    let hex = tok.rsplit_once("fnv1a64-").expect("expected digest form").1;
 
     let mut sorted = shapes;
     sorted.sort();

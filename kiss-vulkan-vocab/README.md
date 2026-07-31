@@ -64,7 +64,7 @@ Four fixed-position fields separated by `.`; parts within a field by `-`.
 | subgroup | `sg32`, `sg64`, `sgdyn` | the width the kernel is built for, or `sgdyn` for width-agnostic |
 | ops | `ops-abr`, `ops-none` | subgroup operation classes required, canonically sorted |
 | arith | `arith-f16-i8`, `arith-none` | arithmetic capabilities required |
-| coop | `cm-16-16-16-f16-f16-f32-f32`, `cm-none`, `cm-fnv1a64.<hex>` | cooperative-matrix shapes used |
+| coop | `cm-16-16-16-f16-f16-f32-f32`, `cm-none`, `cm-fnv1a64-<hex>` | cooperative-matrix shapes used |
 
 Two spellings that differ by any byte are different cells, so the crate
 **rejects** legal-but-non-canonical input (unsorted op letters, duplicated

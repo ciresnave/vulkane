@@ -56,7 +56,7 @@
 //! | subgroup | `sg32`, `sg64`, `sgdyn` | the subgroup width the kernel is built for, or `sgdyn` for width-agnostic |
 //! | ops | `ops-abr`, `ops-none` | subgroup operation classes the kernel requires, canonically sorted |
 //! | arith | `arith-f16-i8`, `arith-none` | arithmetic capabilities the kernel requires |
-//! | coop | `cm-16-16-16-f16-f16-f32-f32`, `cm-none`, `cm-fnv1a64.<hex>` | cooperative-matrix shapes the kernel uses |
+//! | coop | `cm-16-16-16-f16-f16-f32-f32`, `cm-none`, `cm-fnv1a64-<hex>` | cooperative-matrix shapes the kernel uses |
 //!
 //! ```
 //! use kiss_vulkan_vocab::{VulkanTarget, Subgroup, OpClasses, Arith, CoopMatrix};
@@ -91,17 +91,29 @@ pub const NAMESPACE: &str = "vulkan";
 /// Byte length at which the cooperative-matrix field switches from a full
 /// canonical enumeration to a digest.
 ///
-/// The switch **must** be a deterministic function of the encoded length and
-/// never an implementation preference: two honest implementations on the same
-/// target that disagreed about which form to emit would produce different
-/// tokens and fail §6.8-0002 byte-exact matching. See [`CoopMatrix::spell`].
+/// **Measured on the canonical enumeration string** — the comma-joined tuple
+/// list, *excluding* the `cm-` prefix — which is deliberately the same string
+/// the digest is computed over. One string with two uses means there is
+/// nothing to define twice and nothing for two implementations to interpret
+/// differently. The enumeration is also the only unbounded part of a token;
+/// the subgroup, ops, and arith fields are bounded by their alphabets.
 ///
-/// The value bounds the target at an eighth of `MAX_STRUCTURE_KEY_LEN`
-/// (4096), so a target can never crowd out the operand data that makes up the
-/// rest of a `structure_key`. At roughly 22 bytes per tuple it admits about 23
-/// shapes inline, which covers every device measured so far — an AMD RDNA part
-/// reports 11 — while keeping the digest branch reachable rather than
-/// theoretical.
+/// The switch is a **hard deterministic trigger at the exact byte count** —
+/// `len <= 512` enumerates, `len > 512` digests — never an implementation
+/// preference. Two honest implementations on the same target that disagreed
+/// about which form to emit would produce different tokens and fail
+/// §6.8-0002 byte-exact matching, which is the same determinism argument that
+/// motivates the digest having a pinned hash at all. See [`CoopMatrix::spell`].
+///
+/// *Rationale (not normative).* 512 is `2^9`, an eighth of
+/// `MAX_STRUCTURE_KEY_LEN` (4096), reserving the other seven eighths for the
+/// op-family, dtype, and operand-descriptor fields so a target can never crowd
+/// out the operand data that makes a `structure_key` useful. At roughly 22
+/// bytes per tuple it admits about 23 shapes inline, which covers every device
+/// measured so far — an AMD RDNA part reports 11, encoding to 281 bytes —
+/// while keeping the digest branch reachable rather than theoretical. The
+/// specific number is a policy choice; what matters for interoperation is that
+/// it is pinned and identical everywhere.
 pub const COOP_DIGEST_THRESHOLD: usize = 512;
 
 /// FNV-1a 64-bit offset basis, pinned so every implementation agrees.
@@ -661,16 +673,18 @@ impl CoopMatrix {
     fn spell(&self) -> String {
         match self {
             Self::None => "cm-none".to_string(),
-            Self::Digest(h) => format!("cm-fnv1a64.{h:016x}"),
+            Self::Digest(h) => format!("cm-fnv1a64-{h:016x}"),
             Self::Shapes(shapes) => {
                 let joined = shapes
                     .iter()
                     .map(CoopShape::spell)
                     .collect::<Vec<_>>()
                     .join(",");
-                let full = format!("cm-{joined}");
-                if full.len() <= COOP_DIGEST_THRESHOLD {
-                    full
+                // Threshold and hash input are the SAME string, so the rule is
+                // "if the canonical enumeration exceeds N bytes, hash it" —
+                // one definition, no second thing to get wrong.
+                if joined.len() <= COOP_DIGEST_THRESHOLD {
+                    format!("cm-{joined}")
                 } else {
                     // The digest runs over the canonical enumeration string,
                     // never the raw shape list. That is what keeps the two
@@ -678,7 +692,7 @@ impl CoopMatrix {
                     // length-driven representation swap with identical input
                     // semantics, so two implementations can disagree about
                     // *whether* to hash but never about *what* is hashed.
-                    format!("cm-fnv1a64.{:016x}", fnv1a64(joined.as_bytes()))
+                    format!("cm-fnv1a64-{:016x}", fnv1a64(joined.as_bytes()))
                 }
             }
         }
@@ -693,7 +707,9 @@ impl CoopMatrix {
         if body == "none" {
             return Ok(Self::None);
         }
-        if let Some(hex) = body.strip_prefix("fnv1a64.") {
+        // `fnv1a64-` cannot be confused with a shape tuple: a tuple always
+        // begins with a decimal dimension.
+        if let Some(hex) = body.strip_prefix("fnv1a64-") {
             if hex.len() != 16 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return Err(bad());
             }
@@ -777,12 +793,15 @@ impl VulkanTarget {
             });
         }
 
-        // Fixed arity 4, splitting on the FIRST three dots. The cooperative-
-        // matrix field's digest form legitimately contains a `.`
-        // (`fnv1a64.<hex>`), so a greedy split on every dot would tear it in
-        // half. Splitting positionally lets the final field absorb the
-        // remainder and keeps the digest spelling the steward pinned.
-        let fields: Vec<&str> = caps.splitn(4, '.').collect();
+        // `.` separates fields uniformly — always, and always into exactly
+        // four. No field may contain one, which is why the digest marker is
+        // spelled `fnv1a64-<hex>` rather than `fnv1a64.<hex>`: the latter
+        // would force a positional "the first three dots separate" rule, and a
+        // parser written to the obvious greedy reading would then accept every
+        // inline token and fail only on digest-form ones — i.e. only on the
+        // large devices that are hardest to test. A uniform rule needs no
+        // caveat and is enforced by construction.
+        let fields: Vec<&str> = caps.split('.').collect();
         if fields.len() != 4 {
             return Err(ParseError::FieldCount {
                 found: fields.len(),
