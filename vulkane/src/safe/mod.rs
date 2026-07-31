@@ -149,9 +149,11 @@ pub use instance::{
 };
 pub use memory::{DeviceMemory, MappedMemory, MemoryAllocateInfo, MemoryPropertyFlags};
 pub use physical::{
-    CooperativeMatrixProperties, DeviceIdentity, MemoryBudget, MemoryHeap, MemoryHeapFlags,
-    MemoryType, PciBusInfo, PhysicalDevice, PhysicalDeviceGroup, PhysicalDeviceProperties,
-    PhysicalDeviceType, QueueFamilyProperties, QueueFlags, ShaderIntegerDotProductProperties,
+    ConformanceVersion, CooperativeMatrixProperties, DeviceIdentity, DriverProperties,
+    MemoryBudget, MemoryHeap, MemoryHeapFlags, MemoryType, PciBusInfo, PhysicalDevice,
+    PhysicalDeviceGroup, PhysicalDeviceProperties, PhysicalDeviceType, QueueFamilyProperties,
+    QueueFlags, ShaderIntegerDotProductProperties, SubgroupFeatureFlags, SubgroupProperties,
+    SubgroupSizeControl,
 };
 pub use pipeline::{
     ComputePipeline, ComputePipelineOptions, PipelineCache, PipelineLayout, PushConstantRange,

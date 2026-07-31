@@ -236,22 +236,42 @@ impl PhysicalDevice {
     /// Result_type)` shape that the device's compute units can execute
     /// natively.
     ///
-    /// Returns an empty `Vec` if the device does not expose
+    /// Returns an empty `Vec` if the device does not advertise
     /// `VK_KHR_cooperative_matrix`.
     ///
-    /// # Safety
+    /// # Why this is safe to call unconditionally
     ///
-    /// The caller must have created the parent [`Instance`](super::Instance)
-    /// with `VK_KHR_cooperative_matrix` in
-    /// [`InstanceCreateInfo::enabled_extensions`](super::InstanceCreateInfo::enabled_extensions).
-    /// Calling this function when the extension was not enabled is
-    /// undefined behaviour on some implementations (notably software
-    /// rasterizers like Lavapipe), even though the function pointer may
-    /// have been loaded by the loader. The Vulkan loader will happily
-    /// hand back a stub for any KHR function name it knows about; the
-    /// stub may then crash when called against a device that doesn't
-    /// implement the extension.
-    pub unsafe fn cooperative_matrix_properties(&self) -> Vec<CooperativeMatrixProperties> {
+    /// The Vulkan loader will hand back a non-null function pointer for
+    /// any KHR entry point it knows the *name* of, whether or not the
+    /// device implements it; calling such a stub against a device that
+    /// doesn't implement the extension can crash (notably on software
+    /// rasterizers like Lavapipe). A non-null dispatch entry is therefore
+    /// not evidence the call is legal.
+    ///
+    /// This method does not rely on one. It first asks the device itself
+    /// — [`enumerate_extension_properties`](Self::enumerate_extension_properties)
+    /// — whether it advertises `VK_KHR_cooperative_matrix`, and returns
+    /// an empty `Vec` when it does not, so the loader stub is never
+    /// reached. That is the same honest-gating discipline
+    /// [`device_identity`](Self::device_identity) applies to
+    /// `VK_EXT_pci_bus_info`, and it makes the extension check an
+    /// invariant of the call rather than an obligation on the caller.
+    ///
+    /// An empty `Vec` is thus unambiguous: this device has no
+    /// cooperative-matrix support to report. Callers that previously
+    /// wrapped this in `unsafe { .. }` after checking the extension list
+    /// themselves can delete both the check and the block.
+    pub fn cooperative_matrix_properties(&self) -> Vec<CooperativeMatrixProperties> {
+        // Gate on the device's own advertisement, not on the loader
+        // handing us a function pointer — see the doc comment above.
+        let advertised = self
+            .enumerate_extension_properties()
+            .map(|exts| exts.iter().any(|e| e.name() == "VK_KHR_cooperative_matrix"))
+            .unwrap_or(false);
+        if !advertised {
+            return Vec::new();
+        }
+
         let Some(get) = self
             .instance
             .dispatch
@@ -390,6 +410,219 @@ impl PhysicalDevice {
             device_luid: (id.deviceLUIDValid != 0).then_some(id.deviceLUID),
             device_node_mask: id.deviceNodeMask,
             pci,
+        })
+    }
+
+    /// The Vulkan version whose features are actually reachable through
+    /// this handle: `min(instance apiVersion, device apiVersion)`.
+    ///
+    /// This is the version that governs property queries, and it is
+    /// **not** the same as
+    /// [`properties().api_version()`](PhysicalDeviceProperties::api_version).
+    /// A Vulkan implementation must behave as the version the *instance*
+    /// requested in `VkApplicationInfo::apiVersion`, so an instance
+    /// created at 1.0 will leave 1.1+ `pNext` property structs untouched
+    /// even on a device that reports 1.3 — the caller reads back a
+    /// zeroed struct that looks like a real answer.
+    ///
+    /// Query methods that chain version-gated structs
+    /// ([`subgroup_properties`](Self::subgroup_properties),
+    /// [`driver_properties`](Self::driver_properties)) gate on this, so
+    /// they return an honest `None` rather than a zeroed reading. If one
+    /// of them declines on hardware you expect to support the feature,
+    /// raise the `api_version` in
+    /// [`InstanceCreateInfo`](super::InstanceCreateInfo) — which defaults
+    /// to [`ApiVersion::V1_0`](super::ApiVersion::V1_0).
+    pub fn effective_api_version(&self) -> ApiVersion {
+        let device = self.properties().api_version();
+        let instance = self.instance.api_version;
+        if (instance.major(), instance.minor()) <= (device.major(), device.minor()) {
+            instance
+        } else {
+            device
+        }
+    }
+
+    /// Query the device's subgroup ("wave" / "warp") properties —
+    /// `VkPhysicalDeviceSubgroupProperties` (Vulkan 1.1 core), plus the
+    /// `VkPhysicalDeviceSubgroupSizeControlProperties` size range
+    /// (Vulkan 1.3 core, or `VK_EXT_subgroup_size_control`) when the
+    /// device exposes it.
+    ///
+    /// Subgroup width is the single most important specialization axis
+    /// for a compute kernel: it is 32 on NVIDIA, 64 on AMD GCN/CDNA
+    /// (32 or 64 on RDNA), and 8/16/32 on Intel. A kernel that reduces
+    /// across a subgroup either reads the width at runtime
+    /// (`gl_SubgroupSize` / `WaveGetLaneCount()`) or is compiled for a
+    /// fixed width and pinned with
+    /// [`ComputePipelineOptions::required_subgroup_size`](super::ComputePipelineOptions::required_subgroup_size).
+    /// This method is what makes the second option usable: pinning a
+    /// size is only legal within the
+    /// [`size_control`](SubgroupProperties::size_control) range, and
+    /// until now Vulkane let you set that field without offering any way
+    /// to read the bounds it must satisfy.
+    ///
+    /// Returns `None` when the
+    /// [`effective_api_version`](Self::effective_api_version) is below
+    /// 1.1 (`VkPhysicalDeviceSubgroupProperties` is 1.1 core and has no
+    /// extension form, so a 1.0 implementation leaves the struct
+    /// untouched and reporting `subgroup_size: 0` would be a lie), or
+    /// when `vkGetPhysicalDeviceProperties2` is unavailable.
+    /// [`size_control`](SubgroupProperties::size_control) is `Some` only
+    /// when the device actually advertises it.
+    ///
+    /// Note the gate is on the **effective** version, so this declines on
+    /// a 1.0-created [`Instance`](super::Instance) even against a 1.3
+    /// device. [`InstanceCreateInfo::api_version`](super::InstanceCreateInfo::api_version)
+    /// defaults to 1.0, so raise it if this returns `None` unexpectedly.
+    pub fn subgroup_properties(&self) -> Option<SubgroupProperties> {
+        let get2 = self.instance.dispatch.vkGetPhysicalDeviceProperties2?;
+
+        // VkPhysicalDeviceSubgroupProperties is Vulkan 1.1 core with no
+        // extension form. A 1.0 implementation ignores the unrecognized
+        // pNext struct and leaves it zeroed, which would read back as a
+        // subgroup size of 0 — decline honestly instead.
+        let api = self.effective_api_version();
+        if api.major() < 1 || (api.major() == 1 && api.minor() < 1) {
+            return None;
+        }
+
+        // Size control is 1.3 core, or the EXT before that. Chain it only
+        // when one of those holds, so an untouched struct can't be
+        // mistaken for a real min/max of 0.
+        let has_size_control = (api.major() > 1 || api.minor() >= 3)
+            || self
+                .enumerate_extension_properties()
+                .map(|exts| {
+                    exts.iter()
+                        .any(|e| e.name() == "VK_EXT_subgroup_size_control")
+                })
+                .unwrap_or(false);
+
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkPhysicalDeviceSubgroupProperties::new_pnext());
+        if has_size_control {
+            chain.push(VkPhysicalDeviceSubgroupSizeControlProperties::new_pnext());
+        }
+        let mut props2 = VkPhysicalDeviceProperties2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            pNext: chain.head_mut(),
+            ..Default::default()
+        };
+        // Safety: handle valid; props2 + chain live for the call.
+        unsafe { get2(self.handle, &mut props2) };
+
+        let sg = chain.get::<VkPhysicalDeviceSubgroupProperties>()?;
+        let size_control = if has_size_control {
+            chain
+                .get::<VkPhysicalDeviceSubgroupSizeControlProperties>()
+                .map(|sc| SubgroupSizeControl {
+                    min_subgroup_size: sc.minSubgroupSize,
+                    max_subgroup_size: sc.maxSubgroupSize,
+                    max_compute_workgroup_subgroups: sc.maxComputeWorkgroupSubgroups,
+                    required_subgroup_size_stages: super::ShaderStageFlags(
+                        sc.requiredSubgroupSizeStages,
+                    ),
+                })
+        } else {
+            None
+        };
+
+        Some(SubgroupProperties {
+            subgroup_size: sg.subgroupSize,
+            supported_stages: super::ShaderStageFlags(sg.supportedStages),
+            supported_operations: SubgroupFeatureFlags(sg.supportedOperations),
+            quad_operations_in_all_stages: sg.quadOperationsInAllStages != 0,
+            size_control,
+        })
+    }
+
+    /// Query the driver's identity — `VkPhysicalDeviceDriverProperties`
+    /// (Vulkan 1.2 core, or `VK_KHR_driver_properties`).
+    ///
+    /// [`PhysicalDeviceProperties::driver_version`](PhysicalDeviceProperties::driver_version)
+    /// is a bare `u32` whose bit-packing is **vendor-defined** — NVIDIA
+    /// packs it (22,14,6,10), AMD (22,10,10,10), Intel-on-Windows
+    /// (18,14) — so it cannot be decoded portably and is only good for
+    /// equality comparison. This method returns what a caller actually
+    /// wants instead: a [`driver_id`](DriverProperties::driver_id)
+    /// enum naming the ICD (`MESA_RADV` vs `AMD_PROPRIETARY` vs
+    /// `NVIDIA_PROPRIETARY` vs `MESA_LLVMPIPE` …), a human-readable
+    /// driver name and version string, and the Vulkan CTS
+    /// [`conformance_version`](DriverProperties::conformance_version)
+    /// the driver claims to pass.
+    ///
+    /// Two things this is for: **stable cache keys** — a
+    /// `(driver_id, driver_info)` pair is a portable, human-legible
+    /// identity for "the compiler that produced this SPIR-V binary,"
+    /// which a raw vendor-packed `u32` is not — and **quirk gating**,
+    /// since ICDs for the same hardware genuinely differ (RADV and
+    /// AMDVLK do not make the same codegen choices).
+    ///
+    /// Returns `None` when `vkGetPhysicalDeviceProperties2` is
+    /// unavailable, or when the
+    /// [`effective_api_version`](Self::effective_api_version) is below
+    /// 1.2 and the device does not advertise `VK_KHR_driver_properties`
+    /// — rather than reporting a zeroed struct as though the driver had
+    /// answered. As with
+    /// [`subgroup_properties`](Self::subgroup_properties), a 1.0-created
+    /// [`Instance`](super::Instance) declines regardless of the device.
+    pub fn driver_properties(&self) -> Option<DriverProperties> {
+        let get2 = self.instance.dispatch.vkGetPhysicalDeviceProperties2?;
+
+        let api = self.effective_api_version();
+        let supported = (api.major() > 1 || api.minor() >= 2)
+            || self
+                .enumerate_extension_properties()
+                .map(|exts| exts.iter().any(|e| e.name() == "VK_KHR_driver_properties"))
+                .unwrap_or(false);
+        if !supported {
+            return None;
+        }
+
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkPhysicalDeviceDriverProperties::new_pnext());
+        let mut props2 = VkPhysicalDeviceProperties2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            pNext: chain.head_mut(),
+            ..Default::default()
+        };
+        // Safety: handle valid; props2 + chain live for the call.
+        unsafe { get2(self.handle, &mut props2) };
+
+        let d = chain.get::<VkPhysicalDeviceDriverProperties>()?;
+        // Safety: both are null-terminated char arrays per the spec.
+        let driver_name = unsafe { CStr::from_ptr(d.driverName.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        let driver_info = unsafe { CStr::from_ptr(d.driverInfo.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+
+        // Advertising the extension is necessary but NOT sufficient: an
+        // implementation running as 1.0 may advertise
+        // `VK_KHR_driver_properties` as a *device* extension and still
+        // leave the struct untouched, because the instance was created
+        // below the version that processes it. (Observed on the AMD
+        // proprietary driver: advertised at instance 1.0, populated only
+        // at instance 1.2+.) A conforming driver that genuinely answers
+        // always names itself, so an empty name means "not answered" —
+        // decline rather than hand back a hollow struct whose `driver_id`
+        // is really just the zero-initializer.
+        if driver_name.is_empty() {
+            return None;
+        }
+
+        Some(DriverProperties {
+            driver_id: d.driverID,
+            driver_name,
+            driver_info,
+            conformance_version: ConformanceVersion {
+                major: d.conformanceVersion.major,
+                minor: d.conformanceVersion.minor,
+                subminor: d.conformanceVersion.subminor,
+                patch: d.conformanceVersion.patch,
+            },
         })
     }
 
@@ -836,6 +1069,172 @@ pub struct PciBusInfo {
     pub bus: u32,
     pub device: u32,
     pub function: u32,
+}
+
+/// Which subgroup operation classes a device supports, from
+/// `VkPhysicalDeviceSubgroupProperties::supportedOperations`.
+///
+/// `BASIC` is the floor guaranteed by Vulkan 1.1; everything above it is
+/// optional. A reduction kernel wants at least `ARITHMETIC`; a scan or a
+/// prefix-sum additionally wants `SHUFFLE_RELATIVE` or `CLUSTERED`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubgroupFeatureFlags(pub u32);
+
+impl SubgroupFeatureFlags {
+    /// `subgroupBarrier`, `subgroupElect`, `subgroupMemoryBarrier` —
+    /// mandatory on every Vulkan 1.1 implementation.
+    pub const BASIC: Self = Self(SUBGROUP_FEATURE_BASIC_BIT);
+    /// `subgroupAll` / `subgroupAny` / `subgroupAllEqual`.
+    pub const VOTE: Self = Self(SUBGROUP_FEATURE_VOTE_BIT);
+    /// `subgroupAdd` / `subgroupMul` / `subgroupMin` / `subgroupMax` and
+    /// their inclusive/exclusive scans — the class a cross-lane reduction
+    /// (`WaveActiveSum`) needs.
+    pub const ARITHMETIC: Self = Self(SUBGROUP_FEATURE_ARITHMETIC_BIT);
+    /// `subgroupBallot` and friends.
+    pub const BALLOT: Self = Self(SUBGROUP_FEATURE_BALLOT_BIT);
+    /// `subgroupShuffle` / `subgroupShuffleXor`.
+    pub const SHUFFLE: Self = Self(SUBGROUP_FEATURE_SHUFFLE_BIT);
+    /// `subgroupShuffleUp` / `subgroupShuffleDown`.
+    pub const SHUFFLE_RELATIVE: Self = Self(SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT);
+    /// Clustered reductions over power-of-two lane groups.
+    pub const CLUSTERED: Self = Self(SUBGROUP_FEATURE_CLUSTERED_BIT);
+    /// Quad (2×2) shuffles and broadcasts.
+    pub const QUAD: Self = Self(SUBGROUP_FEATURE_QUAD_BIT);
+    /// `VK_KHR_shader_subgroup_rotate` (Vulkan 1.4 core).
+    pub const ROTATE: Self = Self(SUBGROUP_FEATURE_ROTATE_BIT);
+    /// Clustered rotate, from the same extension.
+    pub const ROTATE_CLUSTERED: Self = Self(SUBGROUP_FEATURE_ROTATE_CLUSTERED_BIT);
+    /// `VK_NV_shader_subgroup_partitioned`.
+    pub const PARTITIONED_NV: Self = Self(SUBGROUP_FEATURE_PARTITIONED_BIT_NV);
+
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
+impl std::ops::BitOr for SubgroupFeatureFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+/// A device's subgroup ("wave" on AMD/HLSL, "warp" on NVIDIA) properties.
+///
+/// Returned by [`PhysicalDevice::subgroup_properties`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubgroupProperties {
+    /// Lanes per subgroup — 32 on NVIDIA, 64 on AMD GCN/CDNA, 32 or 64
+    /// on RDNA, 8/16/32 on Intel. This is the default width a shader
+    /// sees; where [`size_control`](Self::size_control) is present the
+    /// pipeline may pin a different one within its range.
+    pub subgroup_size: u32,
+    /// Which shader stages may use subgroup operations at all. Compute is
+    /// guaranteed; the rest are optional.
+    pub supported_stages: super::ShaderStageFlags,
+    /// Which classes of subgroup operation the device implements.
+    pub supported_operations: SubgroupFeatureFlags,
+    /// Whether quad operations work in every stage in
+    /// [`supported_stages`](Self::supported_stages), not just fragment
+    /// and compute.
+    pub quad_operations_in_all_stages: bool,
+    /// The pinnable subgroup-size range, when the device exposes
+    /// `VK_EXT_subgroup_size_control` (Vulkan 1.3 core). `None` means
+    /// the size is fixed at [`subgroup_size`](Self::subgroup_size) and
+    /// [`ComputePipelineOptions::required_subgroup_size`](super::ComputePipelineOptions::required_subgroup_size)
+    /// must be left unset.
+    pub size_control: Option<SubgroupSizeControl>,
+}
+
+/// The subgroup-size range a pipeline may pin, from
+/// `VkPhysicalDeviceSubgroupSizeControlProperties`.
+///
+/// This is the range
+/// [`ComputePipelineOptions::required_subgroup_size`](super::ComputePipelineOptions::required_subgroup_size)
+/// must fall within — use [`permits`](Self::permits) to check a
+/// candidate before building the pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubgroupSizeControl {
+    /// Smallest pinnable subgroup size. A power of two, per the spec.
+    pub min_subgroup_size: u32,
+    /// Largest pinnable subgroup size. A power of two, per the spec.
+    pub max_subgroup_size: u32,
+    /// Upper bound on subgroups per compute workgroup.
+    pub max_compute_workgroup_subgroups: u32,
+    /// Which stages accept a pinned size. Check for
+    /// [`ShaderStageFlags::COMPUTE`](super::ShaderStageFlags::COMPUTE)
+    /// before pinning one on a compute pipeline.
+    pub required_subgroup_size_stages: super::ShaderStageFlags,
+}
+
+impl SubgroupSizeControl {
+    /// Whether `size` is a legal
+    /// [`required_subgroup_size`](super::ComputePipelineOptions::required_subgroup_size)
+    /// on this device: a power of two within
+    /// `[min_subgroup_size, max_subgroup_size]`.
+    ///
+    /// This checks the size range only. Also confirm the stage accepts a
+    /// pinned size — see
+    /// [`permits_in_compute`](Self::permits_in_compute), which checks
+    /// both.
+    pub const fn permits(&self, size: u32) -> bool {
+        size.is_power_of_two() && size >= self.min_subgroup_size && size <= self.max_subgroup_size
+    }
+
+    /// Whether `size` may be pinned on a **compute** pipeline: both
+    /// [`permits`](Self::permits) and the compute stage appearing in
+    /// [`required_subgroup_size_stages`](Self::required_subgroup_size_stages).
+    pub const fn permits_in_compute(&self, size: u32) -> bool {
+        self.permits(size)
+            && self
+                .required_subgroup_size_stages
+                .contains(super::ShaderStageFlags::COMPUTE)
+    }
+}
+
+/// Driver identity — which ICD is behind this physical device, and what
+/// Vulkan conformance level it claims.
+///
+/// Returned by [`PhysicalDevice::driver_properties`]. Prefer this over
+/// [`PhysicalDeviceProperties::driver_version`](PhysicalDeviceProperties::driver_version),
+/// whose bit-packing is vendor-defined and therefore not portably
+/// decodable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriverProperties {
+    /// Which ICD this is — `DRIVER_ID_MESA_RADV`,
+    /// `DRIVER_ID_AMD_PROPRIETARY`, `DRIVER_ID_NVIDIA_PROPRIETARY`,
+    /// `DRIVER_ID_MESA_LLVMPIPE`, … Two ICDs driving the *same* hardware
+    /// are distinct here, which is what makes this the right axis for
+    /// gating a driver-specific workaround.
+    pub driver_id: VkDriverId,
+    /// Vendor's name for the driver, e.g. `"radv"`, `"NVIDIA"`.
+    pub driver_name: String,
+    /// Free-form version detail, e.g. `"Mesa 24.1.2"`. Together with
+    /// [`driver_id`](Self::driver_id) this forms a stable, legible
+    /// shader-cache key.
+    pub driver_info: String,
+    /// The Vulkan CTS version the driver claims conformance to. All-zero
+    /// on a driver that makes no claim.
+    pub conformance_version: ConformanceVersion,
+}
+
+/// A Vulkan CTS conformance version, `major.minor.subminor.patch`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct ConformanceVersion {
+    pub major: u8,
+    pub minor: u8,
+    pub subminor: u8,
+    pub patch: u8,
+}
+
+impl std::fmt::Display for ConformanceVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}.{}.{}.{}",
+            self.major, self.minor, self.subminor, self.patch
+        )
+    }
 }
 
 /// A Vulkan physical device group: a set of one or more physical devices

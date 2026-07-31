@@ -200,6 +200,15 @@ pub(crate) struct InstanceInner {
     pub(crate) library: VulkanLibrary,
     pub(crate) handle: VkInstance,
     pub(crate) dispatch: VkInstanceDispatchTable,
+    /// The `VkApplicationInfo::apiVersion` this instance was created
+    /// with. An implementation must behave as *that* version regardless
+    /// of what the physical device supports, so a 1.0 instance will not
+    /// populate 1.1+ `pNext` property structs even on a 1.3 device.
+    /// Property queries must therefore gate on
+    /// `min(instance_version, device_version)`, never on the device
+    /// version alone — see
+    /// [`PhysicalDevice::effective_api_version`](super::PhysicalDevice::effective_api_version).
+    pub(crate) api_version: ApiVersion,
     /// `VkDebugUtilsMessengerEXT` handle, if a debug callback was registered.
     /// Stored as `u64` because `VkDebugUtilsMessengerEXT` is a non-dispatchable
     /// handle (`u64`).
@@ -517,6 +526,7 @@ impl Instance {
                 library,
                 handle,
                 dispatch,
+                api_version: info.api_version,
                 debug_messenger,
                 debug_callback_box,
             }),

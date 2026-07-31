@@ -14,7 +14,7 @@ use vulkane::safe::{
     MemoryPropertyFlags, PipelineCache, PipelineLayout, PipelineStage, PipelineStage2,
     PipelineStatisticsFlags, PoolCreateInfo, PushConstantRange, QueryPool, QueueCreateInfo,
     QueueFlags, Semaphore, SemaphoreKind, ShaderModule, ShaderStageFlags, SignalSemaphore,
-    SpecializationConstants, WaitSemaphore,
+    SpecializationConstants, SubgroupFeatureFlags, WaitSemaphore,
 };
 
 #[test]
@@ -2299,16 +2299,227 @@ fn test_device_identity_query_succeeds_or_skips() {
     }
 }
 
-// NOTE: We do not have a runtime test for
-// PhysicalDevice::cooperative_matrix_properties() because calling
-// vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR without the
-// VK_KHR_cooperative_matrix instance extension enabled is undefined
-// behaviour on some implementations (notably Mesa Lavapipe, which is
-// what our Linux CI uses). Until the safe wrapper supports a way to
-// track which instance extensions were actually enabled, the API
-// surface remains untested at runtime — but the wrapper itself
-// compiles and the host-side checks (function-pointer presence,
-// VkResult::SUCCESS guard) are in place.
+// `cooperative_matrix_properties()` used to be untestable at runtime:
+// it was an `unsafe fn` whose contract required the caller to have
+// enabled VK_KHR_cooperative_matrix, and calling the loader's stub
+// without it is undefined behaviour on some implementations (notably
+// Mesa Lavapipe, which is what our Linux CI uses). It now gates on the
+// device's own extension advertisement before touching the dispatch
+// entry, so calling it on ANY device — Lavapipe included — is defined
+// and returns an empty Vec when unsupported. That is precisely what
+// this test asserts, and it is the reason the test can exist at all.
+#[test]
+fn test_cooperative_matrix_properties_safe_without_extension() {
+    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    // No instance/device extension was enabled by try_init_compute, so on
+    // a device that does not advertise VK_KHR_cooperative_matrix this must
+    // return empty rather than crash. On a device that does advertise it,
+    // every reported shape must be non-degenerate.
+    let shapes = physical.cooperative_matrix_properties();
+    let advertises = physical
+        .enumerate_extension_properties()
+        .map(|e| e.iter().any(|x| x.name() == "VK_KHR_cooperative_matrix"))
+        .unwrap_or(false);
+    if !advertises {
+        assert!(
+            shapes.is_empty(),
+            "device does not advertise VK_KHR_cooperative_matrix but \
+             {} shapes were reported",
+            shapes.len()
+        );
+        eprintln!("cooperative matrix: not advertised — honest empty Vec");
+        return;
+    }
+    for s in &shapes {
+        assert!(
+            s.m_size() > 0 && s.n_size() > 0 && s.k_size() > 0,
+            "degenerate cooperative-matrix shape {}x{}x{}",
+            s.m_size(),
+            s.n_size(),
+            s.k_size()
+        );
+    }
+    println!("cooperative matrix: {} shapes reported", shapes.len());
+}
+
+/// An instance created at `version`, plus its first physical device.
+///
+/// The shared `try_init_compute()` helper builds a **1.0** instance
+/// (`InstanceCreateInfo::default()`), and a 1.0 implementation must
+/// behave as 1.0 — it leaves 1.1+ `pNext` property structs untouched
+/// even on a 1.3 device. Queries for those structs therefore need an
+/// instance created at the matching version to be exercised at all.
+fn try_init_at(version: ApiVersion) -> Option<(Instance, vulkane::safe::PhysicalDevice)> {
+    let instance = Instance::new(InstanceCreateInfo {
+        api_version: version,
+        ..Default::default()
+    })
+    .ok()?;
+    let physical = instance
+        .enumerate_physical_devices()
+        .ok()?
+        .into_iter()
+        .next()?;
+    Some((instance, physical))
+}
+
+/// On a 1.0 instance the two version-gated queries must behave
+/// *differently*, and the difference is the whole point of the
+/// `effective_api_version` gate:
+///
+/// - `VkPhysicalDeviceSubgroupProperties` is Vulkan 1.1 **core with no
+///   extension form**. A 1.0 implementation leaves it untouched, so the
+///   query must decline. Before the gate existed it keyed off the
+///   *device* version and returned `Some(subgroup_size: 0)` here — a
+///   zeroed struct dressed as an answer.
+/// - `VkPhysicalDeviceDriverProperties` is 1.2 core **but also a device
+///   extension** (`VK_KHR_driver_properties`), which a device may
+///   advertise and honor under a 1.0 instance. So it may legitimately
+///   succeed — exactly when the extension is advertised.
+#[test]
+fn test_version_gated_queries_on_a_1_0_instance() {
+    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
+        eprintln!("SKIP: no Vulkan ICD");
+        return;
+    };
+    let eff = physical.effective_api_version();
+    assert_eq!(
+        (eff.major(), eff.minor()),
+        (1, 0),
+        "try_init_compute builds a 1.0 instance, so the effective version must be 1.0 \
+         however new the device is (device reports {}.{})",
+        physical.properties().api_version().major(),
+        physical.properties().api_version().minor(),
+    );
+
+    // 1.1-core-only: must decline, whatever the device claims to support.
+    assert!(
+        physical.subgroup_properties().is_none(),
+        "subgroup_properties has no extension form, so it must decline on a \
+         1.0 instance rather than report an untouched struct"
+    );
+
+    // Core-or-extension: MAY succeed here if the device both advertises
+    // the extension and actually honors it under a 1.0 instance. Some
+    // drivers advertise it and still decline to fill the struct (the AMD
+    // proprietary driver does exactly that), which the query detects and
+    // reports as `None`. Either outcome is correct; what must never
+    // happen is a `Some` carrying an unpopulated struct.
+    if let Some(dp) = physical.driver_properties() {
+        assert!(
+            !dp.driver_name.is_empty(),
+            "driver_properties returned Some with an empty name — that is the \
+             untouched-struct reading the query is supposed to decline"
+        );
+        assert!(
+            physical
+                .enumerate_extension_properties()
+                .map(|e| e.iter().any(|x| x.name() == "VK_KHR_driver_properties"))
+                .unwrap_or(false),
+            "driver_properties answered on a 1.0 instance without the device \
+             advertising VK_KHR_driver_properties"
+        );
+    }
+}
+
+#[test]
+fn test_subgroup_properties_query_succeeds_or_skips() {
+    let Some((_inst, physical)) = try_init_at(ApiVersion::V1_1) else {
+        eprintln!("SKIP: no Vulkan ICD, or no 1.1-capable loader");
+        return;
+    };
+    let Some(sg) = physical.subgroup_properties() else {
+        eprintln!("SKIP: device is below Vulkan 1.1 or props2 unavailable");
+        return;
+    };
+    // Vulkan requires a subgroup size of at least 1 and, in practice, a
+    // power of two. A zero here would mean we read an untouched struct —
+    // the exact dishonesty the 1.1 version gate exists to prevent.
+    assert!(
+        sg.subgroup_size > 0,
+        "subgroup_size must be non-zero on a 1.1+ device"
+    );
+    assert!(
+        sg.subgroup_size.is_power_of_two(),
+        "subgroup_size {} is not a power of two",
+        sg.subgroup_size
+    );
+    // BASIC is mandatory for every Vulkan 1.1 implementation.
+    assert!(
+        sg.supported_operations
+            .contains(SubgroupFeatureFlags::BASIC),
+        "BASIC subgroup ops are mandatory in Vulkan 1.1"
+    );
+    // Compute must support subgroup ops.
+    assert!(
+        sg.supported_stages.contains(ShaderStageFlags::COMPUTE),
+        "compute stage must support subgroup operations"
+    );
+
+    println!(
+        "subgroup_size={} arithmetic={} shuffle_relative={} size_control={:?}",
+        sg.subgroup_size,
+        sg.supported_operations
+            .contains(SubgroupFeatureFlags::ARITHMETIC),
+        sg.supported_operations
+            .contains(SubgroupFeatureFlags::SHUFFLE_RELATIVE),
+        sg.size_control,
+    );
+
+    if let Some(sc) = sg.size_control {
+        assert!(
+            sc.min_subgroup_size > 0 && sc.max_subgroup_size >= sc.min_subgroup_size,
+            "nonsensical subgroup size range {}..={}",
+            sc.min_subgroup_size,
+            sc.max_subgroup_size
+        );
+        assert!(
+            sc.min_subgroup_size.is_power_of_two() && sc.max_subgroup_size.is_power_of_two(),
+            "subgroup size bounds must be powers of two"
+        );
+        // The device's own default width must itself be pinnable-range
+        // valid — this is the invariant a caller relies on when choosing
+        // a required_subgroup_size.
+        assert!(
+            sc.permits(sc.min_subgroup_size) && sc.permits(sc.max_subgroup_size),
+            "permits() rejects the device's own reported bounds"
+        );
+        // Non-power-of-two and out-of-range values must be rejected.
+        assert!(!sc.permits(sc.max_subgroup_size * 2));
+        assert!(!sc.permits(3));
+    }
+}
+
+#[test]
+fn test_driver_properties_query_succeeds_or_skips() {
+    let Some((_inst, physical)) = try_init_at(ApiVersion::V1_2) else {
+        eprintln!("SKIP: no Vulkan ICD, or no 1.2-capable loader");
+        return;
+    };
+    let Some(dp) = physical.driver_properties() else {
+        eprintln!("SKIP: device below Vulkan 1.2 without VK_KHR_driver_properties");
+        return;
+    };
+    // A conforming driver always names itself. driver_info may be empty
+    // in principle, so it is printed rather than asserted on.
+    assert!(
+        !dp.driver_name.is_empty(),
+        "a driver that reports driver_properties must name itself"
+    );
+    println!(
+        "driver_id={:?} name={:?} info={:?} conformance={}",
+        dp.driver_id, dp.driver_name, dp.driver_info, dp.conformance_version,
+    );
+    // Display must round-trip the four components in order.
+    let cv = dp.conformance_version;
+    assert_eq!(
+        cv.to_string(),
+        format!("{}.{}.{}.{}", cv.major, cv.minor, cv.subminor, cv.patch)
+    );
+}
 
 // ---------------------------------------------------------------------------
 // DeviceFeatures + features-enabled tests
