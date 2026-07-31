@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-07-31
+
+Additive: a new optional feature and one new query. Nothing existing changes behaviour.
+
+The `vulkan:` namespace of KISS-Classify §6.8 was registered to this crate on 2026-07-31
+([KISS #120](https://github.com/ThinkersJournal/KISS/pull/120)), with the vocabulary pinned in
+`spec/namespaces/vulkan.md` there. This release ships the two halves that implement it.
+
 ### Added — KISS `vulkan:` target_capability derivation (`kiss-target` feature)
 
 - **New sibling crate [`kiss-vulkan-vocab`](kiss-vulkan-vocab/)** — the `vulkan:` capability-set vocabulary for KISS-Classify §6.8 `target_capability` tokens: canonical spelling, parsing, and byte-exact comparison. **Zero dependencies and no Vulkan linkage**, because KISS-CLASSIFY-6.9-0003 forbids producing or parsing a token from loading a compute driver — a conformance implementation must manage with its standard library alone. That constraint is enforced structurally by [`tests/zero_dependency.rs`](kiss-vulkan-vocab/tests/zero_dependency.rs), which reads the manifest and fails the build if a dependency table is ever non-empty, rather than by a comment nobody checks.

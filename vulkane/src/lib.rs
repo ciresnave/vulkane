@@ -11,8 +11,41 @@
 //!
 //! ```toml
 //! [dependencies]
-//! vulkane = { version = "0.9", features = ["fetch-spec"] }
+//! vulkane = { version = "0.10", features = ["fetch-spec"] }
 //! ```
+//!
+//! # What's new in 0.10
+//!
+//! - **Compilation-target capability queries** — everything needed to
+//!   describe *what a device specializes a compute kernel for*:
+//!   [`subgroup_properties`](safe::PhysicalDevice::subgroup_properties)
+//!   (wave/warp width, op classes, and the pinnable size range that
+//!   [`required_subgroup_size`](safe::ComputePipelineOptions#structfield.required_subgroup_size)
+//!   must fall within),
+//!   [`driver_properties`](safe::PhysicalDevice::driver_properties)
+//!   (which ICD, portably — the raw `driver_version` `u32` is
+//!   vendor-packed and can only be compared for equality),
+//!   [`shader_arithmetic_features`](safe::PhysicalDevice::shader_arithmetic_features),
+//!   and
+//!   [`effective_api_version`](safe::PhysicalDevice::effective_api_version).
+//! - **`cooperative_matrix_properties` is now safe** — it gates on the
+//!   device's own extension advertisement, so the loader's crash-prone
+//!   stub is never reached. Callers who wrapped it in `unsafe { .. }`
+//!   should drop the block (it now warns), but keep any flag that also
+//!   gates device creation.
+//! - **KISS `vulkan:` target tokens** (optional `kiss-target` feature) —
+//!   `kiss::DeviceCapabilities` derives KISS-Classify §6.8
+//!   `target_capability` tokens from a live device. Vulkane maintains
+//!   that namespace; the vocabulary itself lives in the dependency-free
+//!   [`kiss-vulkan-vocab`](https://docs.rs/kiss-vulkan-vocab) crate.
+//!
+//! Watch the instance version: these queries gate on
+//! `min(instance, device)`, and
+//! [`InstanceCreateInfo::api_version`](safe::InstanceCreateInfo#structfield.api_version)
+//! defaults to 1.0 — an implementation must behave as the version the
+//! *instance* requested, so a 1.0 instance leaves 1.1+ property structs
+//! untouched even on a 1.3 device. They return an honest `None` rather
+//! than a zeroed reading.
 //!
 //! # What's new in 0.8
 //!
@@ -145,7 +178,10 @@
 //! | `build-support` (default) | XML parsing and code generation during build |
 //! | `fetch-spec` | Auto-download vk.xml from the Khronos GitHub repository |
 //! | `naga` | `compile_glsl` + `compile_wgsl` for runtime GLSL/WGSL → SPIR-V |
+//! | `shaderc` | GLSL/HLSL → SPIR-V via shaderc (glslang) |
+//! | `slang` | Slang → SPIR-V |
 //! | `derive` | `#[derive(Vertex)]` for automatic vertex input layout generation |
+//! | `kiss-target` | `vulkane::kiss` — derive KISS-Classify §6.8 `vulkan:` target tokens from a device |
 //!
 //! # Providing vk.xml
 //!
