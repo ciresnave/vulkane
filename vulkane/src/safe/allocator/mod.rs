@@ -89,14 +89,35 @@ pub enum AllocationUsage {
     /// `DeviceLocal` on discrete GPUs.
     #[default]
     Auto,
-    /// `DEVICE_LOCAL`. Fastest GPU access; not directly mappable on
+    /// Prefer `DEVICE_LOCAL`. Fastest GPU access; not directly mappable on
     /// discrete GPUs.
+    ///
+    /// This is a preference, not a guarantee: if the resource's
+    /// `memoryTypeBits` admits no device-local type, the allocation
+    /// succeeds on whatever type is available rather than failing — which
+    /// makes it indistinguishable from [`Auto`](Self::Auto) in that case.
+    /// Check [`Allocation::memory_type_index`] against
+    /// [`PhysicalDevice::memory_properties`] if you need to know what you
+    /// actually got.
     DeviceLocal,
-    /// `HOST_VISIBLE | HOST_COHERENT`. Mappable from the host; suitable
-    /// for staging buffers and persistent uploads.
+    /// `HOST_VISIBLE | HOST_COHERENT`, preferring a type that is *not*
+    /// `DEVICE_LOCAL`. Mappable from the host; suitable for staging
+    /// buffers and persistent uploads.
+    ///
+    /// The device-local avoidance keeps staging out of the PCIe BAR
+    /// window, whose exhaustion surfaces as a driver-level failure rather
+    /// than a catchable `VK_ERROR_OUT_OF_DEVICE_MEMORY`. It falls back to
+    /// a device-local host-visible type when the device offers no other —
+    /// on UMA parts there is nothing else to pick.
+    ///
+    /// Note this never requests `HOST_CACHED`, so CPU *reads* from the
+    /// result are uncached. For a readback pool, pin the memory type
+    /// explicitly with [`PhysicalDevice::find_memory_type`] and
+    /// [`Allocator::create_pool`], which bypasses usage-based selection.
     HostVisible,
     /// `HOST_VISIBLE | HOST_COHERENT | DEVICE_LOCAL` (BAR / ReBAR /
-    /// integrated GPUs). Falls back to `HostVisible` when not available.
+    /// integrated GPUs) — the deliberate way to ask for BAR memory. Falls
+    /// back to `HostVisible` when not available.
     HostVisibleDeviceLocal,
 }
 
