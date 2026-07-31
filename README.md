@@ -84,7 +84,7 @@ Vulkane exposes Vulkan through two complementary APIs:
 
 ```toml
 [dependencies]
-vulkane = { version = "0.8", features = ["fetch-spec"] }
+vulkane = { version = "0.9", features = ["fetch-spec"] }
 ```
 
 ```rust

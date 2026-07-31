@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-07-30
+
+Minor bump rather than a patch because `cooperative_matrix_properties` loses its `unsafe`
+qualifier. The change only *loosens* a caller's obligations and is semver-compatible, but it
+alters a public function signature, and callers who wrapped the call in `unsafe { .. }` will
+newly see `unused_unsafe` — which fails a build using `-D warnings`. See the migration note
+below.
+
 ### Added — compilation-target capability queries
 
 These three fill the inputs a caller needs to describe *what a Vulkan device specializes a compute kernel for*. They are the Vulkan-side raw material for the `vulkan:` namespace of the KISS-Classify §6.8 `target_capability` descriptor, whose per-namespace vocabulary is owned by the namespace maintainer.
