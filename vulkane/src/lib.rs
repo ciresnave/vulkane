@@ -165,6 +165,12 @@ pub mod raw;
 // Safe RAII wrapper module
 pub mod safe;
 
+// KISS-Classify §6.8 `vulkan:` target_capability derivation. Behind the
+// `kiss-target` feature so callers who don't participate in the KISS seam
+// don't pull in the vocabulary crate.
+#[cfg(feature = "kiss-target")]
+pub mod kiss;
+
 // Re-export commonly used items at crate root for convenience
 pub use raw::bindings::*;
 

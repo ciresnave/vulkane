@@ -626,6 +626,62 @@ impl PhysicalDevice {
         })
     }
 
+    /// Query the shader arithmetic capabilities that gate reduced-precision
+    /// kernels — `shaderFloat16` / `shaderInt8`
+    /// (`VkPhysicalDeviceShaderFloat16Int8Features`, Vulkan 1.2 core) and the
+    /// 16-/8-bit storage-buffer access features (Vulkan 1.1 and 1.2 core
+    /// respectively).
+    ///
+    /// These decide whether a half-precision or quantized kernel can exist on
+    /// a device at all, which makes them a specialization axis rather than a
+    /// tuning knob: a kernel built against `shaderFloat16` is not merely
+    /// slower without it, it is invalid. Compute precision is a distinct
+    /// question from *storage* precision — a device can accept 16-bit data in
+    /// a storage buffer while doing the arithmetic in f32 — so the two are
+    /// reported separately rather than collapsed.
+    ///
+    /// Returns `None` when `vkGetPhysicalDeviceFeatures2` is unavailable, or
+    /// when the [`effective_api_version`](Self::effective_api_version) is
+    /// below 1.2 and the device advertises neither
+    /// `VK_KHR_shader_float16_int8` nor `VK_KHR_8bit_storage` — rather than
+    /// reporting an untouched all-`false` struct as though the driver had
+    /// answered. As elsewhere, a 1.0-created [`Instance`](super::Instance)
+    /// declines regardless of the device.
+    pub fn shader_arithmetic_features(&self) -> Option<ShaderArithmeticFeatures> {
+        let get2 = self.instance.dispatch.vkGetPhysicalDeviceFeatures2?;
+
+        let api = self.effective_api_version();
+        let core_1_2 = api.major() > 1 || api.minor() >= 2;
+        let exts = self.enumerate_extension_properties().unwrap_or_default();
+        let has = |name: &str| exts.iter().any(|e| e.name() == name);
+        if !core_1_2 && !has("VK_KHR_shader_float16_int8") && !has("VK_KHR_8bit_storage") {
+            return None;
+        }
+
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkPhysicalDeviceShaderFloat16Int8Features::new_pnext());
+        chain.push(VkPhysicalDevice16BitStorageFeatures::new_pnext());
+        chain.push(VkPhysicalDevice8BitStorageFeatures::new_pnext());
+        let mut features2 = VkPhysicalDeviceFeatures2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            pNext: chain.head_mut(),
+            ..Default::default()
+        };
+        // Safety: handle valid; features2 + chain live for the call.
+        unsafe { get2(self.handle, &mut features2) };
+
+        let f16i8 = chain.get::<VkPhysicalDeviceShaderFloat16Int8Features>()?;
+        let s16 = chain.get::<VkPhysicalDevice16BitStorageFeatures>();
+        let s8 = chain.get::<VkPhysicalDevice8BitStorageFeatures>();
+
+        Some(ShaderArithmeticFeatures {
+            shader_float16: f16i8.shaderFloat16 != 0,
+            shader_int8: f16i8.shaderInt8 != 0,
+            storage_buffer_16bit: s16.is_some_and(|s| s.storageBuffer16BitAccess != 0),
+            storage_buffer_8bit: s8.is_some_and(|s| s.storageBuffer8BitAccess != 0),
+        })
+    }
+
     /// Query shader integer-dot-product acceleration properties
     /// (`VK_KHR_shader_integer_dot_product`, core in Vulkan 1.3).
     ///
@@ -1190,6 +1246,25 @@ impl SubgroupSizeControl {
                 .required_subgroup_size_stages
                 .contains(super::ShaderStageFlags::COMPUTE)
     }
+}
+
+/// Shader arithmetic capabilities that gate reduced-precision kernels.
+///
+/// Returned by [`PhysicalDevice::shader_arithmetic_features`]. Compute
+/// precision and storage precision are separate questions and are reported
+/// separately: a device may accept 16-bit data in a storage buffer while
+/// performing the arithmetic itself in f32.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShaderArithmeticFeatures {
+    /// `shaderFloat16` — half-precision *arithmetic* in shaders.
+    pub shader_float16: bool,
+    /// `shaderInt8` — 8-bit integer *arithmetic* in shaders.
+    pub shader_int8: bool,
+    /// `storageBuffer16BitAccess` — 16-bit types readable/writable in storage
+    /// buffers, independent of whether arithmetic on them is supported.
+    pub storage_buffer_16bit: bool,
+    /// `storageBuffer8BitAccess` — likewise for 8-bit types.
+    pub storage_buffer_8bit: bool,
 }
 
 /// Driver identity — which ICD is behind this physical device, and what

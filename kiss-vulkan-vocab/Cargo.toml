@@ -1,0 +1,26 @@
+[package]
+name = "kiss-vulkan-vocab"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Eric Evans <CireSnave@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "The `vulkan:` capability-set vocabulary for KISS-Classify §6.8 `target_capability` tokens: canonical spelling, parsing, and byte-exact comparison. Zero dependencies and no Vulkan linkage, per KISS-CLASSIFY-6.9-0003 — deriving a token from a live device lives in the `vulkane` crate instead."
+keywords = ["kiss", "vulkan", "kernel", "specialization", "vocabulary"]
+categories = ["encoding", "api-bindings", "no-std"]
+readme = "README.md"
+repository = "https://github.com/ciresnave/vulkane"
+homepage = "https://github.com/ciresnave/vulkane"
+documentation = "https://docs.rs/kiss-vulkan-vocab"
+
+# INTENTIONALLY EMPTY, AND ENFORCED BY A TEST.
+#
+# KISS-CLASSIFY-6.9-0003 requires that producing, serializing, or parsing a
+# target_capability token need no compute driver, kernel runtime, GPU library,
+# or backend dynamic library — an implementation must manage with its
+# language's standard library alone. A dependency here would breach that for
+# every downstream conformance implementation, so `tests/zero_dependency.rs`
+# fails the build if this table ever gains an entry.
+[dependencies]
+
+[dev-dependencies]

@@ -17,6 +17,11 @@ documentation = "https://docs.rs/vulkane"
 default = ["build-support"]
 # Build support for XML parsing and code generation during build
 build-support = []
+# Derive KISS-Classify 6.8 `vulkan:` target_capability tokens from a live
+# device (`vulkane::kiss`). Pulls in the dependency-free kiss-vulkan-vocab
+# crate; off by default so callers who don't participate in the KISS seam
+# pay nothing for it.
+kiss-target = ["dep:kiss-vulkan-vocab"]
 # Enable automatic download of vk.xml from the Khronos GitHub repository
 # when no local copy is found. Requires network access during build.
 fetch-spec = []
@@ -41,6 +46,10 @@ derive = ["dep:vulkane_derive"]
 [dependencies]
 # Dynamic loading of the Vulkan runtime library
 libloading = { workspace = true }
+# Optional: the `vulkan:` KISS-Classify §6.8 capability-set vocabulary, for
+# `vulkane::kiss`. Itself dependency-free and Vulkan-free by construction
+# (KISS-CLASSIFY-6.9-0003) — this crate supplies the device half.
+kiss-vulkan-vocab = { version = "0.1.0", path = "../kiss-vulkan-vocab", optional = true }
 # Optional: GLSL/WGSL -> SPIR-V compilation via Naga (the wgpu shader translator).
 # Pulls in glsl-in, wgsl-in and spv-out features only — no other backends.
 naga = { version = "29", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }

@@ -3,6 +3,7 @@
     "vulkane",
     "vulkane_derive",
     "vulkan_gen",
+    "kiss-vulkan-vocab",
   ]
   resolver = "2"
 

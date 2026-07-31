@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — KISS `vulkan:` target_capability derivation (`kiss-target` feature)
+
+- **New sibling crate [`kiss-vulkan-vocab`](kiss-vulkan-vocab/)** — the `vulkan:` capability-set vocabulary for KISS-Classify §6.8 `target_capability` tokens: canonical spelling, parsing, and byte-exact comparison. **Zero dependencies and no Vulkan linkage**, because KISS-CLASSIFY-6.9-0003 forbids producing or parsing a token from loading a compute driver — a conformance implementation must manage with its standard library alone. That constraint is enforced structurally by [`tests/zero_dependency.rs`](kiss-vulkan-vocab/tests/zero_dependency.rs), which reads the manifest and fails the build if a dependency table is ever non-empty, rather than by a comment nobody checks.
+
+  Token grammar: `vulkan:<subgroup>.<ops>.<arith>.<coop>` — four fixed-position fields separated by `.`, parts within a field by `-`. Every set is canonically sorted and every field always present, so two independent implementations spelling the same target produce identical bytes, which §6.8-0002 requires (it permits no matching tolerance whatsoever). Legal-but-non-canonical spellings are **rejected rather than normalized**: under byte-exact matching, accepting two spellings of one target would let them silently fail to match each other. Long cooperative-matrix shape lists fall back to an `fnv1a64.<hex>` digest, triggered strictly by encoded length (`COOP_DIGEST_THRESHOLD`) and never by implementation preference — a preference-driven switch would let two honest derivers emit different tokens for the same target.
+
+- **`PhysicalDevice::shader_arithmetic_features() -> Option<ShaderArithmeticFeatures>`** — `shaderFloat16` / `shaderInt8` (Vulkan 1.2 core) plus the 16-/8-bit storage-buffer access features, via `vkGetPhysicalDeviceFeatures2`. These gate whether a half-precision or quantized kernel can exist on a device at all, making them a specialization axis rather than a tuning knob. Compute precision and *storage* precision are reported separately — a device may accept 16-bit data in a storage buffer while doing the arithmetic in f32. Gated on `effective_api_version()` with the same honest-`None` discipline as the other property queries. New public type `safe::ShaderArithmeticFeatures`.
+
+- **`vulkane::kiss` module** (behind the new optional `kiss-target` feature, off by default) — derives `vulkan:` tokens from a live `VkPhysicalDevice`. The API is deliberately **not** `device -> token`: a `target_capability` names the specialization a kernel was *built for*, not the device's capability envelope, so on a device with a 32..=64 pinnable range a wave32-pinned and a wave64-pinned kernel are different cells and an envelope-shaped token would collide them. Instead `DeviceCapabilities::of()` reads the envelope, `admissible_subgroups()` enumerates the choice axis, `target_for()` spells one concrete token per choice, and `admits()` answers the capability question — kept separate from token matching, since §6.8-0002 forbids a consumer from applying subset or implication logic when matching.
+
+  Verified on live hardware: an AMD Radeon 610M yields three distinct tokens (`sgdyn`, `sg32`, `sg64`) from one device — the "a device admits a *set* of tokens" property demonstrated rather than asserted — with derivation proven deterministic across repeated reads, since driver-reported cooperative-matrix order is not guaranteed stable and an unsorted list would produce a token that differs run to run.
+
 ## [0.9.0] — 2026-07-30
 
 Minor bump rather than a patch because `cooperative_matrix_properties` loses its `unsafe`

@@ -677,6 +677,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kiss-vulkan-vocab"
+version = "0.1.0"
+
+[[package]]
 name = "libc"
 version = "0.2.184"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1832,6 +1836,7 @@ dependencies = [
 name = "vulkane"
 version = "0.9.0"
 dependencies = [
+ "kiss-vulkan-vocab",
  "libloading 0.9.0",
  "naga",
  "raw-window-handle",
