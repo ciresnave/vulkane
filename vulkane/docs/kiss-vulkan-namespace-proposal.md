@@ -241,12 +241,28 @@ many type combinations could plausibly report several times as many; at ~22 byte
 (b) is not a theoretical hedge — it is the branch that a large device will actually need. We
 would like the escape-hatch trigger specified up front rather than discovered later.
 
-**Q3a (for the steward) — pin the enumerate→hash switch as one bundle, KISS-wide.** If (b) is
-adopted as the escape hatch, three things must be pinned together, and kiss-ref identified that
-**the trigger is itself an interop hazard, not merely an ergonomics choice**: two honest
-derivers on the same large device straddling a fuzzy threshold would emit different tokens —
-one enumerating, one hashing — and fail the very byte-exact gate this proposal is built to
-satisfy. The bundle:
+**Q3a — RULED (steward, 2026-07-31): pin the hash once at KISS level, not per-namespace.**
+FNV-1a, 64-bit, offset-basis and prime pinned as spec literals, computed over the canonical
+enumeration byte-serialization, emitted as fixed-width lowercase hex with byte order pinned.
+Stdlib-trivial, so §6.9-0003 holds; derivers are non-adversarial, so accidental-collision
+resistance is the only requirement and no SHA is needed. The digest carries an
+algorithm-marker prefix so a future hash migration produces distinguishable rather than
+silently colliding tokens, and the full-vs-digest choice is **length-triggered, never a
+deriver preference**. The reasoning below is retained because it is what the ruling settles.
+
+> **Defect found in the ruling as spelled — the marker prefix must not use a colon.** The
+> steward's example marker was `fnv1a64:`, which would make a digest-form token
+> `vulkan:<fields>.fnv1a64:<hex>` — **two** colons. §6.8-0001 requires *exactly one* and states
+> that a reader MUST reject a token with "zero or more than one `:`" via typed decline, so the
+> digest branch would be unusable by every conforming reader, and unusable specifically in the
+> large-device case that is hardest to test. The intent is right and worth keeping — a marker
+> that keeps retired and current digests distinguishable is §3.3's burn-the-retired-ID
+> discipline applied to the hash primitive. It needs only a non-colon delimiter: `fnv1a64-` or
+> `fnv1a64.` both satisfy §6.8-0005's charset. Raised with the steward 2026-07-31; the
+> delimiter should be chosen to match Q3b's intra-field separator so the capability-set has one
+> delimiter discipline rather than two.
+
+The bundle the ruling pins, stated for implementers:
 
 1. **The trigger** — a deterministic length test on the *encoded* field, e.g. "if the canonical
    enumeration string exceeds N bytes, hash instead." Not a tuple count, not an
@@ -261,6 +277,47 @@ satisfy. The bundle:
 Our ask: pin all three **once, for all namespaces**, rather than letting each namespace
 maintainer choose. Divergent per-namespace hashes or thresholds are exactly the kind of thing
 that is invisible until two implementations meet.
+
+**Q3b — pin the intra-field separator, and pin unique-decodability as a standing §6.1
+constraint.** Our strawman writes a component-type tuple by juxtaposition
+(`f16f16f32f32`), which is only safe if the §6.1 dtype tokens are uniquely decodable under
+concatenation. We checked rather than assumed, and the result argues against juxtaposition
+more strongly than we expected:
+
+- The 22-token set is **not prefix-free**. There are two violations today:
+  `e4m3fn` is a prefix of `e4m3fnuz`, and `e5m2` is a prefix of `e5m2fnuz`.
+- It nonetheless **is** uniquely decodable — Sardinas–Patterson terminates with no dangling
+  suffix that is itself a codeword, and an exhaustive check finds zero ambiguous 2-tuples.
+
+So juxtaposition happens to work today, but it rests on the *global* unique-decodability
+property (which requires Sardinas–Patterson to verify) rather than the *local*, eyeball-checkable
+prefix property — and the set already violates the easy property, which means nobody is
+maintaining even the informal version of this invariant. The §6.1 token set is documented as
+growing ("when the spec changes, this binding follows"), and the only property §6.1 currently
+pins over its tokens is **distinctness**, which is strictly weaker than unique decodability
+(`{a, ab, b}` are distinct yet `ab` parses two ways).
+
+The failure is one token away and non-local: adding `uz` to the set would immediately give
+`e4m3fnuz` two parses (`e4m3fnuz` and `e4m3fn` + `uz`), silently mis-parsing every juxtaposed
+tuple that contains it. A reviewer approving a new dtype has no reason to run a decodability
+check, because nothing says they must.
+
+Two things to pin together, in the same room:
+
+1. **An explicit intra-tuple separator**, chosen as a character that can appear in neither a
+   dtype token nor a dimension digit, so escaping is never needed. This makes tuple parsing
+   independent of how §6.1 evolves. The length cost is trivial — about 6% on the measured
+   248-byte field.
+2. **Unique decodability as an explicit standing constraint on §6.1's growth**, so it becomes a
+   reviewable rule rather than an accident. Even with (1) in place this is worth stating, since
+   other encodings may lean on it.
+
+We are deliberately *not* minting a separator ourselves. kiss-ref confirmed (2026-07-31) that
+the reference implementation does not yet implement the §6.7 structure-key codec —
+`kiss-classify-vocab` is the §6.1 dtype vocabulary only — so there is no existing `cuda`-side
+intra-field convention to inherit, and inventing one per-namespace is precisely the divergence
+this proposal exists to prevent. The separator is a §6.7 codec decision and belongs to the
+steward, pinned once for every namespace.
 
 **Q4 — Is an API-version floor wanted in the token at all?** We argue no (§3), but if
 consumers want a coarse "at least Vulkan 1.3" signal we would rather put it in a fixed leading
