@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — allocator memory-type selection and failure-path cleanup
+
+Both issues surfaced from [Fuel](https://github.com/ciresnave/fuel)'s audit of a machine-level
+`VIDEO_MEMORY_MANAGEMENT_INTERNAL` bugcheck (subcode `0x2D`, `DdiMapCpuHostAperture failed`) on
+2026-07-31 — CPU host aperture / PCIe BAR exhaustion with ReBAR enabled. Neither is proven to
+have caused that crash, but both make host-mapping pressure worse rather than better.
+
+- **`AllocationUsage::HostVisible` no longer resolves to BAR memory when ordinary host-visible
+  memory exists.** `pick_memory_type` passed identical `required` and `preferred` flag masks for
+  this usage, which made `find_type`'s preference pass identical to its fallback pass — so
+  selection degenerated to "first matching type wins" and the documented distinction between
+  `HostVisible` and `HostVisibleDeviceLocal` was never enforced. Staging buffers could therefore
+  land in the PCIe BAR window, whose exhaustion surfaces as a driver-level failure rather than a
+  catchable `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+
+  Selection now *avoids* `DEVICE_LOCAL` for `HostVisible` as a preference, falling back when no
+  other host-visible type exists (UMA and fully-host-visible-VRAM layouts still work). Note this
+  is narrower than it may sound: the Vulkan spec already requires a memory type whose
+  `propertyFlags` are a strict subset of another's to be enumerated first, so on most layouts the
+  plain host type was already winning. The exposure is layouts where the flag sets are
+  *incomparable* — `HOST_VISIBLE | HOST_COHERENT | HOST_CACHED` versus
+  `DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT`, neither a subset of the other — because there the
+  spec imposes no ordering and a conforming driver may enumerate the BAR type first.
+
+- **`vkDeviceMemory` is no longer leaked when `vkMapMemory` or sub-allocation fails.** Three
+  allocation paths (default pool growth, custom pool growth, dedicated allocation) allocated a
+  block and then propagated a later failure with `?`, stranding the handle: nothing owned it, so
+  neither `Drop` nor `destroy_pool` could reclaim it. Blocks are 64 MiB, or 256 MiB on heaps
+  ≥ 4 GiB. The reachable trigger is the damaging one — `VK_ERROR_MEMORY_MAP_FAILED` is what a
+  driver reports when it cannot satisfy a host mapping, so the leak sat on the recovery path and
+  made each retry likelier to fail than the last. Two of those paths could also strand a *live
+  mapping*, holding host aperture rather than merely heap space.
+
+Selection is covered by unit tests over synthetic memory layouts (`pick_memory_type_in`), including
+the incomparable-flag-set case that no single machine exhibits. The leak fix is structural and
+verified by inspection — forcing `vkMapMemory` to fail would require a mock ICD.
+
 ## [0.10.0] — 2026-07-31
 
 Additive: a new optional feature and one new query. Nothing existing changes behaviour.
