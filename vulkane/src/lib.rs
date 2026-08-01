@@ -16,6 +16,14 @@
 //!
 //! # What's new in 0.10
 //!
+//! - **0.10.1 — allocator fixes.**
+//!   [`AllocationUsage::HostVisible`](safe::AllocationUsage#variant.HostVisible)
+//!   now prefers a host-visible memory type that is *not* `DEVICE_LOCAL`,
+//!   keeping staging buffers out of the PCIe BAR window; it still falls
+//!   back where a device offers nothing else. And a failed `vkMapMemory`
+//!   no longer strands the block it had just allocated — the leak sat on
+//!   the recovery path, so each retry made the next one likelier to fail.
+//!
 //! - **Compilation-target capability queries** — everything needed to
 //!   describe *what a device specializes a compute kernel for*:
 //!   [`subgroup_properties`](safe::PhysicalDevice::subgroup_properties)

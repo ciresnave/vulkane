@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-01
+
 ### Fixed — allocator memory-type selection and failure-path cleanup
 
 Both issues surfaced from [Fuel](https://github.com/ciresnave/fuel)'s audit of a machine-level
