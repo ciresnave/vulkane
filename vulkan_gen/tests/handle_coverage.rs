@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use vulkan_gen::codegen::generator_modules::safe_handles_gen::{
-    KNOWN_UNWRAPPABLE, generate_safe_handles,
+    HAND_WRITTEN, KNOWN_UNWRAPPABLE, generate_safe_handles,
 };
 
 /// The `vk.xml` the workspace pins, i.e. what a default build generates from.
@@ -72,6 +72,21 @@ fn every_handle_is_wrapped_hand_written_or_explicitly_excluded() {
         stats.generated > 0,
         "generator produced no wrappers at all — the assertion above would pass vacuously"
     );
+}
+
+/// The two exclusion lists must not overlap. A handle in both says two
+/// contradictory things — "it has a bespoke wrapper" and "its lifecycle can't
+/// be wrapped" — and `is_hand_written` is checked first, so the recorded
+/// reason would silently never apply.
+#[test]
+fn the_two_exclusion_lists_are_disjoint() {
+    for (handle, _) in KNOWN_UNWRAPPABLE {
+        assert!(
+            !HAND_WRITTEN.contains(handle),
+            "{handle} is in both HAND_WRITTEN and KNOWN_UNWRAPPABLE. Pick one: either it has a \
+             hand-written wrapper, or its lifecycle can't be expressed as create/destroy."
+        );
+    }
 }
 
 /// The exclusion list is only meaningful if each entry is still *needed*.

@@ -49,7 +49,11 @@ use crate::parser::vk_types::{CommandParam, VulkanCommand, VulkanType};
 /// Hand-written handle types that already have ergonomic `safe`
 /// wrappers. Generation for these is suppressed to avoid name clashes
 /// and to leave the existing ergonomic API unchallenged.
-const HAND_WRITTEN: &[&str] = &[
+///
+/// Public so it reads as the counterpart to [`KNOWN_UNWRAPPABLE`]: together
+/// with the auto-generated set these two account for every handle in the
+/// spec, and a caller checking that accounting needs to see both.
+pub const HAND_WRITTEN: &[&str] = &[
     "VkInstance",
     "VkPhysicalDevice",
     "VkDevice",
