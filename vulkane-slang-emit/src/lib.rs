@@ -183,7 +183,7 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
     }
     s.push_str(&format!("    output[i] = {root};\n"));
     s.push_str("}\n");
-    GeneratedKernel { name, source: s }
+    GeneratedKernel::new(name, s)
 }
 
 /// Does `e` read a runtime scalar [`ScalarExpr::Param`]? (v1 is parameterless.)
