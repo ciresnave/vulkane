@@ -89,11 +89,10 @@ pub struct VulkanTag {
 }
 
 impl VulkanTag {
-    /// Check if this tag is deprecated
-    pub fn is_deprecated(&self) -> bool {
-        // This would need to be implemented based on deprecation status
-        false
-    }
+    // Note: there is deliberately no `is_deprecated` here. `vk.xml` `<tag>`
+    // elements carry only `name`, `author` and `contact` — deprecation is a
+    // property of *extensions* (`deprecatedby`), never of vendor tags, so the
+    // question has no answer to return rather than an unimplemented one.
 
     /// Get the full tag identifier
     pub fn full_name(&self) -> String {

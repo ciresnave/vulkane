@@ -3,7 +3,7 @@
 //! This module handles the final assembly of all generated code fragments
 //! into a single, dependency-ordered bindings.rs file.
 
-use crate::codegen::logging::{log_info, log_warn};
+use crate::codegen::logging::log_info;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -101,9 +101,11 @@ pub enum AssemblerError {
 
     #[error("Code validation failed: {message}")]
     Validation { message: String },
-
-    #[error("Duplicate type definition: {type_name} defined in multiple modules")]
-    DuplicateType { type_name: String },
+    // Duplicate type definitions are detected upstream by
+    // `type_integration::check_data_consistency`, which reports them as a
+    // `TypeIntegrationError::DuplicateType` against the intermediate JSON.
+    // The assembler itself must tolerate duplicates — see the note on
+    // `CodeAssembler`.
 }
 
 /// Result type for assembler operations
@@ -199,14 +201,15 @@ impl CodeAssembler {
             if let Some(fragment) = self.fragments.get(module_name.as_str()) {
                 final_code.push_str(&format!("// === {} ===\n", module_name));
 
-                // Determine types defined in this fragment. Prefer explicit metadata,
-                // otherwise fallback to scanning the code for `pub struct/enum/type`.
-                let mut defined_names: Vec<String> = Vec::new();
-                if !fragment.metadata.defined_types.is_empty() {
-                    defined_names.extend(fragment.metadata.defined_types.clone());
-                } else {
-                    defined_names.extend(extract_defined_type_names(&fragment.code));
-                }
+                // Determine types defined in this fragment by scanning the code
+                // for `pub struct/enum/type`. This deliberately does *not* consult
+                // `fragment.metadata.defined_types`: dedup rewrites the emitted
+                // text, so it has to be driven by what was actually emitted rather
+                // than by a module's claim about itself. Those claims are partly
+                // hand-maintained (see `ExtensionGenerator::metadata`) and a name
+                // listed there but not emitted would mark the type as seen, causing
+                // a later fragment's real definition to be stripped.
+                let defined_names: Vec<String> = extract_defined_type_names(&fragment.code);
 
                 // Start with the raw fragment code and remove any duplicate type
                 // definitions that were already emitted earlier.
@@ -297,8 +300,19 @@ impl CodeAssembler {
         let mut temp_visited = HashSet::new();
         let mut result = Vec::new();
 
-        // Get all module names
-        let module_names: HashSet<String> = self.dependency_graph.keys().cloned().collect();
+        // Get all module names, sorted.
+        //
+        // A topological sort only constrains the order of modules that are
+        // actually related by a dependency edge; everything else is ordered by
+        // the seed iteration below. Seeding from a `HashSet` made that order
+        // vary per process, so consecutive builds of the same `vk.xml` emitted
+        // the fragments in different orders. Item order is semantically
+        // irrelevant in Rust, but the dedup pass in `assemble_final_bindings`
+        // keeps whichever definition it sees *first* and strips the rest — so
+        // a nondeterministic seed puts the emitted API one colliding pair away
+        // from varying between builds. Sorting makes generation reproducible.
+        let mut module_names: Vec<String> = self.dependency_graph.keys().cloned().collect();
+        module_names.sort();
 
         // Perform topological sort
         for module in &module_names {
@@ -353,37 +367,20 @@ impl CodeAssembler {
         Ok(())
     }
 
-    /// Validate the generated code for common issues
-    pub fn validate_generated_code(&self) -> AssemblerResult<()> {
-        let mut defined_types = HashMap::new();
-
-        // Check for duplicate type definitions
-        for (module_name, fragment) in &self.fragments {
-            for defined_type in &fragment.metadata.defined_types {
-                if let Some(_existing_module) =
-                    defined_types.insert(defined_type.clone(), module_name.clone())
-                {
-                    return Err(AssemblerError::DuplicateType {
-                        type_name: defined_type.clone(),
-                    });
-                }
-            }
-        }
-
-        // Check that all used types are defined
-        for (module_name, fragment) in &self.fragments {
-            for used_type in &fragment.metadata.used_types {
-                if !defined_types.contains_key(used_type) {
-                    log_warn(&format!(
-                        "Module {} uses undefined type: {}",
-                        module_name, used_type
-                    ));
-                }
-            }
-        }
-
-        Ok(())
-    }
+    // Note: there is deliberately no `validate_generated_code` here.
+    //
+    // Cross-fragment validation belongs upstream of assembly, not inside it.
+    // `type_integration::check_data_consistency` already runs over the
+    // intermediate JSON — the source of truth — before any code is generated,
+    // and *fails the build* on a duplicate definition or an undefined type
+    // reference (see `generate_rust_bindings`).
+    //
+    // A duplicate-type check at this layer would also be actively wrong:
+    // fragments legitimately redefine names that earlier fragments already
+    // emitted (aliases, extension-promoted types), which is exactly what the
+    // dedup pass in `assemble_final_bindings` exists to absorb — several
+    // hundred times in a full run. Rejecting those would fail the build on
+    // the normal case.
 }
 
 impl Default for CodeAssembler {

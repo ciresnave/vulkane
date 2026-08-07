@@ -50,32 +50,54 @@ pub trait GeneratorModule {
     /// Generate code from input files
     fn generate(&self, input_dir: &Path, output_dir: &Path) -> GeneratorResult<()>;
 
-    /// Get metadata about the generated code
-    /// Used by the assembler for dependency resolution
+    /// Self-reported metadata about the generated code.
+    ///
+    /// Informational only — see [`GeneratorMetadata`].
     fn metadata(&self) -> GeneratorMetadata {
         GeneratorMetadata::default()
     }
 
-    /// Collect metadata about defined and used types from input files
-    /// This is used for dependency resolution and validation
+    /// Self-reported metadata, derived from the module's input files rather
+    /// than hard-coded.
+    ///
+    /// Informational only — see [`GeneratorMetadata`].
     fn collect_metadata(&self, _input_dir: &Path) -> GeneratorResult<GeneratorMetadata> {
         Ok(self.metadata())
     }
 }
 
-/// Metadata about generated code
+/// Metadata a generator module reports about itself.
+///
+/// **This is informational, not load-bearing — do not build a correctness
+/// check on it.** Every field here is a module's *claim* about its own
+/// output, and several implementations hand-maintain those claims rather
+/// than deriving them, so they drift from the emitted code silently.
+///
+/// The two things that look like they might depend on it do not:
+///
+/// * **Generation order** comes from the topological sort over
+///   [`GeneratorModule::dependencies`] in `CodeAssembler::resolve_dependencies`.
+///   `priority` is not consulted.
+/// * **Duplicate/undefined type detection** runs upstream in
+///   `type_integration::check_data_consistency`, over the intermediate JSON,
+///   before any code is generated.
+///
+/// Likewise the dedup pass in `CodeAssembler::assemble_final_bindings` scans
+/// the emitted text rather than trusting `defined_types`. If you need to know
+/// what a module actually produced, read its output.
 #[derive(Debug, Clone, Default)]
 pub struct GeneratorMetadata {
-    /// Types defined by this module
+    /// Types this module claims to define
     pub defined_types: Vec<String>,
 
-    /// Types used but not defined by this module
+    /// Types this module claims to use but not define
     pub used_types: Vec<String>,
 
     /// Whether this module generates forward declarations
     pub has_forward_declarations: bool,
 
-    /// Priority for ordering (lower = generated first)
+    /// Advisory ordering hint. Not consulted — ordering comes from
+    /// [`GeneratorModule::dependencies`].
     pub priority: i32,
 }
 

@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-08-07
+
+Found by a sweep for unfinished work prompted by Fuel and Baracuda each turning up
+undocumented TODOs, one of which had caused several bugs before anyone spotted it. Grepping
+`TODO` in this repo is a false all-clear — the deferred work here is written as prose
+(`// … for now`), and that is where the vertex-format bug below was hiding.
+
+### Fixed — `#[derive(Vertex)]` gave signed-integer fields a float format
+
+`[i32; 3]` mapped to `Format::R32G32B32_SFLOAT` because no `R32G32B32_SINT` constant existed
+when the derive was written. Both formats are 12 bytes with identical vertex-buffer layout, so
+this compiled, passed the validation layers, and produced no error at any point — the GPU simply
+reinterpreted each integer's bit pattern as IEEE-754. A vertex attribute of `[-1, 0, 1]` reaches
+the shader as roughly `[-1e-45, 0.0, 1.4e-45]`.
+
+- `[i32; 3]` now maps to `R32G32B32_SINT`.
+- `[i32; 4]` is now supported, mapping to `R32G32B32A32_SINT`. It previously failed to compile.
+- `Format::R32G32B32_SINT` and `Format::R32G32B32A32_SINT` are new public constants, and both
+  are present in `Format::bytes_per_pixel` (12 and 16). The size lookup had the same gap, so
+  adding the constants alone would have moved the defect rather than closed it.
+
+Anyone deriving `Vertex` on a struct with an `[i32; 3]` field was reading garbage in the shader;
+after upgrading, that attribute delivers the integers it always should have. Shaders written to
+compensate for the old behaviour by declaring the input as `vec3` will need to change to `ivec3`.
+
+### Fixed — the bindings generator emitted its fragments in a nondeterministic order
+
+`CodeAssembler::resolve_dependencies` seeded its topological sort by iterating a `HashSet`, whose
+order varies per process. Consecutive builds of the same `vk.xml` therefore produced different
+`vulkan_bindings.rs` files.
+
+Item order carries no meaning in Rust, and the emitted API was verified identical across three
+differently-ordered builds — same 3,353 type definitions, same 337 deduplication decisions — so
+no incorrect bindings were ever generated. The reason it still mattered: the deduplication pass
+keeps whichever definition it encounters *first* and strips later ones, so the surviving
+definition of any colliding pair was a function of that nondeterministic order. Generation is now
+reproducible, verified byte-identical across builds.
+
+### Changed — generator internals (`vulkan_gen` 0.4.0, breaking)
+
+- Deduplication now determines what a fragment defines by scanning the emitted code rather than
+  trusting a module's self-reported `defined_types`. Those claims are partly hand-maintained; a
+  name listed but not emitted marked the type as seen and would have stripped a later fragment's
+  real definition. One such phantom entry was live, and its only visible effect was a spurious
+  "skipped a definition here" comment in the generated file.
+- **Removed `CodeAssembler::validate_generated_code` and `AssemblerError::DuplicateType`.** The
+  function was never called and could not be: fragments legitimately redefine names that earlier
+  fragments emitted, which is what the deduplication pass exists to absorb — 337 times in a full
+  run — so enabling it as an error would have failed the build on the normal case. Duplicate and
+  undefined types are already checked by `type_integration::check_data_consistency`, which runs
+  earlier over the intermediate JSON and does fail the build.
+- `GeneratorMetadata` is now documented as informational. Nothing consults `priority` (ordering
+  comes from the dependency graph) and nothing validates against `defined_types` / `used_types`.
+- **`SafeHandlesStats` gained an `unclassified` field.** The auto-RAII generator skips handles
+  that don't fit its create/destroy shape, and a skip was invisible: the build succeeded and the
+  handle simply had no safe wrapper. Every handle is now sorted into hand-written, auto-wrapped,
+  or explicitly excluded with a recorded reason (`KNOWN_UNWRAPPABLE`); anything else is reported
+  here and logged as a build warning. Against the pinned `vk.xml` the 59 non-alias handle types
+  are 30 + 25 + 4 with nothing left over, and a test enforces that rather than asserting it in a
+  comment. The build stays permissive so a newer `vk.xml` still works.
+- Unsuffixed hexadecimal constants are typed by magnitude instead of assumed `u32`. A literal
+  wider than 32 bits previously emitted a `u32` constant that the compiler rejected as out of
+  range.
+
+### Fixed — documentation
+
+- `CONTRIBUTING.md` was stale from the `infra-vulkan` → Vulkane rename: wrong crate name, wrong
+  clone URL, Rust 1.75 against an edition-2024 crate, a `--features validation-layers` command
+  for a feature that does not exist, and a doc example calling `device.allocate_memory(…)`, which
+  is not a method. CMake is required by the `shaderc` and `slang` features, not by the examples.
+- Removed a `VulkanTag::is_deprecated` stub from the generated tag registry that always returned
+  `false`. `vk.xml` `<tag>` elements carry only `name`, `author` and `contact` — deprecation is a
+  property of extensions, so the question has no answer rather than an unimplemented one.
+
 ## [0.10.1] — 2026-08-01
 
 ### Fixed — allocator memory-type selection and failure-path cleanup

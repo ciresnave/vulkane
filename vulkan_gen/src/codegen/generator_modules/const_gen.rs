@@ -2,7 +2,7 @@
 //!
 //! Generates Rust constants from constants.json intermediate file
 
-use crate::codegen::logging::{log_debug, log_info};
+use crate::codegen::logging::log_info;
 use crate::parser::vk_types::ConstantDefinition;
 use std::fs;
 use std::path::Path;
@@ -80,8 +80,19 @@ impl ConstantGenerator {
         }
 
         if v_unparen.starts_with("0x") || v_unparen.starts_with("0X") {
-            // Hex values - assume u32 for now
-            "u32".to_string()
+            // Unsuffixed hex — the explicit `U`/`ULL` suffixes were handled
+            // above, so the width has to come from the magnitude. Anything
+            // that fits is `u32` (the overwhelming majority: structure types,
+            // format numbers, version words); wider literals get `u64` so
+            // 64-bit values such as extended flag bits don't emit as a `u32`
+            // constant the compiler then rejects as out of range.
+            match u128::from_str_radix(&v_unparen[2..].replace('_', ""), 16) {
+                Ok(n) if n > u32::MAX as u128 => "u64".to_string(),
+                // Unparseable digits keep the historical default rather than
+                // guessing wider; a genuinely malformed literal is a build
+                // error either way.
+                _ => "u32".to_string(),
+            }
         } else if v.contains('.') {
             // Float values
             "f32".to_string()
@@ -240,66 +251,25 @@ impl GeneratorModule for ConstantGenerator {
         let output_path = output_dir.join(self.output_file());
         fs::write(output_path, generated_code).map_err(GeneratorError::Io)?;
 
-        // Collect metadata for dependency tracking and validation
-        let metadata = self.collect_metadata(input_dir)?;
-        log_debug(&format!(
-            "ConstantGenerator uses {} external types",
-            metadata.used_types.len()
-        ));
-
         log_info(&format!("Generated {} constants", constants_array.len()));
         Ok(())
     }
 
+    /// Constants define named values, not types, so both type lists are empty
+    /// here and that is the accurate answer rather than a placeholder.
+    ///
+    /// `used_types` stays empty for a second reason: the intermediate
+    /// `ConstantDefinition` carries no declared C type — the Rust type is
+    /// recovered from the literal by `infer_type_from_value` — so there is no
+    /// type reference to report. Informational either way; see
+    /// [`GeneratorMetadata`].
     fn metadata(&self) -> GeneratorMetadata {
-        // Constants don't define types in the usual sense, but they define named values
         GeneratorMetadata {
             defined_types: Vec::new(),
             used_types: Vec::new(),
             has_forward_declarations: false,
             priority: 10, // Constants should be generated early
         }
-    }
-
-    /// Populate metadata from parsed constants
-    fn collect_metadata(&self, input_dir: &Path) -> GeneratorResult<GeneratorMetadata> {
-        let mut defined_constants = Vec::new();
-        let _used_types = Vec::new(); // Note: Simplified - no type analysis for now
-
-        // Read the constants input file
-        let input_path = input_dir.join("constants.json");
-        let input_content = std::fs::read_to_string(input_path).map_err(GeneratorError::Io)?;
-
-        // Parse the JSON as simple array
-        let constants_array: Vec<ConstantDefinition> =
-            serde_json::from_str(&input_content).map_err(GeneratorError::Json)?;
-
-        // Collect all defined constants
-        for constant in &constants_array {
-            defined_constants.push(constant.name.clone());
-
-            // Track any referenced Vulkan types
-            // For simplified constants, we can't analyze const_type
-            // Just skip type analysis for now
-            // if constant.const_type.starts_with("Vk") && !used_types.contains(&constant.const_type) {
-            //     used_types.push(constant.const_type.clone());
-            // }
-        }
-
-        // For reporting purposes
-        log_debug(&format!(
-            "ConstantGenerator found {} constants",
-            defined_constants.len()
-        ));
-
-        Ok(GeneratorMetadata {
-            // Constants don't define types in the traditional sense,
-            // but we'll report them for completeness
-            defined_types: Vec::new(),
-            used_types: _used_types,
-            has_forward_declarations: false,
-            priority: 10,
-        })
     }
 }
 
@@ -338,5 +308,34 @@ mod tests {
         assert_eq!(generator.map_value("0x1000", "uint32_t"), "0x1000");
         assert_eq!(generator.map_value("42", "float"), "42.0");
         assert_eq!(generator.map_value("123", "uint32_t"), "123");
+    }
+
+    /// An unsuffixed hex literal has to be typed by magnitude. Typing a
+    /// value wider than 32 bits as `u32` emits a constant the compiler
+    /// rejects as out of range, breaking the whole generated bindings file.
+    #[test]
+    fn unsuffixed_hex_is_typed_by_magnitude() {
+        let generator = ConstantGenerator::new();
+
+        // The common case: everything that fits stays u32.
+        assert_eq!(generator.infer_type_from_value("0x1000"), "u32");
+        assert_eq!(generator.infer_type_from_value("0xFFFFFFFF"), "u32");
+        assert_eq!(generator.infer_type_from_value("0x0"), "u32");
+
+        // One past u32::MAX, and beyond.
+        assert_eq!(generator.infer_type_from_value("0x100000000"), "u64");
+        assert_eq!(generator.infer_type_from_value("0xFFFFFFFFFFFFFFFF"), "u64");
+
+        // Underscore separators must not change the verdict.
+        assert_eq!(generator.infer_type_from_value("0x1_0000_0000"), "u64");
+        assert_eq!(generator.infer_type_from_value("0xFFFF_FFFF"), "u32");
+
+        // Uppercase prefix takes the same path.
+        assert_eq!(generator.infer_type_from_value("0X100000000"), "u64");
+
+        // Explicit C suffixes still win over magnitude — they are the
+        // author's stated intent and are handled before this branch.
+        assert_eq!(generator.infer_type_from_value("0x1000U"), "u32");
+        assert_eq!(generator.infer_type_from_value("0x1000ULL"), "u64");
     }
 }

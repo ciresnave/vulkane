@@ -10,17 +10,34 @@
 //!
 //! # Scope
 //!
-//! Phase-1 of the auto-safe-layer rollout: only handles that fit the
-//! **simple Create/Destroy** pattern are generated —
+//! Only handles that fit the **simple Create/Destroy** pattern are
+//! generated —
 //!
 //! ```text
 //! VkResult vkCreate<H>(VkDevice, *const VkCreateInfoH, *const VkAllocationCallbacks, *mut VkH);
 //! void     vkDestroy<H>(VkDevice, VkH, *const VkAllocationCallbacks);
 //! ```
 //!
-//! Handles that don't fit (pool-allocated, multi-create, instance-
-//! parented with non-Device destroy) are skipped for now and remain
-//! reachable through raw dispatch; Phase 2 will generalise.
+//! That is not a stopgap. Against Vulkan 1.4.х the 59 non-alias handle
+//! types divide exhaustively into three groups:
+//!
+//! * **30 hand-written** — [`HAND_WRITTEN`]. These have richer bespoke
+//!   wrappers in `vulkane::safe`; auto-generation is suppressed so it
+//!   doesn't clash with them.
+//! * **25 auto-generated** — everything matching the shape above.
+//! * **4 excluded by construction** — [`KNOWN_UNWRAPPABLE`]. Each is
+//!   excluded because its lifecycle genuinely isn't create/destroy, not
+//!   because the generator hasn't got to it yet. Deriving RAII for them
+//!   from the XML alone would produce a wrapper that *compiles* and then
+//!   violates valid usage at run time, which is worse than not having one.
+//!
+//! Anything outside those three groups is a handle shape this generator
+//! has not seen. It is reported through [`SafeHandlesStats::unclassified`]
+//! and logged as a warning rather than silently dropped — see
+//! `every_handle_is_wrapped_hand_written_or_explicitly_excluded` in the
+//! vulkane test suite, which fails when the pinned `vk.xml` grows one.
+//! The build itself stays permissive so that swapping in a newer `vk.xml`
+//! keeps working.
 
 use std::fs;
 use std::path::Path;
@@ -71,6 +88,49 @@ const HAND_WRITTEN: &[&str] = &[
 
 fn is_hand_written(name: &str) -> bool {
     HAND_WRITTEN.contains(&name)
+}
+
+/// Handle types that are deliberately *not* auto-wrapped, with the reason.
+///
+/// These are not pending work. Each has a lifecycle that the
+/// create/destroy shape cannot express, and generating a `Drop` for them
+/// anyway would emit a wrapper that type-checks and then commits a valid
+/// usage violation — the failure mode this generator exists to prevent.
+/// A correct wrapper for any of them is a hand-written design decision
+/// about ownership, not a codegen pattern.
+pub const KNOWN_UNWRAPPABLE: &[(&str, &str)] = &[
+    (
+        "VkShaderEXT",
+        "batch-created by vkCreateShadersEXT(device, count, pCreateInfos, pAllocator, pShaders). \
+         On partial failure the call returns an error *and* still writes some valid handles, so \
+         ownership of the batch is a design decision (one wrapper per shader? per batch? who frees \
+         the partial set?) rather than a mechanical transform.",
+    ),
+    (
+        "VkPipelineBinaryKHR",
+        "batch-created by vkCreatePipelineBinariesKHR into a VkPipelineBinaryHandlesInfoKHR \
+         out-struct — same partial-failure and batch-ownership question as VkShaderEXT.",
+    ),
+    (
+        "VkDeferredOperationKHR",
+        "vkCreateDeferredOperationKHR takes no CreateInfo, but the blocking reason is Drop: \
+         destroying a deferred operation while it is still pending is a valid usage violation, \
+         and nothing derivable from vk.xml lets a generated Drop know the operation has joined. \
+         An auto-RAII wrapper would silently produce invalid usage on scope exit.",
+    ),
+    (
+        "VkPerformanceConfigurationINTEL",
+        "acquire/release lifecycle (vkAcquirePerformanceConfigurationINTEL / \
+         vkReleasePerformanceConfigurationINTEL), not create/destroy, and release is queue-scoped \
+         rather than device-scoped.",
+    ),
+];
+
+fn known_unwrappable(name: &str) -> Option<&'static str> {
+    KNOWN_UNWRAPPABLE
+        .iter()
+        .find(|(h, _)| *h == name)
+        .map(|(_, why)| *why)
 }
 
 /// Turn a Vulkan handle name (`VkAccelerationStructureKHR`) into the
@@ -289,6 +349,15 @@ fn emit_wrapper(cand: &Candidate) -> String {
 pub struct SafeHandlesStats {
     pub generated: usize,
     pub skipped: usize,
+    /// Handles that are neither hand-written, nor auto-wrapped, nor listed
+    /// in [`KNOWN_UNWRAPPABLE`] — i.e. a handle shape this generator has
+    /// never seen, most likely introduced by a newer `vk.xml`.
+    ///
+    /// Non-empty means a handle silently has no safe wrapper and nobody
+    /// decided that. It is logged as a warning during the build rather than
+    /// erroring, so that swapping in a newer spec still builds; the vulkane
+    /// test suite asserts it is empty for the pinned `vk.xml`.
+    pub unclassified: Vec<String>,
 }
 
 pub fn generate_safe_handles(
@@ -310,7 +379,19 @@ pub fn generate_safe_handles(
     let commands: Vec<VulkanCommand> = serde_json::from_str(&content)?;
 
     let mut skipped = 0usize;
+    let mut unclassified: Vec<String> = Vec::new();
     let mut candidates: Vec<Candidate> = Vec::new();
+
+    // Record a handle that didn't match the create/destroy shape. If we have
+    // a documented reason it isn't wrappable, this is an expected exclusion;
+    // otherwise it's a shape we've never seen and the caller needs to know,
+    // because the alternative is a handle quietly having no safe wrapper.
+    fn note_skip(name: &str, skipped: &mut usize, unclassified: &mut Vec<String>) {
+        *skipped += 1;
+        if known_unwrappable(name).is_none() {
+            unclassified.push(name.to_string());
+        }
+    }
 
     for handle in &handles {
         if is_hand_written(&handle.name) {
@@ -318,16 +399,17 @@ pub fn generate_safe_handles(
             continue;
         }
         let Some(create) = find_create_command(&handle.name, &commands) else {
-            skipped += 1;
+            note_skip(&handle.name, &mut skipped, &mut unclassified);
             continue;
         };
         let Some(destroy) = find_destroy_command(&handle.name, &commands) else {
-            skipped += 1;
+            note_skip(&handle.name, &mut skipped, &mut unclassified);
             continue;
         };
-        // Only Device-parented for Phase 1 (by far the most common case).
+        // Device-parented only: an instance- or physical-device-parented
+        // handle needs a different owner in the wrapper.
         if create.parameters[0].type_name != "VkDevice" {
-            skipped += 1;
+            note_skip(&handle.name, &mut skipped, &mut unclassified);
             continue;
         }
         candidates.push(Candidate {
@@ -345,9 +427,11 @@ pub fn generate_safe_handles(
     file.push_str(
         "// Generated by vulkan_gen::safe_handles_gen — do not edit.\n\
          //\n\
-         // Phase-1 auto-safe-layer: RAII wrappers for every Vulkan handle\n\
-         // type whose Create / Destroy pair fits the simple four-/three-\n\
-         // parameter shape. Included from `vulkane/src/safe/auto.rs`.\n\n",
+         // Auto-RAII wrappers for every Vulkan handle type whose\n\
+         // Create / Destroy pair fits the simple four-/three-parameter\n\
+         // shape and that is not already wrapped by hand. Included from\n\
+         // `vulkane/src/safe/auto.rs`. Handles deliberately excluded are\n\
+         // listed with their reasons in vulkan_gen's KNOWN_UNWRAPPABLE.\n\n",
     );
     for cand in &candidates {
         file.push_str(&emit_wrapper(cand));
@@ -358,9 +442,19 @@ pub fn generate_safe_handles(
     }
     fs::write(output_path, file).map_err(GeneratorError::Io)?;
 
+    for name in &unclassified {
+        crate::codegen::logging::log_warn(&format!(
+            "safe_handles_gen: {name} has no safe wrapper — it is not hand-written, does not fit \
+             the create/destroy shape, and is not in KNOWN_UNWRAPPABLE. It is reachable only \
+             through raw dispatch. Add it to HAND_WRITTEN or KNOWN_UNWRAPPABLE once you have \
+             decided which it is."
+        ));
+    }
+
     Ok(SafeHandlesStats {
         generated: candidates.len(),
         skipped,
+        unclassified,
     })
 }
 

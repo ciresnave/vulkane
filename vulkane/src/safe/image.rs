@@ -60,8 +60,10 @@ impl Format {
     pub const R32G32_SINT: Self = Self(VkFormat::FORMAT_R32G32_SINT);
     pub const R32G32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32_SFLOAT);
     pub const R32G32B32_UINT: Self = Self(VkFormat::FORMAT_R32G32B32_UINT);
+    pub const R32G32B32_SINT: Self = Self(VkFormat::FORMAT_R32G32B32_SINT);
     pub const R32G32B32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32B32_SFLOAT);
     pub const R32G32B32A32_UINT: Self = Self(VkFormat::FORMAT_R32G32B32A32_UINT);
+    pub const R32G32B32A32_SINT: Self = Self(VkFormat::FORMAT_R32G32B32A32_SINT);
     pub const R32G32B32A32_SFLOAT: Self = Self(VkFormat::FORMAT_R32G32B32A32_SFLOAT);
 
     // Depth / stencil
@@ -113,8 +115,12 @@ impl Format {
             | VkFormat::FORMAT_R32G32_SINT
             | VkFormat::FORMAT_R32G32_SFLOAT
             | VkFormat::FORMAT_D32_SFLOAT_S8_UINT => Some(8),
-            VkFormat::FORMAT_R32G32B32_UINT | VkFormat::FORMAT_R32G32B32_SFLOAT => Some(12),
-            VkFormat::FORMAT_R32G32B32A32_UINT | VkFormat::FORMAT_R32G32B32A32_SFLOAT => Some(16),
+            VkFormat::FORMAT_R32G32B32_UINT
+            | VkFormat::FORMAT_R32G32B32_SINT
+            | VkFormat::FORMAT_R32G32B32_SFLOAT => Some(12),
+            VkFormat::FORMAT_R32G32B32A32_UINT
+            | VkFormat::FORMAT_R32G32B32A32_SINT
+            | VkFormat::FORMAT_R32G32B32A32_SFLOAT => Some(16),
             _ => None,
         }
     }
