@@ -50,7 +50,7 @@
 //! the emitter seam is frozen into a versioned ABI; a Slang-aware const spelling
 //! is the fix (tracked as a seam follow-up).
 
-use crate::backend::{Backend, GeneratedKernel, Lowering, lower_dag};
+use crate::backend::{Backend, GeneratedKernel, Lowering, const_lit, lower_dag};
 use crate::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use crate::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
 use crate::plan::{KernelPlan, Schedule};
@@ -175,6 +175,7 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
             unary: &|op, x| slang_unary(op, x, plan.dtype),
             binary: &|op, a, b| slang_binary(op, a, b, plan.dtype),
             select: &|c, a, b| slang_select(c, a, b, plan.dtype),
+            constant: &const_lit,
         },
     );
     for decl in &prelude {
