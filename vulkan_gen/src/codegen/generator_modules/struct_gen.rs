@@ -522,7 +522,7 @@ impl StructGenerator {
     /// Rust `enum` type, because the *driver* writes it.
     ///
     /// Reading a Rust `enum` whose memory holds a discriminant outside its
-    /// declared set is undefined behaviour. For a struct `vk.xml` marks
+    /// declared set is undefined behaviour. For a struct that `vk.xml` marks
     /// `returnedonly="true"`, the implementation fills the field, and it is
     /// free to report a value this `vk.xml` has never heard of — a component
     /// type or driver ID from an extension newer than the pinned spec. That

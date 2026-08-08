@@ -273,8 +273,21 @@ impl Swapchain {
     }
 
     /// Pick the best `(format, color_space)` pair from the surface's
-    /// supported list. Prefers `B8G8R8A8_SRGB` if available, otherwise
-    /// the first supported format.
+    /// supported list. Prefers `B8G8R8A8_SRGB` with `SRGB_NONLINEAR`, and
+    /// otherwise takes the first pair this build can name.
+    ///
+    /// **Pairs this build cannot name are skipped.** A driver may report a
+    /// format or colour space from a spec revision newer than the one these
+    /// bindings were generated from; this helper returns a typed pair, so it
+    /// passes over those rather than inventing a name for one. If every
+    /// reported pair is unnameable — or the surface reports none at all — this
+    /// returns [`VkResult::ERROR_FORMAT_NOT_SUPPORTED`] rather than a guess.
+    ///
+    /// To use such a format anyway, read it with
+    /// [`SurfaceFormat::format_raw`](super::surface::SurfaceFormat::format_raw)
+    /// and
+    /// [`color_space_raw`](super::surface::SurfaceFormat::color_space_raw)
+    /// and build the swapchain directly.
     pub fn pick_surface_format(
         surface: &Surface,
         physical: &PhysicalDevice,
@@ -283,23 +296,24 @@ impl Swapchain {
         if formats.is_empty() {
             return Err(Error::Vk(VkResult::ERROR_FORMAT_NOT_SUPPORTED));
         }
-        for f in &formats {
-            if f.format() == Some(Format::B8G8R8A8_SRGB)
-                && f.color_space() == Some(VkColorSpaceKHR::COLOR_SPACE_SRGB_NONLINEAR_KHR)
-            {
-                // Both are `Some` by the guard above.
-                return Ok((f.format().unwrap(), f.color_space().unwrap()));
-            }
-        }
-        // Fall back to the first pair this build can actually name. A driver
-        // may report a format or colour space from a newer spec revision; this
-        // helper returns a typed pair, so it skips those rather than inventing
-        // a name for one. Reach for `format_raw`/`color_space_raw` and build
-        // the swapchain directly if you need one of them.
-        formats
+
+        // Nameable pairs only, so neither branch below can produce a partial
+        // result — and no `unwrap` is needed to express that.
+        let mut nameable = formats
             .iter()
-            .find_map(|f| Some((f.format()?, f.color_space()?)))
-            .ok_or(Error::Vk(VkResult::ERROR_FORMAT_NOT_SUPPORTED))
+            .filter_map(|f| Some((f.format()?, f.color_space()?)));
+
+        let mut first = None;
+        for (format, color_space) in &mut nameable {
+            if format == Format::B8G8R8A8_SRGB
+                && color_space == VkColorSpaceKHR::COLOR_SPACE_SRGB_NONLINEAR_KHR
+            {
+                return Ok((format, color_space));
+            }
+            first.get_or_insert((format, color_space));
+        }
+
+        first.ok_or(Error::Vk(VkResult::ERROR_FORMAT_NOT_SUPPORTED))
     }
 }
 

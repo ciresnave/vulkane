@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed (soundness) — driver-written enum fields could hold an invalid discriminant
 
 Reading a Rust `enum` whose memory holds a discriminant outside its declared set is **undefined
-behaviour**. Every struct `vk.xml` marks `returnedonly="true"` is filled by the implementation, and
+behaviour**. Every struct that `vk.xml` marks `returnedonly="true"` is filled by the implementation, and
 an implementation may report a value this `vk.xml` has never heard of — a component type or driver
 ID from an extension newer than the pinned spec. The UB was therefore reachable by **upgrading a
 graphics driver**, with no application change and no error path to observe.
