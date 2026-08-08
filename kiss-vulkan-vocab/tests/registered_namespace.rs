@@ -61,6 +61,29 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::U64, "u64"),
 ];
 
+/// What to do when one of these fails. Shared, because the answer is the same
+/// for every assertion here and repeating it per-message buries the part that
+/// differs.
+const ON_FAILURE: &str = "\n\nIf a spelling changed deliberately, the registered namespace document \
+     (KISS `spec/namespaces/vulkan.md`) must be amended in the same change, and \
+     REGISTERED_COMPONENT_TYPES updated with it. If it did not change \
+     deliberately, revert it. What must not happen is editing this list alone: \
+     that silences the guard instead of recording the decision.";
+
+/// The `cm-` section of a token: everything after the last `.cm-`.
+///
+/// Deliberately parsed out of the emitted string rather than read from a
+/// structured accessor. The property under test is what this crate *emits*,
+/// compared against a document maintained elsewhere — routing that through the
+/// crate's own API would only prove the crate agrees with itself, which is the
+/// exact blind spot described at the top of this file.
+fn cm_section(token: &str) -> &str {
+    token
+        .rsplit_once(".cm-")
+        .map(|(_, section)| section)
+        .expect("every emitted token carries a `.cm-` section")
+}
+
 /// Build a target whose cooperative-matrix section is a single shape using
 /// `c` in all four operand positions, so the emitted token carries that
 /// component type's spelling four times and nothing else varies.
@@ -92,11 +115,7 @@ fn every_component_type_spells_a_registered_token() {
         assert!(
             token.contains(&expected_section),
             "{component:?} must spell as {expected:?}, which the registered \
-             `vulkan:` namespace lists. Got token: {token}\n\n\
-             If this failed because the spelling was deliberately changed, the \
-             registered namespace document (KISS `spec/namespaces/vulkan.md`) \
-             has to be amended in the same change — otherwise this crate and \
-             the namespace it defines disagree, and nothing else will notice.",
+             `vulkan:` namespace lists. Got token: {token}{ON_FAILURE}",
         );
     }
 }
@@ -109,21 +128,16 @@ fn every_component_type_spells_a_registered_token() {
 fn no_component_type_spells_an_unregistered_token() {
     for &(component, _) in NAMED_COMPONENT_TYPES {
         let token = token_for(component);
-        let cm = token
-            .split(".cm-")
-            .nth(1)
-            .expect("token carries a cm- section");
-        // `16-16-16-<a>-<b>-<c>-<result>`
-        for spelling in cm.split('-').skip(3) {
+        // `16-16-16-<a>-<b>-<c>-<result>` — skip the three dimensions.
+        for spelling in cm_section(&token).split('-').skip(3) {
             assert!(
                 REGISTERED_COMPONENT_TYPES.contains(&spelling),
                 "emitted component spelling {spelling:?} is not in the registered \
                  `vulkan:` namespace vocabulary {REGISTERED_COMPONENT_TYPES:?}.\n\n\
                  This is what a vocabulary-wide rename looks like from the outside: \
                  round-tripping still works, canonical spelling still holds, and the \
-                 crate has quietly stopped implementing its own published namespace. \
-                 Amend `spec/namespaces/vulkan.md` in the same change, or revert the \
-                 rename.",
+                 crate has quietly stopped implementing its own published \
+                 namespace.{ON_FAILURE}",
             );
         }
     }
