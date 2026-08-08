@@ -18,7 +18,8 @@
 //! So the rule here is **declare everywhere, fail loud only where the evidence
 //! is actually required**:
 //!
-//! - Always print a greppable `SKIP:` line naming the reason.
+//! - Print a greppable `SKIP:` line naming the reason — in both modes, so the
+//!   line is present in the runs where it is fatal too.
 //! - Under [`REQUIRE_DEVICE`], panic instead — for the environments that are
 //!   *supposed* to have a device, where a skip means the evidence silently
 //!   evaporated rather than "you're on a laptop".
@@ -57,6 +58,11 @@ pub fn skips_are_fatal() -> bool {
 /// ```
 #[allow(dead_code)]
 pub fn skipped(reason: &str) {
+    // Printed before the fatal check, so the `SKIP:` line exists in both modes.
+    // Panicking first would mean the one line you would grep for is missing
+    // from exactly the runs where it matters most.
+    eprintln!("SKIP: {reason}");
+
     if skips_are_fatal() {
         panic!(
             "test skipped, but {REQUIRE_DEVICE} is set: {reason}\n\n\
@@ -67,5 +73,4 @@ pub fn skipped(reason: &str) {
              precondition is wrong (fix the test)."
         );
     }
-    eprintln!("SKIP: {reason}");
 }
