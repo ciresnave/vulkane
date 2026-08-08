@@ -7,12 +7,12 @@
 //! of component-type spellings, this crate emitted a set, and the claim that
 //! they were the same set was maintained entirely by hand.
 //!
-//! That gap is not hypothetical. During the KISS `sk4` schema event, vulkane
-//! was asked to apply an `s` → `i` rename to these very spellings — a change
-//! that belongs to §6.1's `structure_key` dtype set, which is a *different
-//! vocabulary on a different axis*. Applying it here emits `i32` where the
-//! registered namespace says `s32`, breaking conformance with the namespace
-//! this crate defines.
+//! That gap is not hypothetical, and the `s` → `i` rename below is the case
+//! that proved it. During the KISS `sk4` schema event, vulkane was asked to
+//! rename these spellings as a crate-side change — but they are governed by the
+//! namespace document, not by §6.1's `structure_key` dtype set, which is a
+//! *different vocabulary on a different axis*. Renaming the crate alone would
+//! have emitted `i32` while the published namespace still said `s32`.
 //!
 //! I simulated that rename to see what the existing suite would say. **20 of
 //! its 21 tests passed.** Round-tripping and canonical spelling both stay true
@@ -24,6 +24,16 @@
 //! reading "unsorted coop shapes" would correct the sort expectation and move
 //! on, never learning the vocabulary had drifted from its own published spec.
 //!
+//! The rename has since happened *properly*: the namespace document was
+//! amended first (vocabulary version 2, `i`-prefixed signed integers), and the
+//! crate followed. The constant below moved in the same commit as the
+//! `ComponentType` arms, which is the workflow this file exists to enforce.
+//!
+//! **Known limit.** This pins the crate against a hand-transcribed copy of the
+//! document, so it catches the *crate* drifting. It cannot notice the document
+//! moving — that direction still depends on a human reading both. It is a
+//! ratchet, not a proof.
+//!
 //! So this file pins the vocabulary itself. If the registered namespace is
 //! amended, update `REGISTERED_COMPONENT_TYPES` **in the same change** as the
 //! `ComponentType` arms — and if these tests fail, the question to answer is
@@ -31,16 +41,16 @@
 
 use kiss_vulkan_vocab::*;
 
-/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`), the
-/// paragraph reading:
+/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
+/// **vocabulary version 2**, the paragraph reading:
 ///
-/// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `s8`,
-/// > `s16`, `s32`, `s64`, `u8`, `u16`, `u32`, `u64`, or `x<n>` for a
+/// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
+/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, or `x<n>` for a
 /// > `VkComponentTypeKHR` [this vocabulary does not name]
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[
-    "f16", "f32", "f64", "bf16", "s8", "s16", "s32", "s64", "u8", "u16", "u32", "u64",
+    "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
 ];
 
 /// Every named `ComponentType`, paired with the spelling the registered
@@ -51,10 +61,10 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::F32, "f32"),
     (ComponentType::F64, "f64"),
     (ComponentType::BF16, "bf16"),
-    (ComponentType::S8, "s8"),
-    (ComponentType::S16, "s16"),
-    (ComponentType::S32, "s32"),
-    (ComponentType::S64, "s64"),
+    (ComponentType::S8, "i8"),
+    (ComponentType::S16, "i16"),
+    (ComponentType::S32, "i32"),
+    (ComponentType::S64, "i64"),
     (ComponentType::U8, "u8"),
     (ComponentType::U16, "u16"),
     (ComponentType::U32, "u32"),
