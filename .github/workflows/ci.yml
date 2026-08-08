@@ -97,18 +97,28 @@ jobs:
       # for signed-integer vertex attributes being handed a float format.
       #
       # `kiss_target_live` needs a Vulkan device. On Windows/macOS there is no
-      # ICD and all five of its tests skip: they report `ok` in ~0.02s against
-      # ~8s for a real run, so they assert nothing. On Linux, Lavapipe is
-      # installed above and `vulkaninfo` reports llvmpipe at 1.4 — but whether
-      # these tests then take their assertions or still skip is **not
-      # determinable from the CI log**, because a skip prints to captured
-      # stdout that is only echoed on failure. Do not read this step's green
-      # as evidence that the token derivation was exercised.
+      # ICD, so its five tests skip: they report `ok` in ~0.02s against ~8s for
+      # a real run, asserting nothing. That is acceptable there — those runners
+      # genuinely have no device, and a permanently red job is a job people
+      # stop reading.
       #
-      # Making that distinction visible is the separate declare-and-report
-      # work covering the 101 tests in this repo that can pass without
-      # asserting.
+      # On Linux it is not acceptable, because Lavapipe is installed above and
+      # `vulkaninfo` reports llvmpipe at 1.4. A skip there does not mean "no
+      # hardware", it means the evidence this run exists to produce did not get
+      # produced — while the job still reports success.
+      #
+      # So `VULKANE_REQUIRE_DEVICE` is set on Linux only, which turns a
+      # device-gated skip into a failure (see `vulkane/tests/common/mod.rs`).
+      # A green Linux job now means the token derivation was actually
+      # exercised, rather than merely not attempted.
+      #
+      # If this step fails on Linux, read it as a finding, not a flake: it says
+      # Lavapipe does not satisfy a precondition these tests assume. Fix the
+      # environment or the precondition — do not unset the variable, which
+      # would restore a green that means nothing.
       - name: Run unit tests (derive + kiss-target)
+        env:
+          VULKANE_REQUIRE_DEVICE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
       - name: Build examples
