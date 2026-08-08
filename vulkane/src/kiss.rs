@@ -52,6 +52,7 @@
 //! # }
 //! ```
 
+use crate::raw::bindings::VkComponentTypeKHR;
 use crate::safe::{PhysicalDevice, SubgroupFeatureFlags};
 use kiss_vulkan_vocab::{
     Arith, ComponentType, CoopMatrix, CoopShape, OpClasses, Subgroup, VulkanTarget,
@@ -249,10 +250,41 @@ impl DeviceCapabilities {
 
 /// Map a raw `VkComponentTypeKHR` to the vocabulary's component type.
 ///
-/// Unknown values become [`ComponentType::Other`] rather than an error: new
-/// Vulkan component types appear faster than a vocabulary revision can track
-/// them, and an honest round-trippable token beats a decline.
+/// `VkComponentTypeKHR` carries 16 values in the pinned `vk.xml` (Vulkan 1.4,
+/// header 348): eleven in the base KHR set, five added by extension. All
+/// sixteen are accounted for below, because an unmapped one is *invisible* —
+/// it becomes `Other(n)`, which is a perfectly valid token, so nothing errors
+/// and the device simply never matches a target naming that dtype.
+///
+/// - **0..=10 and `BFLOAT16_KHR`** — mapped.
+/// - **`SINT8_PACKED_NV` / `UINT8_PACKED_NV`** — deliberately left `Other`.
+///   These carry `s8`/`u8` data in a *packed* cooperative-matrix layout, which
+///   is a different shader-side contract from the unpacked types. Folding them
+///   onto `S8`/`U8` would collapse two distinct Vulkan values onto one token
+///   and let a packed-only device satisfy a target asking for plain `s8`. An
+///   honest `Other` beats a token claiming something the device doesn't offer.
+/// - **`FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT`** — blocked on the KISS `sk4`
+///   schema event, for two independent reasons. [`ComponentType`] has no FP8
+///   variant and is published without `#[non_exhaustive]`, so adding one is a
+///   breaking change that must *ride* the coordinated `sk4` major rather than
+///   precede it. Separately, the arm could not be written correctly even with
+///   a variant in hand: these names denote a **layout**, KISS §3.1.5 makes the
+///   `fn`/`fnuz` suffix mandatory, and the Vulkan registry never says which
+///   variant is meant — so the mapping would be a guess between `f8e4m3fn` and
+///   `f8e4m3fnuz`, and guessing wrong is a silently wrong token rather than an
+///   error.
+///
+/// Values outside all of these become [`ComponentType::Other`] rather than an
+/// error: new Vulkan component types appear faster than a vocabulary revision
+/// can track them, and an honest round-trippable token beats a decline.
 fn component(raw: u32) -> ComponentType {
+    // Taken from the generated binding rather than written as a literal. The
+    // base values are 0..=10 and check by eye; an extension value like
+    // 1000141000 is derived from an extension number and an offset and does
+    // not — so the one that could be silently wrong is the one the compiler
+    // should own.
+    const BFLOAT16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_BFLOAT16_KHR as u32;
+
     match raw {
         0 => ComponentType::F16,
         1 => ComponentType::F32,
@@ -265,6 +297,73 @@ fn component(raw: u32) -> ComponentType {
         8 => ComponentType::U16,
         9 => ComponentType::U32,
         10 => ComponentType::U64,
+        BFLOAT16 => ComponentType::BF16,
         n => ComponentType::Other(n),
+    }
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+
+    /// The defect this test exists for: `ComponentType::BF16` and its `bf16`
+    /// token have always existed in the vocabulary and round-trip correctly,
+    /// so the vocabulary crate's tests pass — but they construct the variant
+    /// directly. Nothing exercised the *derivation* from a raw device value,
+    /// and `component()` had no `BFLOAT16_KHR` arm, so a driver reporting
+    /// bfloat16 cooperative matrices yielded `Other(1000141000)`. Reachable by
+    /// token, underivable from hardware.
+    #[test]
+    fn bfloat16_derives_from_the_raw_device_value() {
+        assert_eq!(
+            component(VkComponentTypeKHR::COMPONENT_TYPE_BFLOAT16_KHR as u32),
+            ComponentType::BF16,
+            "a device reporting VK_COMPONENT_TYPE_BFLOAT16_KHR must derive BF16, \
+             not Other — otherwise bf16 is spellable but not derivable"
+        );
+    }
+
+    /// Pins the whole base set, so a renumbering or a transposed arm is caught
+    /// as a mismatch rather than as a token nobody notices is wrong.
+    #[test]
+    fn every_base_component_type_maps_to_its_documented_variant() {
+        let expected = [
+            (0, ComponentType::F16),
+            (1, ComponentType::F32),
+            (2, ComponentType::F64),
+            (3, ComponentType::S8),
+            (4, ComponentType::S16),
+            (5, ComponentType::S32),
+            (6, ComponentType::S64),
+            (7, ComponentType::U8),
+            (8, ComponentType::U16),
+            (9, ComponentType::U32),
+            (10, ComponentType::U64),
+        ];
+        for (raw, want) in expected {
+            assert_eq!(component(raw), want, "VkComponentTypeKHR value {raw}");
+        }
+    }
+
+    /// The packed NV types and the FP8 types are *deliberately* unmapped, for
+    /// reasons recorded on [`component`]. This asserts the deliberate choice so
+    /// that mapping them later is a decision someone makes on purpose — a
+    /// well-meant `SINT8_PACKED_NV => S8` would otherwise be a silent widening
+    /// that lets a packed-only device answer to plain `s8`.
+    #[test]
+    fn packed_and_fp8_types_are_deliberately_unmapped() {
+        for raw in [
+            VkComponentTypeKHR::COMPONENT_TYPE_SINT8_PACKED_NV as u32,
+            VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32,
+            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32,
+            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32,
+        ] {
+            assert_eq!(
+                component(raw),
+                ComponentType::Other(raw),
+                "value {raw} is unmapped on purpose; see the note on `component`. \
+                 If you are mapping it, update that note and this test together."
+            );
+        }
     }
 }
