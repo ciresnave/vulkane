@@ -50,7 +50,7 @@
 //! the emitter seam is frozen into a versioned ABI; a Slang-aware const spelling
 //! is the fix (tracked as a seam follow-up).
 
-use crate::backend::{Backend, GeneratedKernel, Lowering, const_lit, lower_dag};
+use crate::backend::{Backend, GeneratedKernel, LowerError, Lowering, const_lit, lower_dag};
 use crate::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use crate::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
 use crate::plan::{KernelPlan, Schedule};
@@ -85,53 +85,61 @@ impl Backend for Slang {
         slang_ctype(dtype).is_some()
     }
 
-    fn lower(&self, plan: &KernelPlan<'_>) -> GeneratedKernel {
-        let ctype = slang_ctype(plan.dtype).unwrap_or_else(|| {
-            panic!(
-                "slang backend v1: unsupported dtype {:?} — f32/f32s/f64/i32/i64 only \
-                 (f16/bf16/s8/u8/u32 are declined; no clean base-profile scalar type)",
-                plan.dtype
-            )
-        });
-        assert!(
-            plan.n_outputs == 1,
-            "slang backend v1: single-output only (the N-store emitter is a follow-up); \
-             op '{}' has {} outputs",
-            plan.op_name,
-            plan.n_outputs
-        );
-        assert!(
-            plan.out_dtype_of(0) == plan.dtype,
-            "slang backend v1: uniform output dtype only — op '{}' stores {:?} from a {:?} \
-             compute (hetero out-dtype, e.g. a u8 keep-mask, is a follow-up)",
-            plan.op_name,
-            plan.out_dtype_of(0),
-            plan.dtype
-        );
-        assert!(
-            !body_has_params(plan.body),
-            "slang backend v1: parameterless elementwise only — op '{}' reads a runtime scalar \
-             Param (a cbuffer-carried param is a follow-up)",
-            plan.op_name
-        );
+    fn lower(&self, plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
+        // The ONE statement of slang's legality surface. The JIT used to keep a
+        // parallel copy derived from CUDA's rules and apply it to every backend.
+        let Some(ctype) = slang_ctype(plan.dtype) else {
+            return Err(LowerError::UnsupportedDtype {
+                dtype: plan.dtype,
+                detail: "slang backend v1: f32/f32s/f64/i32/i64 only (f16/bf16/s8/u8/u32                          are declined; no clean base-profile scalar type)"
+                    .to_string(),
+            });
+        };
+        if plan.n_outputs != 1 {
+            return Err(LowerError::UnsupportedPlanShape {
+                detail: format!(
+                    "slang backend v1: single-output only (the N-store emitter is a                      follow-up); op '{}' has {} outputs",
+                    plan.op_name, plan.n_outputs
+                ),
+            });
+        }
+        if plan.out_dtype_of(0) != plan.dtype {
+            return Err(LowerError::UnsupportedPlanShape {
+                detail: format!(
+                    "slang backend v1: uniform output dtype only — op '{}' stores {:?} from                      a {:?} compute (hetero out-dtype, e.g. a u8 keep-mask, is a follow-up)",
+                    plan.op_name,
+                    plan.out_dtype_of(0),
+                    plan.dtype
+                ),
+            });
+        }
+        if body_has_params(plan.body) {
+            return Err(LowerError::UnsupportedPlanShape {
+                detail: format!(
+                    "slang backend v1: parameterless elementwise only — op '{}' reads a                      runtime scalar Param (a cbuffer-carried param is a follow-up)",
+                    plan.op_name
+                ),
+            });
+        }
         // Int Div/Const backstop, REUSED from the CUDA emitter (same dtype-blind
         // hazard: infix `/` is device-UB at an int dtype, and a `Const` is an f64
         // literal). Mirrors CpuC::lower / Cuda::lower.
+        //
+        // Still an assert rather than an Err: this is a PLAN-gate invariant
+        // (`assert_int_op_admissibility` rejects these upstream in `build_plan`),
+        // so reaching it means the plan gate was bypassed — a caller bug, not an
+        // unsupported request. `try_build_plan` is where that becomes a typed
+        // refusal; here it stays a backstop that should be unreachable.
         if crate::plan::is_int_dtype(plan.dtype) {
-            // v1 is Elementwise/Scalar-only (panics below on any other
-            // schedule), so the reduction-predicate exemption never applies
-            // here — always `false` for both flags (inert; `in_reduction`
-            // false already excludes the exemption regardless of
-            // `at_reduction_root`), same coverage as before Task 3b.
             assert_no_int_div_or_const(plan.body, plan.dtype, false, false);
         }
         match plan.schedule {
-            Schedule::Scalar => emit_scalar_slang(plan, ctype),
-            other => panic!(
-                "slang backend v1: the scalar contiguous Elementwise path ONLY — got schedule \
-                 {other:?}. Vectorized / Strided / Reduction / RowReduce / Contraction / Scan / \
-                 Window / RowSort / Im2Col are follow-ups."
-            ),
+            Schedule::Scalar => Ok(emit_scalar_slang(plan, ctype)),
+            other => Err(LowerError::UnsupportedSchedule {
+                detail: format!(
+                    "slang backend v1: the scalar contiguous Elementwise path ONLY — got                      schedule {other:?}. Vectorized / Strided / Reduction / RowReduce /                      Contraction / Scan / Window / RowSort / Im2Col are follow-ups."
+                ),
+            }),
         }
     }
 }
