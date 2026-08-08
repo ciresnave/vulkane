@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
@@ -49,7 +49,7 @@ libloading = { workspace = true }
 # Optional: the `vulkan:` KISS-Classify §6.8 capability-set vocabulary, for
 # `vulkane::kiss`. Itself dependency-free and Vulkan-free by construction
 # (KISS-CLASSIFY-6.9-0003) — this crate supplies the device half.
-kiss-vulkan-vocab = { version = "0.1.0", path = "../kiss-vulkan-vocab", optional = true }
+kiss-vulkan-vocab = { version = "0.2.0", path = "../kiss-vulkan-vocab", optional = true }
 # Optional: GLSL/WGSL -> SPIR-V compilation via Naga (the wgpu shader translator).
 # Pulls in glsl-in, wgsl-in and spv-out features only — no other backends.
 naga = { version = "29", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }

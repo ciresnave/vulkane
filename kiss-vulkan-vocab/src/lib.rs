@@ -491,7 +491,28 @@ impl std::ops::BitOrAssign for Arith {
 }
 
 /// A cooperative-matrix component type, mirroring `VkComponentTypeKHR`.
+///
+/// # Variant names track Vulkan; token spellings track KISS
+///
+/// The variants are named for their Vulkan source —
+/// `VK_COMPONENT_TYPE_SINT8_KHR` is [`ComponentType::S8`] — while the tokens
+/// they spell follow the registered `vulkan:` namespace, which uses the `i`
+/// prefix from vocabulary version 2 onward. So [`ComponentType::S8`] spells
+/// `i8`. That looks like a mistake and is not: the variant is the Vulkan-facing
+/// identifier, the token is the KISS-facing wire format, and the two vocabularies
+/// were deliberately allowed to differ. Do not "fix" either to match the other.
+///
+/// # Adding a variant is a behaviour change, not just a recompilation
+///
+/// This enum is `#[non_exhaustive]`, so new variants can land without a major
+/// version. That convenience has a cost worth stating: a value that previously
+/// arrived as [`Other(n)`](ComponentType::Other) and matched a caller's
+/// catch-all arm will, once it is named, match the new variant instead —
+/// **silently**, with no build break to warn anyone. If you branch on
+/// `Other(n)` for a specific `n`, that branch can stop being taken by an
+/// upgrade alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum ComponentType {
     /// 16-bit float.
     F16,
@@ -534,10 +555,10 @@ impl ComponentType {
             Self::F32 => "f32".into(),
             Self::F64 => "f64".into(),
             Self::BF16 => "bf16".into(),
-            Self::S8 => "s8".into(),
-            Self::S16 => "s16".into(),
-            Self::S32 => "s32".into(),
-            Self::S64 => "s64".into(),
+            Self::S8 => "i8".into(),
+            Self::S16 => "i16".into(),
+            Self::S32 => "i32".into(),
+            Self::S64 => "i64".into(),
             Self::U8 => "u8".into(),
             Self::U16 => "u16".into(),
             Self::U32 => "u32".into(),
@@ -552,10 +573,10 @@ impl ComponentType {
             "f32" => Self::F32,
             "f64" => Self::F64,
             "bf16" => Self::BF16,
-            "s8" => Self::S8,
-            "s16" => Self::S16,
-            "s32" => Self::S32,
-            "s64" => Self::S64,
+            "i8" => Self::S8,
+            "i16" => Self::S16,
+            "i32" => Self::S32,
+            "i64" => Self::S64,
             "u8" => Self::U8,
             "u16" => Self::U16,
             "u32" => Self::U32,

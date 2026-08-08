@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking) — `vulkan:` tokens spell signed integers with an `i` prefix
+
+Part of the KISS `sk4` coordinated schema event. The registered `vulkan:` namespace was amended to
+**vocabulary version 2** ([KISS#130](https://github.com/ThinkersJournal/KISS/pull/130)), taking
+signed-integer component types from `s8`/`s16`/`s32`/`s64` to `i8`/`i16`/`i32`/`i64` to match the
+`i` prefix used by KISS-Classify §6.1's `structure_key` dtype set. `kiss-vulkan-vocab` follows it
+here.
+
+**Every token naming a signed-integer component type changes bytes.** §6.8-0002 matching is
+byte-exact and forbids subset or implication logic, so a version-1 token and its version-2
+equivalent **do not match**. Any cache keyed on a version-1 token is stale and must be
+**invalidated, not migrated** — a lookup with an old key will simply miss, and a store under an old
+key will never be found again. Token length is unchanged, since each name keeps its width.
+
+The document was amended **before** the crate, and this crate's
+`tests/registered_namespace.rs` guard moved in the same commit as the `ComponentType` arms.
+
+**Variant names are unchanged and deliberately do not match their tokens.** `ComponentType::S8`
+now spells `i8`. The variant is named for its Vulkan source (`VK_COMPONENT_TYPE_SINT8_KHR`); the
+token follows the KISS-facing wire vocabulary. Do not "fix" either to match the other.
+
+### Changed (breaking) — `ComponentType` is `#[non_exhaustive]`
+
+Enum hardening, riding this breaking cut so that future dtype additions do not force another one
+(KISS `sk4` RFC §10). Downstream `match` expressions over `ComponentType` now require a wildcard
+arm.
+
+**Migration note, required by RFC §10 — this trades a build break for a silent behaviour change.**
+Because new variants can now land without a major version, a value that previously arrived as
+`ComponentType::Other(n)` and matched a caller's catch-all will, once it is named, match the new
+variant instead — with **no compile error to announce it**. If you branch on `Other(n)` for a
+specific `n`, that branch can stop being taken by a dependency upgrade alone. This is the same
+reclassification hazard as the `bf16` fix below, made permanent as a property of the type.
+
+### Changed — versions
+
+`kiss-vulkan-vocab` 0.1.0 → **0.2.0** and `vulkane` 0.11.0 → **0.12.0**, both breaking.
+
+Still outstanding from vulkane's `sk4` leg: the FP8 variants (`f8e4m3fn`, `f8e5m2`) and their
+`component()` arms, which are gated on the authored §6.1 landing the layout⇒variant table. Adding
+them is now *additive* rather than breaking, thanks to `#[non_exhaustive]` above — which is the
+payoff that change was made for.
+
 ### Fixed (soundness) — driver-written enum fields could hold an invalid discriminant
 
 Reading a Rust `enum` whose memory holds a discriminant outside its declared set is **undefined

@@ -127,7 +127,7 @@ fn rejects_duplicate_op_letters() {
 #[test]
 fn rejects_unsorted_or_duplicated_coop_shapes() {
     let unsorted = "vulkan:sg32.ops-none.arith-none.\
-                    cm-16-16-16-s8-s8-s32-s32,8-8-32-f16-f16-f32-f32";
+                    cm-16-16-16-i8-i8-i32-i32,8-8-32-f16-f16-f32-f32";
     let e = VulkanTarget::parse(unsorted).unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 

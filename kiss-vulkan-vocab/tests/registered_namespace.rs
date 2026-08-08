@@ -7,12 +7,12 @@
 //! of component-type spellings, this crate emitted a set, and the claim that
 //! they were the same set was maintained entirely by hand.
 //!
-//! That gap is not hypothetical. During the KISS `sk4` schema event, vulkane
-//! was asked to apply an `s` → `i` rename to these very spellings — a change
-//! that belongs to §6.1's `structure_key` dtype set, which is a *different
-//! vocabulary on a different axis*. Applying it here emits `i32` where the
-//! registered namespace says `s32`, breaking conformance with the namespace
-//! this crate defines.
+//! That gap is not hypothetical, and the `s` → `i` rename below is the case
+//! that proved it. During the KISS `sk4` schema event, vulkane was asked to
+//! rename these spellings as a crate-side change — but they are governed by the
+//! namespace document, not by §6.1's `structure_key` dtype set, which is a
+//! *different vocabulary on a different axis*. Renaming the crate alone would
+//! have emitted `i32` while the published namespace still said `s32`.
 //!
 //! I simulated that rename to see what the existing suite would say. **20 of
 //! its 21 tests passed.** Round-tripping and canonical spelling both stay true
@@ -24,6 +24,16 @@
 //! reading "unsorted coop shapes" would correct the sort expectation and move
 //! on, never learning the vocabulary had drifted from its own published spec.
 //!
+//! The rename has since happened *properly*: the namespace document was
+//! amended first (vocabulary version 2, `i`-prefixed signed integers), and the
+//! crate followed. The constant below moved in the same commit as the
+//! `ComponentType` arms, which is the workflow this file exists to enforce.
+//!
+//! **Known limit.** This pins the crate against a hand-transcribed copy of the
+//! document, so it catches the *crate* drifting. It cannot notice the document
+//! moving — that direction still depends on a human reading both. It is a
+//! ratchet, not a proof.
+//!
 //! So this file pins the vocabulary itself. If the registered namespace is
 //! amended, update `REGISTERED_COMPONENT_TYPES` **in the same change** as the
 //! `ComponentType` arms — and if these tests fail, the question to answer is
@@ -31,16 +41,16 @@
 
 use kiss_vulkan_vocab::*;
 
-/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`), the
-/// paragraph reading:
+/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
+/// **vocabulary version 2**, the paragraph reading:
 ///
-/// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `s8`,
-/// > `s16`, `s32`, `s64`, `u8`, `u16`, `u32`, `u64`, or `x<n>` for a
+/// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
+/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, or `x<n>` for a
 /// > `VkComponentTypeKHR` [this vocabulary does not name]
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[
-    "f16", "f32", "f64", "bf16", "s8", "s16", "s32", "s64", "u8", "u16", "u32", "u64",
+    "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
 ];
 
 /// Every named `ComponentType`, paired with the spelling the registered
@@ -51,10 +61,10 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::F32, "f32"),
     (ComponentType::F64, "f64"),
     (ComponentType::BF16, "bf16"),
-    (ComponentType::S8, "s8"),
-    (ComponentType::S16, "s16"),
-    (ComponentType::S32, "s32"),
-    (ComponentType::S64, "s64"),
+    (ComponentType::S8, "i8"),
+    (ComponentType::S16, "i16"),
+    (ComponentType::S32, "i32"),
+    (ComponentType::S64, "i64"),
     (ComponentType::U8, "u8"),
     (ComponentType::U16, "u16"),
     (ComponentType::U32, "u32"),
@@ -177,5 +187,101 @@ fn the_unknown_escape_is_spelled_as_the_namespace_requires() {
             .expect("x<n> must parse")
             .to_token(),
         token
+    );
+}
+
+/// The direction the tests above leave implicit: a registered spelling must
+/// parse back to **the variant it names**, not merely to something that
+/// re-spells identically.
+///
+/// `every_registered_token_is_accepted_on_parse` asserts a token survives
+/// `parse` → `to_token` byte-exactly, which is a property of the *string*. It
+/// would still hold if two variants shared a spelling, or if a spelling
+/// resolved to a different variant that happened to spell the same way. Those
+/// are unlikely, and unlikely is not the standard this file is held to — the
+/// whole point of pinning a vocabulary against a document is that "surely that
+/// couldn't happen" stops being load-bearing.
+///
+/// Checked through `VulkanTarget::parse` rather than a `ComponentType` parser
+/// because the crate exposes no public per-component parse; the parsed
+/// `CoopShape` fields are the reachable evidence, and going through the real
+/// token is the more faithful test anyway.
+#[test]
+fn every_registered_spelling_parses_back_to_its_own_variant() {
+    for &(component, spelling) in NAMED_COMPONENT_TYPES {
+        let token = token_for(component);
+        let parsed = VulkanTarget::parse(&token)
+            .unwrap_or_else(|e| panic!("token for {spelling:?} must parse, got {e:?}"));
+
+        let CoopMatrix::Shapes(shapes) = &parsed.coop else {
+            panic!(
+                "expected an enumerated shape list for {spelling:?}, got {:?}",
+                parsed.coop
+            );
+        };
+        let shape = shapes.first().expect("exactly one shape was spelled");
+
+        // Every operand position carries the same component here, so this
+        // establishes spelling↔variant identity — *not* that the positions are
+        // wired to the right fields. A parser that swapped `a` and `result`
+        // would pass this and every round-trip test in the crate, because the
+        // re-spelled token is byte-identical when all four are equal. That
+        // property is checked separately below.
+        for (position, got) in [
+            ("a", shape.a),
+            ("b", shape.b),
+            ("c", shape.c),
+            ("result", shape.result),
+        ] {
+            assert_eq!(
+                got, component,
+                "{spelling:?} in operand position {position} parsed back as {got:?}, \
+                 not {component:?}{ON_FAILURE}"
+            );
+        }
+    }
+}
+
+/// Operand positions must survive the round trip in the right order.
+///
+/// Found while writing the test above: with one component in all four
+/// positions, a parser that transposed `a` and `result` re-spells to a
+/// byte-identical token and passes everything. So the fixture here uses four
+/// *distinct* components, which is the only arrangement in which position is
+/// observable at all.
+#[test]
+fn operand_positions_survive_the_round_trip_in_order() {
+    let shape = CoopShape {
+        m: 16,
+        n: 8,
+        k: 32,
+        a: ComponentType::S8,
+        b: ComponentType::U8,
+        c: ComponentType::S32,
+        result: ComponentType::F32,
+        saturating: false,
+    };
+    let token = VulkanTarget {
+        subgroup: Subgroup::Fixed(32),
+        ops: OpClasses::NONE,
+        arith: Arith::NONE,
+        coop: CoopMatrix::from_shapes(vec![shape]),
+    }
+    .to_token();
+
+    // Spelled in declaration order: M-N-K-A-B-C-R.
+    assert!(
+        token.contains("cm-16-8-32-i8-u8-i32-f32"),
+        "operands must spell in M-N-K-A-B-C-R order: {token}{ON_FAILURE}"
+    );
+
+    let parsed = VulkanTarget::parse(&token).expect("must parse");
+    let CoopMatrix::Shapes(shapes) = &parsed.coop else {
+        panic!("expected an enumerated shape list, got {:?}", parsed.coop);
+    };
+    assert_eq!(
+        shapes.first().copied(),
+        Some(shape),
+        "operands came back transposed"
     );
 }
