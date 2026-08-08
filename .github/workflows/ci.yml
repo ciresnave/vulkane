@@ -32,7 +32,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          # Keyed on Cargo.lock, not `**/Cargo.toml`. The glob is evaluated in
+          # the *post* step too, by which point `target/` is fully populated,
+          # and hashFiles has to walk the whole workspace to evaluate `**`.
+          # On the Windows runner that traversal exceeds the action's hard
+          # 120-second limit and fails the job — after every test has already
+          # passed. Cargo.lock is a single file at the repository root, so
+          # there is no tree to walk, and it is the better key regardless: it
+          # pins exact resolved dependency versions, where a manifest only
+          # gives version ranges.
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
