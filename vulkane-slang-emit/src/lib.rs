@@ -91,7 +91,7 @@ impl Backend for Slang {
         let Some(ctype) = slang_ctype(plan.dtype) else {
             return Err(LowerError::UnsupportedDtype {
                 dtype: plan.dtype,
-                detail: "slang backend v1: f32/f32s/f64/i32/i64 only (f16/bf16/s8/u8/u32                          are declined; no clean base-profile scalar type)"
+                detail: "slang backend v1: f32/f32s/f64/i32/i64 only (f16/bf16/i8/u8/u32                          are declined; no clean base-profile scalar type)"
                     .to_string(),
             });
         };
@@ -484,7 +484,7 @@ mod tests {
         assert!(!Slang.supports_dtype(ElementKind::F16));
         assert!(!Slang.supports_dtype(ElementKind::Bf16));
         assert!(!Slang.supports_dtype(ElementKind::U32));
-        assert!(!Slang.supports_dtype(ElementKind::S8));
+        assert!(!Slang.supports_dtype(ElementKind::I8));
         for dt in [
             ElementKind::F32,
             ElementKind::F64,
