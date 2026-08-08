@@ -189,3 +189,99 @@ fn the_unknown_escape_is_spelled_as_the_namespace_requires() {
         token
     );
 }
+
+/// The direction the tests above leave implicit: a registered spelling must
+/// parse back to **the variant it names**, not merely to something that
+/// re-spells identically.
+///
+/// `every_registered_token_is_accepted_on_parse` asserts a token survives
+/// `parse` → `to_token` byte-exactly, which is a property of the *string*. It
+/// would still hold if two variants shared a spelling, or if a spelling
+/// resolved to a different variant that happened to spell the same way. Those
+/// are unlikely, and unlikely is not the standard this file is held to — the
+/// whole point of pinning a vocabulary against a document is that "surely that
+/// couldn't happen" stops being load-bearing.
+///
+/// Checked through `VulkanTarget::parse` rather than a `ComponentType` parser
+/// because the crate exposes no public per-component parse; the parsed
+/// `CoopShape` fields are the reachable evidence, and going through the real
+/// token is the more faithful test anyway.
+#[test]
+fn every_registered_spelling_parses_back_to_its_own_variant() {
+    for &(component, spelling) in NAMED_COMPONENT_TYPES {
+        let token = token_for(component);
+        let parsed = VulkanTarget::parse(&token)
+            .unwrap_or_else(|e| panic!("token for {spelling:?} must parse, got {e:?}"));
+
+        let CoopMatrix::Shapes(shapes) = &parsed.coop else {
+            panic!(
+                "expected an enumerated shape list for {spelling:?}, got {:?}",
+                parsed.coop
+            );
+        };
+        let shape = shapes.first().expect("exactly one shape was spelled");
+
+        // Every operand position carries the same component here, so this
+        // establishes spelling↔variant identity — *not* that the positions are
+        // wired to the right fields. A parser that swapped `a` and `result`
+        // would pass this and every round-trip test in the crate, because the
+        // re-spelled token is byte-identical when all four are equal. That
+        // property is checked separately below.
+        for (position, got) in [
+            ("a", shape.a),
+            ("b", shape.b),
+            ("c", shape.c),
+            ("result", shape.result),
+        ] {
+            assert_eq!(
+                got, component,
+                "{spelling:?} in operand position {position} parsed back as {got:?}, \
+                 not {component:?}{ON_FAILURE}"
+            );
+        }
+    }
+}
+
+/// Operand positions must survive the round trip in the right order.
+///
+/// Found while writing the test above: with one component in all four
+/// positions, a parser that transposed `a` and `result` re-spells to a
+/// byte-identical token and passes everything. So the fixture here uses four
+/// *distinct* components, which is the only arrangement in which position is
+/// observable at all.
+#[test]
+fn operand_positions_survive_the_round_trip_in_order() {
+    let shape = CoopShape {
+        m: 16,
+        n: 8,
+        k: 32,
+        a: ComponentType::S8,
+        b: ComponentType::U8,
+        c: ComponentType::S32,
+        result: ComponentType::F32,
+        saturating: false,
+    };
+    let token = VulkanTarget {
+        subgroup: Subgroup::Fixed(32),
+        ops: OpClasses::NONE,
+        arith: Arith::NONE,
+        coop: CoopMatrix::from_shapes(vec![shape]),
+    }
+    .to_token();
+
+    // Spelled in declaration order: M-N-K-A-B-C-R.
+    assert!(
+        token.contains("cm-16-8-32-i8-u8-i32-f32"),
+        "operands must spell in M-N-K-A-B-C-R order: {token}{ON_FAILURE}"
+    );
+
+    let parsed = VulkanTarget::parse(&token).expect("must parse");
+    let CoopMatrix::Shapes(shapes) = &parsed.coop else {
+        panic!("expected an enumerated shape list, got {:?}", parsed.coop);
+    };
+    assert_eq!(
+        shapes.first().copied(),
+        Some(shape),
+        "operands came back transposed"
+    );
+}
