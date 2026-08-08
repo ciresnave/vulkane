@@ -58,6 +58,7 @@ impl StructGenerator {
         _all_type_names: &std::collections::HashSet<String>,
         enum_defaults: &EnumDefaultMap,
         known_structure_types: &KnownStructureTypes,
+        enum_type_names: &std::collections::HashSet<String>,
         _output_dir: &Path,
     ) -> String {
         let mut code = String::new();
@@ -116,6 +117,27 @@ impl StructGenerator {
             }
 
             let rust_type = self.map_member_type(field);
+
+            // A field the driver fills cannot be typed as a Rust enum: an
+            // implementation newer than this vk.xml may report a value outside
+            // the declared set, and reading that is UB. See
+            // `is_driver_written_enum_field`.
+            if self.is_driver_written_enum_field(struct_def, field, &rust_type, enum_type_names) {
+                code.push_str(&format!(
+                    "    /// Raw `{}` value, written by the implementation.\n",
+                    rust_type
+                ));
+                code.push_str(&format!(
+                    "    ///\n    /// Typed as `i32` rather than `{}` because a driver may report a\n\
+                     \x20   /// value this spec revision does not define, and reading an out-of-range\n\
+                     \x20   /// discriminant as a Rust enum is undefined behaviour. Convert with\n\
+                     \x20   /// [`{}::from_raw`] and handle `None`.\n",
+                    rust_type, rust_type
+                ));
+                code.push_str(&format!("    pub {}: i32,\n", field_name));
+                continue;
+            }
+
             code.push_str(&format!("    pub {}: {},\n", field_name, rust_type));
         }
 
@@ -145,13 +167,23 @@ impl StructGenerator {
                 let is_array = rust_type.starts_with('[');
                 // Check if this field's base type is an enum we know how to default.
                 // Only applies to scalar fields — array fields keep using zeroed().
-                let default_value =
-                    if !is_pointer && !is_array && enum_defaults.contains_key(&field.type_name) {
-                        let variant = &enum_defaults[&field.type_name];
-                        format!("{}::{}", field.type_name, variant)
-                    } else {
-                        self.get_default_value_for_rust_type(&rust_type, is_pointer)
-                    };
+                let default_value = if self.is_driver_written_enum_field(
+                    struct_def,
+                    field,
+                    &rust_type,
+                    enum_type_names,
+                ) {
+                    // Now an `i32`, so the "0 is not a valid variant" problem
+                    // that `enum_defaults` exists to dodge cannot arise: no
+                    // integer is an invalid `i32`. Zero it and let the driver
+                    // overwrite it, which is what the caller does anyway.
+                    "0".to_string()
+                } else if !is_pointer && !is_array && enum_defaults.contains_key(&field.type_name) {
+                    let variant = &enum_defaults[&field.type_name];
+                    format!("{}::{}", field.type_name, variant)
+                } else {
+                    self.get_default_value_for_rust_type(&rust_type, is_pointer)
+                };
                 code.push_str(&format!("            {}: {},\n", field_name, default_value));
             }
 
@@ -461,6 +493,73 @@ impl StructGenerator {
         }
     }
 
+    /// Names of every type emitted as a *Rust `enum`* (not a bitmask, which
+    /// becomes an integer newtype plus `pub const`s).
+    ///
+    /// This set is what makes [`Self::is_driver_written_enum_field`] possible.
+    /// A Rust `enum` has a closed set of valid bit patterns; a bitmask does
+    /// not, and neither do handles or nested structs, so only these types are
+    /// unsound to have a driver write into.
+    fn build_enum_type_names(&self, input_dir: &Path) -> std::collections::HashSet<String> {
+        let mut names = std::collections::HashSet::new();
+        let enums_path = input_dir.join("enums.json");
+        let Ok(content) = fs::read_to_string(&enums_path) else {
+            return names;
+        };
+        let Ok(enums) = serde_json::from_str::<Vec<EnumDefinition>>(&content) else {
+            return names;
+        };
+        for e in &enums {
+            if e.enum_type == "bitmask" {
+                continue;
+            }
+            names.insert(e.name.clone());
+        }
+        names
+    }
+
+    /// Whether this field must be emitted as a raw `i32` rather than as its
+    /// Rust `enum` type, because the *driver* writes it.
+    ///
+    /// Reading a Rust `enum` whose memory holds a discriminant outside its
+    /// declared set is undefined behaviour. For a struct that `vk.xml` marks
+    /// `returnedonly="true"`, the implementation fills the field, and it is
+    /// free to report a value this `vk.xml` has never heard of — a component
+    /// type or driver ID from an extension newer than the pinned spec. That
+    /// makes the UB reachable by *upgrading a graphics driver*, with no
+    /// application change and no error path to observe.
+    ///
+    /// Emitting `i32` moves the decision to the caller, who must go through
+    /// the generated `from_raw` and handle `None`. The check already existed;
+    /// typing the field as the enum guaranteed it could never run.
+    ///
+    /// Two deliberate exclusions:
+    ///
+    /// - **`sType`** — the application writes it before the call even in a
+    ///   `returnedonly` struct (that is how a `pNext` query chain is built),
+    ///   so it is never driver-authored and keeps its ergonomic enum type.
+    /// - **pointers and arrays** — the pointee is driver-written too, but
+    ///   reading through a raw pointer is already `unsafe` and carries its own
+    ///   contract. Narrowing to direct value fields keeps this change to the
+    ///   surface that is unsound to touch from *safe* code.
+    fn is_driver_written_enum_field(
+        &self,
+        struct_def: &StructDefinition,
+        field: &crate::parser::vk_types::StructMember,
+        rust_type: &str,
+        enum_type_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        if struct_def.returnedonly.as_deref() != Some("true") {
+            return false;
+        }
+        if field.name == "sType" {
+            return false;
+        }
+        // Only a bare enum-typed field; `map_member_type` has already folded
+        // pointers and arrays into the spelling, so anything decorated is out.
+        enum_type_names.contains(rust_type)
+    }
+
     /// Build a map from enum name to the variant identifier to use for `Default::default()`.
     /// For Rust-enum-style enums (not bitmask), we record the first non-alias variant
     /// only when 0 is not a valid value — meaning `mem::zeroed()` would produce UB.
@@ -578,6 +677,11 @@ impl StructGenerator {
         // otherwise reference missing variants.
         let known_structure_types = self.build_known_structure_types(input_dir);
 
+        // Which types are Rust enums, so driver-written fields of those types
+        // can be emitted as raw integers instead. See
+        // `is_driver_written_enum_field`.
+        let enum_type_names = self.build_enum_type_names(input_dir);
+
         // Generate code
         let mut generated_code = String::new();
 
@@ -594,6 +698,7 @@ impl StructGenerator {
                 all_type_names,
                 &enum_defaults,
                 &known_structure_types,
+                &enum_type_names,
                 output_dir,
             ));
         }
@@ -768,6 +873,133 @@ mod tests {
 
     fn known_stypes(names: &[&str]) -> KnownStructureTypes {
         names.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn enum_names(names: &[&str]) -> std::collections::HashSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A struct the *driver* fills must not type an enum field as a Rust enum:
+    /// an implementation newer than this `vk.xml` can report a value outside
+    /// the declared set, and reading an out-of-range discriminant is UB. The
+    /// hazard is reachable by upgrading a graphics driver, with no application
+    /// change and no error to observe, so it has to be structurally impossible
+    /// rather than merely unlikely.
+    #[test]
+    fn driver_written_enum_fields_are_emitted_as_raw_integers() {
+        let g = StructGenerator::new();
+        let mut s = mk_struct(
+            "VkFooPropertiesKHR",
+            vec![
+                mk_member("sType", "VkStructureType", None),
+                mk_member("componentType", "VkComponentTypeKHR", None),
+                mk_member("count", "uint32_t", None),
+            ],
+        );
+        s.returnedonly = Some("true".to_string());
+
+        let code = g.generate_struct(
+            &s,
+            &enum_names(&[]),
+            &EnumDefaultMap::new(),
+            &known_stypes(&[]),
+            &enum_names(&["VkComponentTypeKHR", "VkStructureType"]),
+            Path::new("."),
+        );
+
+        assert!(
+            code.contains("pub componentType: i32,"),
+            "driver-written enum field must be raw i32, got:\n{code}"
+        );
+        assert!(
+            !code.contains("pub componentType: VkComponentTypeKHR,"),
+            "driver-written enum field must not keep its enum type:\n{code}"
+        );
+        // sType is written by the *application* even in a returnedonly struct —
+        // that is how a pNext query chain is assembled — so it keeps its enum.
+        assert!(
+            code.contains("pub sType: VkStructureType,"),
+            "sType is app-written and must keep its enum type:\n{code}"
+        );
+        // Non-enum fields are untouched.
+        assert!(
+            code.contains("pub count: u32,"),
+            "non-enum fields must be unaffected:\n{code}"
+        );
+    }
+
+    /// The conversion is scoped to driver-written structs. Application-written
+    /// structs keep ergonomic enums, which is most of the surface — the app
+    /// only ever writes values it got from the enum, so no invalid discriminant
+    /// can arise there.
+    #[test]
+    fn application_written_structs_keep_their_enum_types() {
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkFooCreateInfoKHR",
+            vec![
+                mk_member("sType", "VkStructureType", None),
+                mk_member("format", "VkFormat", None),
+            ],
+        );
+        assert_eq!(s.returnedonly, None, "fixture must be app-written");
+
+        let code = g.generate_struct(
+            &s,
+            &enum_names(&[]),
+            &EnumDefaultMap::new(),
+            &known_stypes(&[]),
+            &enum_names(&["VkFormat", "VkStructureType"]),
+            Path::new("."),
+        );
+
+        assert!(
+            code.contains("pub format: VkFormat,"),
+            "app-written enum field must keep its enum type:\n{code}"
+        );
+        assert!(
+            !code.contains("pub format: i32,"),
+            "app-written field must not be widened to i32:\n{code}"
+        );
+    }
+
+    /// A driver-written field that is now `i32` must default to `0`, not to an
+    /// enum variant path — `enum_defaults` exists to avoid `mem::zeroed()`
+    /// producing an invalid discriminant, and that problem cannot arise for an
+    /// integer. Emitting `VkComponentTypeKHR::FOO` for an `i32` field would not
+    /// compile, so this pins the interaction between the two mechanisms.
+    #[test]
+    fn driver_written_field_defaults_to_zero_not_a_variant_path() {
+        let g = StructGenerator::new();
+        let mut s = mk_struct(
+            "VkBarPropertiesKHR",
+            vec![mk_member("componentType", "VkComponentTypeKHR", None)],
+        );
+        s.returnedonly = Some("true".to_string());
+
+        let mut defaults = EnumDefaultMap::new();
+        defaults.insert(
+            "VkComponentTypeKHR".to_string(),
+            "COMPONENT_TYPE_FLOAT16_KHR".to_string(),
+        );
+
+        let code = g.generate_struct(
+            &s,
+            &enum_names(&[]),
+            &defaults,
+            &known_stypes(&[]),
+            &enum_names(&["VkComponentTypeKHR"]),
+            Path::new("."),
+        );
+
+        assert!(
+            code.contains("componentType: 0,"),
+            "an i32 field must default to 0:\n{code}"
+        );
+        assert!(
+            !code.contains("componentType: VkComponentTypeKHR::"),
+            "must not emit a variant path as the default for an i32 field:\n{code}"
+        );
     }
 
     #[test]

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (soundness) — driver-written enum fields could hold an invalid discriminant
+
+Reading a Rust `enum` whose memory holds a discriminant outside its declared set is **undefined
+behaviour**. Every struct that `vk.xml` marks `returnedonly="true"` is filled by the implementation, and
+an implementation may report a value this `vk.xml` has never heard of — a component type or driver
+ID from an extension newer than the pinned spec. The UB was therefore reachable by **upgrading a
+graphics driver**, with no application change and no error path to observe.
+
+The generator already emitted a checked `from_raw(i32) -> Option<Self>` on every enum. Typing the
+field as the enum guaranteed it could never be called: the check existed and enforced nothing.
+
+**Driver-written enum fields are now emitted as raw `i32`** — 81 fields across the `returnedonly`
+structs — so the conversion becomes an explicit decision. Two deliberate exclusions: `sType` keeps
+its enum type (the application writes it even in a `returnedonly` struct, which is how a `pNext`
+query chain is assembled), and pointer/array fields are untouched (reading through a raw pointer is
+already `unsafe` and carries its own contract).
+
+Application-written structs are unaffected. Roughly 1,500 enum-typed fields keep ergonomic enums
+and exhaustive matching, because an application only ever writes values it obtained from the enum.
+
+**Breaking.** Safe-layer accessors that read these fields now return `Option<T>`, each paired with a
+`_raw` accessor:
+
+- `CooperativeMatrixProperties::{a,b,c,result}_type()` and `scope()` → `Option<_>`, plus
+  `*_raw() -> i32`
+- `PhysicalDeviceProperties::device_type()` → `Option<PhysicalDeviceType>`, plus `device_type_raw()`
+- `SurfaceFormat::format()` / `color_space()` → `Option<_>`, plus `format_raw()` / `color_space_raw()`
+- `DriverProperties::driver_id` → `Option<VkDriverId>`, and the new field `driver_id_raw: i32`
+
+The pairing is load-bearing, not convenience. The checked form is **lossy by construction**: every
+unrecognized value collapses to `None`, so two different unknown driver IDs become indistinguishable
+through it, and a shader cache keyed on that would reuse one driver's binaries for another. Key
+caches on the raw value; gate workarounds on the named one.
+
+`Swapchain::pick_surface_format` now skips formats this build cannot name, and returns
+`ERROR_FORMAT_NOT_SUPPORTED` if none remain. Use the `_raw` accessors and build the swapchain
+directly if you need one of those formats.
+
 ### Fixed — `bfloat16` was spellable but not derivable from a device
 
 `kiss::component()` maps a raw `VkComponentTypeKHR` to the KISS vocabulary's `ComponentType`.
