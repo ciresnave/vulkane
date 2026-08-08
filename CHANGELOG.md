@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `bfloat16` was spellable but not derivable from a device
+
+`kiss::component()` maps a raw `VkComponentTypeKHR` to the KISS vocabulary's `ComponentType`.
+It covered the base set (values 0–10) but had no arm for `VK_COMPONENT_TYPE_BFLOAT16_KHR`, so a
+driver reporting bfloat16 cooperative matrices yielded `ComponentType::Other(1000141000)`.
+
+`ComponentType::BF16` and its `bf16` token have always existed and round-trip correctly, which is
+why the vocabulary crate's tests passed throughout — they construct the variant directly. Nothing
+exercised the derivation from a live device, so the gap sat between two things that were each
+individually fine.
+
+**This is an `Other(n)` → named reclassification.** Downstream code matching `ComponentType` with
+a wildcard arm compiles unchanged and behaves differently: a bfloat16 cooperative-matrix shape
+that previously fell into a catch-all now matches `BF16`. Tokens derived from such a device change
+accordingly — which is the point, but it does mean a cache keyed on the old token is stale.
+
+The other four unmapped values are deliberate, and are now documented as such on `component()`
+with a test pinning the choice:
+
+- `SINT8_PACKED_NV` / `UINT8_PACKED_NV` stay `Other`. They carry `s8`/`u8` data in a packed
+  cooperative-matrix layout — a different shader-side contract from the unpacked types. Folding
+  them onto `S8`/`U8` would collapse two distinct Vulkan values onto one token and let a
+  packed-only device satisfy a target asking for plain `s8`.
+- `FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT` are blocked on the KISS `sk4` schema event. `ComponentType`
+  has no FP8 variant and is published without `#[non_exhaustive]`, so adding one is breaking and
+  must ride the coordinated `sk4` major. Independently, the arm cannot be written correctly today:
+  these names denote a *layout*, KISS §3.1.5 makes the `fn`/`fnuz` suffix mandatory, and the Vulkan
+  registry never says which variant is meant.
+
 ## [0.10.2] — 2026-08-07
 
 Found by a sweep for unfinished work prompted by Fuel and Baracuda each turning up
