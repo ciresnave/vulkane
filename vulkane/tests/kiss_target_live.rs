@@ -8,9 +8,34 @@
 //! vocabulary is ratified means a wording change; finding it out afterwards
 //! means a spec revision.
 //!
-//! Skips gracefully with no Vulkan ICD present.
+//! # These skip without a device — and say so
+//!
+//! Every test here needs a real `VkPhysicalDevice`. With no Vulkan ICD they
+//! return early, which in Rust's harness is a **pass**: nothing asserted,
+//! `ok` reported, indistinguishable in the summary from a full run.
+//!
+//! That matters more here than in most of the suite. These five tests are the
+//! evidence that the `vulkan:` vocabulary is derivable at all — the claim this
+//! file exists to support, and the one the KISS side relies on. On a machine
+//! without a device that evidence silently evaporates while the suite stays
+//! green.
+//!
+//! So each skip is declared through [`common::skipped`], and setting
+//! `VULKANE_REQUIRE_DEVICE=1` turns it into a failure. Run it that way
+//! anywhere a device is guaranteed:
+//!
+//! ```text
+//! VULKANE_REQUIRE_DEVICE=1 cargo test -p vulkane --features kiss-target
+//! ```
+//!
+//! Measured on this hardware, the difference is stark: a real run takes ~8s,
+//! a fully-skipped one ~0.02s. Wall-clock is a usable discriminator when the
+//! environment variable isn't set, but it's a heuristic — the variable is the
+//! answer.
 
 #![cfg(feature = "kiss-target")]
+
+mod common;
 
 use kiss_vulkan_vocab::{CoopMatrix, Subgroup, VulkanTarget};
 use vulkane::kiss::DeviceCapabilities;
@@ -37,8 +62,7 @@ fn caps() -> Option<(Instance, PhysicalDevice, DeviceCapabilities)> {
 #[test]
 fn derives_a_parseable_canonical_token_for_every_admissible_choice() {
     let Some((_i, physical, caps)) = caps() else {
-        eprintln!("SKIP: no Vulkan ICD, or the device declined subgroup properties");
-        return;
+        return common::skipped("no Vulkan ICD, or the device declined subgroup properties");
     };
     println!("device: {}", physical.properties().device_name());
     println!("caps:   {caps:?}");
@@ -78,8 +102,7 @@ fn derivation_is_deterministic_across_calls() {
     // an unsorted list would surface here as a token that differs run to run —
     // which under byte-exact matching means a cache that never hits.
     let Some((_i, physical, first)) = caps() else {
-        eprintln!("SKIP: no Vulkan ICD");
-        return;
+        return common::skipped("no Vulkan ICD");
     };
     let second = DeviceCapabilities::of(&physical).expect("second read");
     assert_eq!(first, second, "capability read is not deterministic");
@@ -96,8 +119,7 @@ fn derivation_is_deterministic_across_calls() {
 #[test]
 fn subgroup_choices_match_the_reported_range() {
     let Some((_i, physical, caps)) = caps() else {
-        eprintln!("SKIP: no Vulkan ICD");
-        return;
+        return common::skipped("no Vulkan ICD");
     };
     let sg = physical
         .subgroup_properties()
@@ -147,8 +169,7 @@ fn a_narrower_kernel_target_is_admitted_but_spells_differently() {
     // must be distinct from the device's maximal one — otherwise every kernel
     // on a given device would collapse into one cell.
     let Some((_i, _p, caps)) = caps() else {
-        eprintln!("SKIP: no Vulkan ICD");
-        return;
+        return common::skipped("no Vulkan ICD");
     };
     let full = caps.target_for(Subgroup::Dynamic);
     let minimal = VulkanTarget {
@@ -173,8 +194,7 @@ fn a_narrower_kernel_target_is_admitted_but_spells_differently() {
 #[test]
 fn rejects_a_target_the_device_cannot_run() {
     let Some((_i, _p, caps)) = caps() else {
-        eprintln!("SKIP: no Vulkan ICD");
-        return;
+        return common::skipped("no Vulkan ICD");
     };
     // A width no real device pins.
     let impossible = VulkanTarget {
