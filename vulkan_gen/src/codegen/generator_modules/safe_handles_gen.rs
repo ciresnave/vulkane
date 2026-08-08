@@ -18,8 +18,9 @@
 //! void     vkDestroy<H>(VkDevice, VkH, *const VkAllocationCallbacks);
 //! ```
 //!
-//! That is not a stopgap. Against Vulkan 1.4.х the 59 non-alias handle
-//! types divide exhaustively into three groups:
+//! That is not a stopgap. Against the pinned `vk.xml` (Vulkan 1.4, header
+//! version 348) the 59 non-alias handle types divide exhaustively into
+//! three groups:
 //!
 //! * **30 hand-written** — [`HAND_WRITTEN`]. These have richer bespoke
 //!   wrappers in `vulkane::safe`; auto-generation is suppressed so it
@@ -34,8 +35,9 @@
 //! Anything outside those three groups is a handle shape this generator
 //! has not seen. It is reported through [`SafeHandlesStats::unclassified`]
 //! and logged as a warning rather than silently dropped — see
-//! `every_handle_is_wrapped_hand_written_or_explicitly_excluded` in the
-//! vulkane test suite, which fails when the pinned `vk.xml` grows one.
+//! `every_handle_is_wrapped_hand_written_or_explicitly_excluded` in
+//! `vulkan_gen/tests/handle_coverage.rs`, which fails when the pinned
+//! `vk.xml` grows one.
 //! The build itself stays permissive so that swapping in a newer `vk.xml`
 //! keeps working.
 
