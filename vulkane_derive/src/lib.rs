@@ -39,7 +39,7 @@
 //! | `i32` | `R32_SINT` |
 //! | `[i32; 2]` | `R32G32_SINT` |
 //! | `[i32; 3]` | `R32G32B32_SINT` |
-//! | `[i32; 4]` | `R32G32B32A32_SINT` (not yet added as Format constant) |
+//! | `[i32; 4]` | `R32G32B32A32_SINT` |
 //! | `[u8; 4]` | `R8G8B8A8_UINT` |
 //! | `u16` | `R16_UINT` |
 //! | `i16` | `R16_SINT` |
@@ -84,7 +84,7 @@ pub fn derive_vertex(input: TokenStream) -> TokenStream {
                     &field.ty,
                     format!(
                         "Vertex derive: unsupported field type for `{}`. \
-                         Supported: f32, [f32; 2..4], u32, [u32; 2..4], i32, [i32; 2..3], [u8; 4], u16, i16",
+                         Supported: f32, [f32; 2..4], u32, [u32; 2..4], i32, [i32; 2..4], [u8; 4], u16, i16",
                         field_name
                     ),
                 )
@@ -153,7 +153,8 @@ fn type_to_format(ty: &Type) -> Option<proc_macro2::TokenStream> {
         "[u32;4]" => Some(quote!(::vulkane::safe::Format::R32G32B32A32_UINT)),
         "i32" => Some(quote!(::vulkane::safe::Format::R32_SINT)),
         "[i32;2]" => Some(quote!(::vulkane::safe::Format::R32G32_SINT)),
-        "[i32;3]" => Some(quote!(::vulkane::safe::Format::R32G32B32_SFLOAT)), // No R32G32B32_SINT yet
+        "[i32;3]" => Some(quote!(::vulkane::safe::Format::R32G32B32_SINT)),
+        "[i32;4]" => Some(quote!(::vulkane::safe::Format::R32G32B32A32_SINT)),
         "[u8;4]" => Some(quote!(::vulkane::safe::Format::R8G8B8A8_UINT)),
         "u16" => Some(quote!(::vulkane::safe::Format::R16_UINT)),
         "i16" => Some(quote!(::vulkane::safe::Format::R16_SINT)),

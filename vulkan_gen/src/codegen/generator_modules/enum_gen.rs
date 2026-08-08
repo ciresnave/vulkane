@@ -924,17 +924,17 @@ impl GeneratorModule for EnumGenerator {
         let output_path = output_dir.join(self.output_file());
         fs::write(output_path, generated_code).map_err(GeneratorError::Io)?;
 
-        // Collect and report metadata
-        let _metadata = self.collect_metadata(input_dir)?;
-        // Log message already handled in collect_metadata
-
         log_info(&format!("Generated {} enums", enums_array.len()));
         Ok(())
     }
 
+    /// Names the enum types this module defines are *not* listed here.
+    ///
+    /// Deriving them requires reading `enums.json`, which `metadata` has no
+    /// access to; [`Self::collect_metadata`] does that instead. Nothing in the
+    /// pipeline consumes either (see [`GeneratorMetadata`]), so this reports
+    /// only what it can know without input.
     fn metadata(&self) -> GeneratorMetadata {
-        // In a real implementation, this would extract information from the loaded enums
-        // For now, we'll return placeholder data that will be populated during generate()
         GeneratorMetadata {
             defined_types: Vec::new(),
             used_types: Vec::new(),
@@ -943,7 +943,12 @@ impl GeneratorModule for EnumGenerator {
         }
     }
 
-    /// Populate metadata from parsed enums
+    /// Report the enum type names defined by `enums.json`.
+    ///
+    /// Informational — see [`GeneratorMetadata`]. Note these are the names the
+    /// *input* declares, which is not the same set as the names actually
+    /// emitted: enums whose members all resolve to constants are skipped, and
+    /// aliases are folded. Do not use this to reason about the output.
     fn collect_metadata(&self, input_dir: &Path) -> GeneratorResult<GeneratorMetadata> {
         let mut defined_types = Vec::new();
 

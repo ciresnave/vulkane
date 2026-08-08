@@ -1,29 +1,39 @@
-# Contributing to infra-vulkan
+# Contributing to Vulkane
 
-Thank you for your interest in contributing to infra-vulkan! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Vulkane! This document provides guidelines and instructions for contributing to the project.
 
 ## Development Setup
 
 1. Install development dependencies:
+   - Rust 1.85 or later (the crate is edition 2024)
    - Vulkan SDK 1.4.316 or later
-   - Rust 1.75.0 or later
-   - CMake 3.20 or later (for building examples)
+   - CMake 3.20 or later and a C++ toolchain — only needed for the `shaderc`
+     and `slang` features, which build their compilers from source. The
+     examples themselves are pure Rust and need neither.
 
 2. Clone and build:
 
    ```bash
-   git clone https://github.com/username/infra-vulkan.git
-   cd infra-vulkan
-   cargo build --all-features
+   git clone https://github.com/ciresnave/vulkane.git
+   cd vulkane
+   cargo build
    ```
 
 3. Run tests:
 
    ```bash
-   cargo test
-   cargo test --all-features
-   cargo test --features validation-layers
+   cargo test                          # core suite
+   cargo test --features naga          # GLSL front-end
+   cargo test --features kiss-target   # KISS `vulkan:` token derivation
    ```
+
+   `cargo test --all-features` also works but pulls in `shaderc` and `slang`,
+   so it needs the C++ toolchain above and takes considerably longer.
+
+   Note that much of the suite enumerates and runs work on a **real Vulkan
+   device** rather than mocking one. Expect it to fail on a machine with no
+   Vulkan-capable GPU or no installed ICD, and avoid running two GPU-touching
+   suites concurrently.
 
 ## Code Style
 
@@ -43,23 +53,25 @@ Thank you for your interest in contributing to infra-vulkan! This document provi
 2. Include doc tests demonstrating usage:
 
 ```rust
-/// Allocate device memory with specific properties
+/// Allocate `size` bytes of device memory from the given memory type.
 ///
 /// # Examples
 ///
-/// ```
-/// use infra_vulkan::{Device, memory::MemoryPropertyFlags};
-/// 
+/// ```no_run
+/// use vulkane::safe::{Device, DeviceMemory};
+///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let device: Device = unimplemented!();
-/// let memory = device.allocate_memory(
-///     1024,
-///     MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
-/// )?;
+/// # let memory_type_index = 0;
+/// let memory = DeviceMemory::allocate(&device, 1024, memory_type_index)?;
 /// # Ok(())
 /// # }
 /// ```
 ```
+
+Pick the type index with `PhysicalDevice::find_memory_type`, and prefer
+`DeviceMemory::allocate_with` when you need to pass a `MemoryAllocateInfo`
+(for a dedicated allocation or an exportable handle, say).
 
 ## Testing Requirements
 
@@ -143,10 +155,9 @@ Thank you for your interest in contributing to infra-vulkan! This document provi
 
 ## Getting Help
 
-- Join our Discord server
-- Check project discussions
-- Review existing issues
-- Ask on the Rust forum
+- Open an issue at <https://github.com/ciresnave/vulkane/issues>
+- Check existing issues and discussions first — Vulkan questions recur
+- Consult the API docs at <https://docs.rs/vulkane>
 
 ## License
 

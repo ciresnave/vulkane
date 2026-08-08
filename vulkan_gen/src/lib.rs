@@ -62,8 +62,10 @@ pub fn generate_bindings(
     )
     .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
     codegen::logging::log_info(&format!(
-        "Generated {} auto-RAII handle wrappers ({} skipped)",
-        handle_stats.generated, handle_stats.skipped
+        "Generated {} auto-RAII handle wrappers ({} skipped, {} unclassified)",
+        handle_stats.generated,
+        handle_stats.skipped,
+        handle_stats.unclassified.len()
     ));
 
     let cmd_stats = codegen::generator_modules::safe_commands_gen::generate_safe_commands(

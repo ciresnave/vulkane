@@ -47,10 +47,11 @@ impl std::error::Error for NagaError {}
 
 impl From<NagaError> for Error {
     fn from(e: NagaError) -> Self {
-        // Bridge into the safe wrapper's Error type via the most general variant.
-        // We embed the Naga error message in a MissingFunction-style String,
-        // but really we'd want a new Error variant. For now, use Vk(_) for the
-        // common case so callers using `?` get a usable error.
+        // `NagaCompile` carries the rendered message rather than the typed
+        // `NagaError`, matching the shape of the sibling `ShadercCompile` and
+        // `SlangCompile` variants so all three shader front-ends surface the
+        // same way. `NagaError`'s `Display` names the failing stage, so the
+        // parse/validation/emission distinction survives the conversion.
         Error::NagaCompile(e.to_string())
     }
 }
