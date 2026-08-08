@@ -284,13 +284,22 @@ impl Swapchain {
             return Err(Error::Vk(VkResult::ERROR_FORMAT_NOT_SUPPORTED));
         }
         for f in &formats {
-            if f.format() == Format::B8G8R8A8_SRGB
-                && f.color_space() == VkColorSpaceKHR::COLOR_SPACE_SRGB_NONLINEAR_KHR
+            if f.format() == Some(Format::B8G8R8A8_SRGB)
+                && f.color_space() == Some(VkColorSpaceKHR::COLOR_SPACE_SRGB_NONLINEAR_KHR)
             {
-                return Ok((f.format(), f.color_space()));
+                // Both are `Some` by the guard above.
+                return Ok((f.format().unwrap(), f.color_space().unwrap()));
             }
         }
-        Ok((formats[0].format(), formats[0].color_space()))
+        // Fall back to the first pair this build can actually name. A driver
+        // may report a format or colour space from a newer spec revision; this
+        // helper returns a typed pair, so it skips those rather than inventing
+        // a name for one. Reach for `format_raw`/`color_space_raw` and build
+        // the swapchain directly if you need one of them.
+        formats
+            .iter()
+            .find_map(|f| Some((f.format()?, f.color_space()?)))
+            .ok_or(Error::Vk(VkResult::ERROR_FORMAT_NOT_SUPPORTED))
     }
 }
 

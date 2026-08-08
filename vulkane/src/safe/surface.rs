@@ -427,10 +427,24 @@ impl std::fmt::Debug for SurfaceFormat {
 }
 
 impl SurfaceFormat {
-    pub fn format(&self) -> super::Format {
-        super::Format(self.raw.format)
+    /// The surface's pixel format, or `None` if the implementation reported a
+    /// format this spec revision does not define. See
+    /// [`format_raw`](Self::format_raw).
+    pub fn format(&self) -> Option<super::Format> {
+        VkFormat::from_raw(self.raw.format).map(super::Format)
     }
-    pub fn color_space(&self) -> VkColorSpaceKHR {
+    /// Raw `VkFormat` value, exactly as the implementation reported it —
+    /// including values this build cannot name.
+    pub fn format_raw(&self) -> i32 {
+        self.raw.format
+    }
+    /// The surface's colour space, or `None` if the implementation reported one
+    /// this spec revision does not define.
+    pub fn color_space(&self) -> Option<VkColorSpaceKHR> {
+        VkColorSpaceKHR::from_raw(self.raw.colorSpace)
+    }
+    /// Raw `VkColorSpaceKHR` value, exactly as the implementation reported it.
+    pub fn color_space_raw(&self) -> i32 {
         self.raw.colorSpace
     }
 }

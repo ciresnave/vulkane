@@ -150,10 +150,15 @@ impl DeviceCapabilities {
                 m: p.m_size(),
                 n: p.n_size(),
                 k: p.k_size(),
-                a: component(p.a_type() as u32),
-                b: component(p.b_type() as u32),
-                c: component(p.c_type() as u32),
-                result: component(p.result_type() as u32),
+                // Deliberately the `_raw` accessors. `component` maps an
+                // unrecognized value to `ComponentType::Other(n)`, which needs
+                // `n`; going through the checked accessor would collapse every
+                // unknown type to `None` and lose the number that distinguishes
+                // them. The token must stay honest about what the device said.
+                a: component(p.a_type_raw() as u32),
+                b: component(p.b_type_raw() as u32),
+                c: component(p.c_type_raw() as u32),
+                result: component(p.result_type_raw() as u32),
                 saturating: p.saturating_accumulation(),
             })
             .collect();

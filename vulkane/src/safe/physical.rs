@@ -614,7 +614,8 @@ impl PhysicalDevice {
         }
 
         Some(DriverProperties {
-            driver_id: d.driverID,
+            driver_id: VkDriverId::from_raw(d.driverID),
+            driver_id_raw: d.driverID,
             driver_name,
             driver_info,
             conformance_version: ConformanceVersion {
@@ -834,9 +835,17 @@ impl PhysicalDeviceProperties {
         self.raw.deviceID
     }
 
-    /// The kind of physical device (discrete GPU, integrated, virtual, CPU, ...).
-    pub fn device_type(&self) -> PhysicalDeviceType {
-        PhysicalDeviceType(self.raw.deviceType)
+    /// The kind of physical device (discrete GPU, integrated, virtual, CPU, ...),
+    /// or `None` if the implementation reported a kind this spec revision does
+    /// not define. See [`device_type_raw`](Self::device_type_raw).
+    pub fn device_type(&self) -> Option<PhysicalDeviceType> {
+        VkPhysicalDeviceType::from_raw(self.raw.deviceType).map(PhysicalDeviceType)
+    }
+
+    /// Raw `VkPhysicalDeviceType` value, exactly as the implementation
+    /// reported it — including values this build cannot name.
+    pub fn device_type_raw(&self) -> i32 {
+        self.raw.deviceType
     }
 
     /// Number of nanoseconds per timestamp tick. See
@@ -1281,7 +1290,20 @@ pub struct DriverProperties {
     /// `DRIVER_ID_MESA_LLVMPIPE`, … Two ICDs driving the *same* hardware
     /// are distinct here, which is what makes this the right axis for
     /// gating a driver-specific workaround.
-    pub driver_id: VkDriverId,
+    ///
+    /// `None` means the ICD reported an ID this spec revision does not
+    /// define. That is routine rather than exceptional — new driver IDs are
+    /// registered regularly, so any driver newer than the pinned `vk.xml` can
+    /// land here. Gate workarounds on the named value; key caches on
+    /// [`driver_id_raw`](Self::driver_id_raw), which stays distinct even for
+    /// an ICD this build cannot name.
+    pub driver_id: Option<VkDriverId>,
+    /// Raw `VkDriverId` value, exactly as the ICD reported it.
+    ///
+    /// Always meaningful, including when [`driver_id`](Self::driver_id) is
+    /// `None`. Two unrecognized ICDs remain distinguishable here, which is why
+    /// this — not the named form — is the right shader-cache key.
+    pub driver_id_raw: i32,
     /// Vendor's name for the driver, e.g. `"radv"`, `"NVIDIA"`.
     pub driver_name: String,
     /// Free-form version detail, e.g. `"Mesa 24.1.2"`. Together with
@@ -1387,25 +1409,56 @@ impl CooperativeMatrixProperties {
     pub fn k_size(&self) -> u32 {
         self.raw.KSize
     }
-    /// Component type of operand A. The value is the raw
-    /// `VkComponentTypeKHR` enum.
-    pub fn a_type(&self) -> VkComponentTypeKHR {
+    /// Component type of operand A, or `None` if the implementation reported a
+    /// value this spec revision does not define.
+    ///
+    /// `None` is not an error — it means the driver supports a component type
+    /// newer than the `vk.xml` this build was generated from. Use
+    /// [`a_type_raw`](Self::a_type_raw) when you need to preserve or report
+    /// that value rather than discard it.
+    pub fn a_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.AType)
+    }
+    /// Raw `VkComponentTypeKHR` value for operand A, exactly as the
+    /// implementation reported it — including values this build cannot name.
+    pub fn a_type_raw(&self) -> i32 {
         self.raw.AType
     }
-    pub fn b_type(&self) -> VkComponentTypeKHR {
+    /// See [`a_type`](Self::a_type).
+    pub fn b_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.BType)
+    }
+    /// See [`a_type_raw`](Self::a_type_raw).
+    pub fn b_type_raw(&self) -> i32 {
         self.raw.BType
     }
-    pub fn c_type(&self) -> VkComponentTypeKHR {
+    /// See [`a_type`](Self::a_type).
+    pub fn c_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.CType)
+    }
+    /// See [`a_type_raw`](Self::a_type_raw).
+    pub fn c_type_raw(&self) -> i32 {
         self.raw.CType
     }
-    pub fn result_type(&self) -> VkComponentTypeKHR {
+    /// See [`a_type`](Self::a_type).
+    pub fn result_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.ResultType)
+    }
+    /// See [`a_type_raw`](Self::a_type_raw).
+    pub fn result_type_raw(&self) -> i32 {
         self.raw.ResultType
     }
     /// Whether the implementation saturates accumulator overflow.
     pub fn saturating_accumulation(&self) -> bool {
         self.raw.saturatingAccumulation != 0
     }
-    pub fn scope(&self) -> VkScopeKHR {
+    /// Scope the cooperative matrix operates at, or `None` if the
+    /// implementation reported a scope this spec revision does not define.
+    pub fn scope(&self) -> Option<VkScopeKHR> {
+        VkScopeKHR::from_raw(self.raw.scope)
+    }
+    /// Raw `VkScopeKHR` value, exactly as the implementation reported it.
+    pub fn scope_raw(&self) -> i32 {
         self.raw.scope
     }
 }
@@ -1427,3 +1480,87 @@ impl std::fmt::Debug for CooperativeMatrixProperties {
 // Re-use Error so callers don't need a separate import.
 #[allow(dead_code)]
 fn _ensure_error_is_used(_: Error) {}
+
+#[cfg(test)]
+mod driver_written_enum_tests {
+    use super::*;
+
+    /// A driver reporting a component type newer than the pinned `vk.xml` — the
+    /// exact case that used to be undefined behaviour.
+    ///
+    /// **This test could not have been written before the field became `i32`.**
+    /// `VkCooperativeMatrixPropertiesKHR::AType` was typed as the Rust enum
+    /// `VkComponentTypeKHR`, so placing an undeclared discriminant in it was UB
+    /// at the moment of construction — the test would have been demonstrating
+    /// the bug by committing it. Now the field is a plain integer, the
+    /// out-of-range value is representable, and the *decision* about what it
+    /// means moves to a checked conversion the caller must handle.
+    ///
+    /// `999_999` stands in for a value from a future extension. Nothing about
+    /// the number matters except that this build cannot name it.
+    #[test]
+    fn an_undefined_component_type_is_representable_and_reported_honestly() {
+        let props = CooperativeMatrixProperties {
+            raw: VkCooperativeMatrixPropertiesKHR {
+                AType: 999_999,
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            props.a_type(),
+            None,
+            "a value this build cannot name must convert to None, not to some \
+             arbitrary variant that happens to share a discriminant"
+        );
+        assert_eq!(
+            props.a_type_raw(),
+            999_999,
+            "the raw accessor must preserve exactly what the driver reported — \
+             discarding it would make two different unknown types indistinguishable"
+        );
+    }
+
+    /// The checked path must still resolve values this build *does* know, or
+    /// the test above would pass for the trivial reason that conversion always
+    /// fails.
+    #[test]
+    fn a_defined_component_type_still_converts() {
+        let props = CooperativeMatrixProperties {
+            raw: VkCooperativeMatrixPropertiesKHR {
+                AType: VkComponentTypeKHR::COMPONENT_TYPE_FLOAT32_KHR as i32,
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            props.a_type(),
+            Some(VkComponentTypeKHR::COMPONENT_TYPE_FLOAT32_KHR)
+        );
+        assert_eq!(
+            props.a_type_raw(),
+            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT32_KHR as i32
+        );
+    }
+
+    /// Same hazard, different field: driver IDs are registered continuously, so
+    /// an ICD newer than the pinned spec is the *expected* case rather than an
+    /// exotic one.
+    ///
+    /// This pins **why `DriverProperties` carries both forms.** The checked
+    /// conversion is lossy by construction — every unrecognized ICD becomes the
+    /// same `None`, so two different unknown drivers are indistinguishable
+    /// through it. A shader cache keyed on that would happily reuse one
+    /// driver's binaries for another. The raw value keeps them apart, which is
+    /// what makes it, not the named form, the correct cache key.
+    #[test]
+    fn unknown_driver_ids_collapse_when_named_but_stay_distinct_raw() {
+        assert_eq!(VkDriverId::from_raw(999_999), None);
+        assert_eq!(VkDriverId::from_raw(999_998), None);
+
+        // Lossy on purpose: the named form cannot tell these apart...
+        assert_eq!(VkDriverId::from_raw(999_999), VkDriverId::from_raw(999_998));
+        // ...which is precisely why the raw value is retained alongside it.
+        assert_ne!(999_999, 999_998);
+    }
+}
