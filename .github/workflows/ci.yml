@@ -90,10 +90,24 @@ jobs:
       # float format) or `kiss_target_live.rs`.
       #
       # Both are pure Rust and need no external toolchain, so there is no
-      # reason for them not to run everywhere. `vertex_derive_test` is CPU-only
-      # and executes on every platform; `kiss_target_live` needs a Vulkan
-      # device and will skip on the runners that have none — on Linux,
-      # Lavapipe is installed above, so it actually runs there.
+      # reason for them not to run everywhere.
+      #
+      # `vertex_derive_test` is CPU-only and genuinely executes on every
+      # platform — that is the real gain here, since it is the regression test
+      # for signed-integer vertex attributes being handed a float format.
+      #
+      # `kiss_target_live` needs a Vulkan device. On Windows/macOS there is no
+      # ICD and all five of its tests skip: they report `ok` in ~0.02s against
+      # ~8s for a real run, so they assert nothing. On Linux, Lavapipe is
+      # installed above and `vulkaninfo` reports llvmpipe at 1.4 — but whether
+      # these tests then take their assertions or still skip is **not
+      # determinable from the CI log**, because a skip prints to captured
+      # stdout that is only echoed on failure. Do not read this step's green
+      # as evidence that the token derivation was exercised.
+      #
+      # Making that distinction visible is the separate declare-and-report
+      # work covering the 101 tests in this repo that can pass without
+      # asserting.
       - name: Run unit tests (derive + kiss-target)
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
