@@ -81,6 +81,22 @@ jobs:
         # actually execute. They don't require a Vulkan driver.
         run: cargo test --workspace --features fetch-spec,naga
 
+      # `derive` and `kiss-target` gate whole test files behind
+      # `#![cfg(feature = "...")]`. Without them those files compile to
+      # nothing and report `running 0 tests ... ok` — which is indistinguishable
+      # from a real pass in the summary, so the gap was invisible. Until this
+      # step existed, CI had never once executed `vertex_derive_test.rs` (the
+      # regression test for signed-integer vertex attributes being given a
+      # float format) or `kiss_target_live.rs`.
+      #
+      # Both are pure Rust and need no external toolchain, so there is no
+      # reason for them not to run everywhere. `vertex_derive_test` is CPU-only
+      # and executes on every platform; `kiss_target_live` needs a Vulkan
+      # device and will skip on the runners that have none — on Linux,
+      # Lavapipe is installed above, so it actually runs there.
+      - name: Run unit tests (derive + kiss-target)
+        run: cargo test --workspace --features fetch-spec,derive,kiss-target
+
       - name: Build examples
         run: |
           cargo build -p vulkane --features fetch-spec --example device_info
