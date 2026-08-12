@@ -4,54 +4,37 @@
 //! trait methods *exist* at compile time; this file proves they
 //! *actually work* against a real driver.
 //!
-//! All tests skip gracefully when Vulkan is unavailable. They do not
-//! probe for any specific extension — they only touch core-1.0 /
-//! core-1.1 functionality that every Vulkan loader exposes.
+//! All tests skip gracefully when Vulkan is unavailable — and say so, through
+//! [`common`], so that under `VULKANE_REQUIRE_DEVICE` a skip is a failure.
+//! They do not probe for any specific extension — they only touch core-1.0 /
+//! core-1.1 functionality that every Vulkan loader exposes, so *every*
+//! precondition in this file is device-absence and every skip here is
+//! legitimately fatal in an environment that promised a device.
+
+mod common;
 
 use vulkane::safe::{
-    ApiVersion, DeviceCreateInfo, DeviceSafeExt, Instance, InstanceCreateInfo, InstanceSafeExt,
-    PhysicalDeviceSafeExt, QueueCreateInfo, QueueFlags, QueueSafeExt,
+    DeviceSafeExt, Instance, InstanceCreateInfo, InstanceSafeExt, PhysicalDeviceSafeExt,
+    QueueSafeExt,
 };
 
-fn bootstrap() -> Option<(Instance, vulkane::safe::Device, u32)> {
-    let instance = Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane generator-live-device test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    })
-    .ok()?;
-    // NB: call the generated trait method via UFCS — the hand-written
-    // inherent `Instance::enumerate_physical_devices` shadows it by
-    // returning the safe `Vec<PhysicalDevice>` wrapper. We want the
-    // raw-handle version for this test.
-    let raw_phys = <Instance as InstanceSafeExt>::enumerate_physical_devices(&instance).ok()?;
-    if raw_phys.is_empty() {
-        return None;
-    }
-    // Still need a safe PhysicalDevice to create a device; get it via
-    // the hand-written enumerate.
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .find(|pd| pd.find_queue_family(QueueFlags::COMPUTE).is_some())?;
-    let qf = physical.find_queue_family(QueueFlags::COMPUTE)?;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo::single(qf)],
-            ..Default::default()
-        })
-        .ok()?;
-    Some((instance, device, qf))
+/// The previous version also returned the `Instance`, and every caller bound it
+/// as `_instance` — it was kept alive for nothing, since `Device` holds its own
+/// `Arc` to the instance internals.
+fn bootstrap() -> Result<(vulkane::safe::Device, u32), &'static str> {
+    let (device, _physical, qf) = common::compute_device("vulkane generator-live-device test")?;
+    Ok((device, qf))
 }
 
 #[test]
 fn generated_instance_enumerate_physical_devices_live() {
     // Proof the generator's count-then-fill enumerate pattern produces
     // a working two-call sequence against a real loader.
-    let Ok(instance) = Instance::new(InstanceCreateInfo::default()) else {
-        eprintln!("SKIP: Vulkan not available");
-        return;
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(e) => {
+            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
+        }
     };
     let raw_physdevs = <Instance as InstanceSafeExt>::enumerate_physical_devices(&instance)
         .expect("InstanceSafeExt::enumerate_physical_devices");
@@ -70,8 +53,9 @@ fn generated_instance_enumerate_physical_devices_live() {
 fn generated_device_wait_idle_live() {
     // Simplest VkResult-returning Device method — proves the generated
     // body's `Result<()>` translation works against a real driver.
-    let Some((_instance, device, _qf)) = bootstrap() else {
-        return;
+    let (device, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     <vulkane::safe::Device as DeviceSafeExt>::device_wait_idle(&device)
         .expect("device_wait_idle must succeed on an idle device");
@@ -80,8 +64,9 @@ fn generated_device_wait_idle_live() {
 #[test]
 fn generated_queue_wait_idle_live() {
     // Queue-dispatch via the generated QueueSafeExt.
-    let Some((_instance, device, qf)) = bootstrap() else {
-        return;
+    let (device, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue = device.get_queue(qf, 0);
     <vulkane::safe::Queue as QueueSafeExt>::queue_wait_idle(&queue)
@@ -92,8 +77,9 @@ fn generated_queue_wait_idle_live() {
 fn generated_physical_device_get_queue_family_properties_live() {
     // Generated void-return enumerate: should match the hand-written
     // enumerate that the safe wrapper surfaces.
-    let Some((_instance, device, _qf)) = bootstrap() else {
-        return;
+    let (device, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let _ = device;
     let instance = Instance::new(InstanceCreateInfo::default()).unwrap();
@@ -114,7 +100,9 @@ fn generated_physical_device_get_properties_live() {
     // VkPhysicalDeviceProperties, we return it.
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
-        Err(_) => return,
+        Err(e) => {
+            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
+        }
     };
     for pd in instance.enumerate_physical_devices().unwrap_or_default() {
         let generated = <vulkane::safe::PhysicalDevice as PhysicalDeviceSafeExt>::get_physical_device_properties(&pd);

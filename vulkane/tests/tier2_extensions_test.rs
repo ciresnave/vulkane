@@ -10,43 +10,26 @@
 //! All tests degrade gracefully when the Vulkan driver doesn't expose
 //! the underlying extension. The goal is to prove the *safe API surface*
 //! is type-correct and, where possible, round-trips through the driver.
+//!
+//! Those degradations are declared through [`common`]: a missing *device* is
+//! fatal under `VULKANE_REQUIRE_DEVICE`, a missing *extension* never is. On
+//! this file the distinction is the whole point — Lavapipe, which the Linux CI
+//! job installs, has neither `VK_KHR_push_descriptor` nor
+//! `VK_EXT_shader_atomic_float`, and those absences are conformant.
+
+mod common;
 
 use vulkane::raw::bindings::{VkExtent2D, VkOffset2D, VkRect2D};
 use vulkane::safe::{
-    AccessFlags2, ApiVersion, AttachmentLoadOp, AttachmentStoreOp, Buffer, BufferCreateInfo,
-    BufferUsage, ClearValue, DeviceCreateInfo, DeviceFeatures, Format, Image, Image2dCreateInfo,
-    ImageLayout, ImageUsage, ImageView, Instance, InstanceCreateInfo, PipelineBindPoint,
-    PipelineStage2, PushDescriptorWrite, Queue, QueueCreateInfo, QueueFlags, RenderingAttachment,
-    RenderingInfo,
+    AccessFlags2, AttachmentLoadOp, AttachmentStoreOp, Buffer, BufferCreateInfo, BufferUsage,
+    ClearValue, DeviceFeatures, Format, Image, Image2dCreateInfo, ImageLayout, ImageUsage,
+    ImageView, Instance, InstanceCreateInfo, PipelineBindPoint, PipelineStage2,
+    PushDescriptorWrite, Queue, RenderingAttachment, RenderingInfo,
 };
 
-fn bootstrap() -> Option<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32)> {
-    let instance = Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane-tier2-test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    })
-    .ok()?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .find(|pd| {
-            pd.queue_family_properties()
-                .iter()
-                .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        })?;
-    let qf = physical
-        .queue_family_properties()
-        .iter()
-        .position(|q| q.queue_flags().contains(QueueFlags::COMPUTE))? as u32;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo::single(qf)],
-            ..Default::default()
-        })
-        .ok()?;
-    Some((device, physical, qf))
+fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
+{
+    common::compute_device("vulkane-tier2-test")
 }
 
 #[test]
@@ -60,9 +43,9 @@ fn push_descriptor_set_graceful_missing_function() {
         ShaderStageFlags,
     };
 
-    let Some((device, _physical, qf)) = bootstrap() else {
-        eprintln!("SKIP: Vulkan not available");
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -120,9 +103,9 @@ fn dynamic_rendering_begin_end_graceful_missing_function() {
     // VK_KHR_dynamic_rendering / core 1.3. Without the feature enabled,
     // vkCmdBeginRendering isn't loaded. We exercise the safe wrapper
     // and accept either success or MissingFunction.
-    let Some((device, physical, qf)) = bootstrap() else {
-        eprintln!("SKIP: Vulkan not available");
-        return;
+    let (device, physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -141,8 +124,12 @@ fn dynamic_rendering_begin_end_graceful_missing_function() {
     ) {
         Ok(triple) => triple,
         Err(e) => {
-            eprintln!("SKIP: could not create attachment image: {e:?}");
-            return;
+            // Not device-absence: the device is here and declined a
+            // COLOR_ATTACHMENT R8G8B8A8_UNORM image in DEVICE_LOCAL memory.
+            // A compute-only device legitimately cannot serve that.
+            return common::skipped_unsupported(&format!(
+                "a DEVICE_LOCAL R8G8B8A8_UNORM color attachment ({e:?})"
+            ));
         }
     };
     let _ = image;
@@ -197,8 +184,7 @@ fn shader_integer_dot_product_properties_queryable() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: Vulkan not available: {e}");
-            return;
+            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
         }
     };
     for pd in instance.enumerate_physical_devices().unwrap_or_default() {
@@ -246,8 +232,9 @@ fn device_features_shader_atomic_float_toggles_exist() {
 fn buffer_barrier2_in_recording_via_tier2_path() {
     // Regression check: the Tier-1 buffer_barrier2 still works after
     // Tier-2 additions reshaped the command.rs file layout.
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
     let buffer = Buffer::new(

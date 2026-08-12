@@ -12,50 +12,33 @@
 //! (e.g. actually creating a compute pipeline with a required subgroup
 //! size), we fall back to verifying that the safe wrapper either
 //! succeeds or surfaces a clean `MissingFunction` / `Vk` error.
+//!
+//! Every one of those degradations is declared through [`common`] rather than
+//! bailing with a bare `return`. Before that, all seven tests here skipped
+//! **silently** — the highest concentration in the suite — so on a machine
+//! without a device the file reported seven passes having asserted nothing.
+
+mod common;
 
 use vulkane::safe::{
-    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, ComputePipelineOptions,
-    DescriptorBufferBinding, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType,
-    DeviceCreateInfo, DeviceMemory, Instance, InstanceCreateInfo, MemoryAllocateInfo,
-    MemoryPropertyFlags, PipelineBindPoint, PipelineLayout, Queue, QueueCreateInfo, QueueFlags,
+    Buffer, BufferCreateInfo, BufferUsage, ComputePipelineOptions, DescriptorBufferBinding,
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DeviceMemory,
+    MemoryAllocateInfo, MemoryPropertyFlags, PipelineBindPoint, PipelineLayout, Queue,
     ShaderStageFlags,
 };
 
-fn bootstrap() -> Option<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32)> {
-    let instance = Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane-tier3-test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    })
-    .ok()?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .find(|pd| {
-            pd.queue_family_properties()
-                .iter()
-                .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        })?;
-    let qf = physical
-        .queue_family_properties()
-        .iter()
-        .position(|q| q.queue_flags().contains(QueueFlags::COMPUTE))? as u32;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo::single(qf)],
-            ..Default::default()
-        })
-        .ok()?;
-    Some((device, physical, qf))
+fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
+{
+    common::compute_device("vulkane-tier3-test")
 }
 
 #[test]
 fn memory_allocate_info_default_is_plain_allocation() {
     // Regression: the Default impl must produce a struct equivalent to
     // the plain allocate() path — no priority, no pnext.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let buffer = Buffer::new(
         &device,
@@ -69,7 +52,9 @@ fn memory_allocate_info_default_is_plain_allocation() {
     let Some(mt) =
         physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
     else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
     let _mem = DeviceMemory::allocate_with(
         &device,
@@ -88,8 +73,9 @@ fn memory_priority_chains_through_allocate_with() {
     // Drivers without VK_EXT_memory_priority enabled ignore the struct,
     // so this should succeed regardless of driver support. The test
     // proves the chain-merge path doesn't corrupt allocation.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let buffer = Buffer::new(
         &device,
@@ -103,7 +89,9 @@ fn memory_priority_chains_through_allocate_with() {
     let Some(mt) =
         physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
     else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
 
     for p in [0.0f32, 0.5, 1.0] {
@@ -127,8 +115,9 @@ fn memory_priority_composes_with_user_pnext() {
     use vulkane::raw::PNextChainable;
     use vulkane::raw::bindings::VkMemoryAllocateFlagsInfo;
     use vulkane::safe::PNextChain;
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let buffer = Buffer::new(
         &device,
@@ -142,7 +131,9 @@ fn memory_priority_composes_with_user_pnext() {
     let Some(mt) =
         physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
     else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
 
     let mut chain = PNextChain::new();
@@ -170,8 +161,9 @@ fn compute_pipeline_with_required_subgroup_size_path_compiles() {
     // descriptor layout), so this test exercises the *API surface* of
     // the subgroup-size option. A real failure here would be a type
     // error or a panic before reaching the driver.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
 
     // Build a minimal descriptor layout + pipeline layout for the
@@ -201,8 +193,9 @@ fn descriptor_buffer_size_graceful_missing_function() {
     // Without VK_EXT_descriptor_buffer enabled, the query function
     // isn't loaded — safe wrapper must return MissingFunction, not
     // panic or UB.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let set_layout = DescriptorSetLayout::new(
         &device,
@@ -234,8 +227,9 @@ fn descriptor_buffer_size_graceful_missing_function() {
 
 #[test]
 fn bind_descriptor_buffers_graceful_missing_function() {
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -280,8 +274,9 @@ fn bind_descriptor_buffers_graceful_missing_function() {
 fn set_descriptor_buffer_offsets_rejects_mismatched_lengths() {
     // Pure safe-layer validation: if buffer_indices.len() != offsets.len()
     // we return InvalidArgument *before* touching the driver.
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
     let set_layout = DescriptorSetLayout::new(

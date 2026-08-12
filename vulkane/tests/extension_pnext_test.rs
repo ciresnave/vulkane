@@ -13,6 +13,8 @@
 //! exercise real cross-API interop (which would need a companion
 //! CUDA/HIP/D3D12 process).
 
+mod common;
+
 use vulkane::raw::PNextChainable;
 #[cfg(unix)]
 use vulkane::raw::bindings::EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
@@ -24,56 +26,29 @@ use vulkane::raw::bindings::{
     VkStructureType,
 };
 use vulkane::safe::{
-    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceMemory, Fence,
-    Format, Image, Image2dCreateInfo, ImageUsage, Instance, InstanceCreateInfo, MemoryAllocateInfo,
+    Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceMemory, Fence, Format, Image,
+    Image2dCreateInfo, ImageUsage, Instance, InstanceCreateInfo, MemoryAllocateInfo,
     MemoryPropertyFlags, PNextChain, QueueCreateInfo, QueueFlags, Semaphore,
 };
 
-/// Boot an instance → physical device → device, skipping the whole test
-/// if Vulkan is unavailable. Picks any queue family with COMPUTE.
-fn bootstrap() -> Option<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32)> {
-    let instance = match Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane-ext-pnext-test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    }) {
-        Ok(i) => i,
-        Err(e) => {
-            eprintln!("SKIP: Vulkan not available: {e}");
-            return None;
-        }
-    };
-
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .find(|pd| {
-            pd.queue_family_properties()
-                .iter()
-                .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        })?;
-
-    let qf = physical
-        .queue_family_properties()
-        .iter()
-        .position(|q| q.queue_flags().contains(QueueFlags::COMPUTE))? as u32;
-
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo::single(qf)],
-            ..Default::default()
-        })
-        .ok()?;
-    Some((device, physical, qf))
+/// Boot an instance → physical device → device, or name the precondition that
+/// failed. Picks any queue family with COMPUTE.
+///
+/// This used to declare "Vulkan not available" for the *first* of its five
+/// failures and return a bare `None` for the other four, so a run that got as
+/// far as `vkCreateDevice` and failed there reported nothing at all.
+fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
+{
+    common::compute_device("vulkane-ext-pnext-test")
 }
 
 #[test]
 fn memory_allocate_with_empty_pnext_matches_plain_allocate() {
     // Regression: allocate_with(info{ pnext: None }) must behave identically
     // to allocate(). Both call the same underlying path now.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
 
     let buffer = Buffer::new(
@@ -109,8 +84,9 @@ fn memory_allocate_with_pnext_accepts_allocate_flags_info() {
     // Using VkMemoryAllocateFlagsInfo via the safe pnext field proves the
     // chain is being plumbed through. This struct is core 1.1 so it's
     // broadly supported — we just need the memory type to exist.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
 
     let buffer = Buffer::new(
@@ -126,8 +102,9 @@ fn memory_allocate_with_pnext_accepts_allocate_flags_info() {
         match physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL) {
             Some(m) => m,
             None => {
-                eprintln!("SKIP: no device-local memory type on this adapter");
-                return;
+                return common::skipped_unsupported(
+                    "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+                );
             }
         };
 
@@ -160,8 +137,9 @@ fn buffer_new_with_pnext_accepts_external_memory_info() {
     // Attaching VkExternalMemoryBufferCreateInfo proves the Buffer::new_with_pnext
     // path delivers the chain to the driver. This is the buffer-side piece
     // of VK_KHR_external_memory_{win32,fd} export.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
 
     let mut chain = PNextChain::new();
@@ -194,8 +172,9 @@ fn buffer_new_with_pnext_accepts_external_memory_info() {
 
 #[test]
 fn image_new_2d_with_pnext_accepts_external_memory_info() {
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
 
     let mut chain = PNextChain::new();
@@ -225,8 +204,9 @@ fn image_new_2d_with_pnext_accepts_external_memory_info() {
 
 #[test]
 fn fence_new_with_pnext_empty_chain_works() {
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let empty = PNextChain::new();
     let _f = Fence::new_with_pnext(&device, Some(&empty)).expect("fence with empty pnext chain");
@@ -234,8 +214,9 @@ fn fence_new_with_pnext_empty_chain_works() {
 
 #[test]
 fn semaphore_binary_with_pnext_empty_chain_works() {
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let empty = PNextChain::new();
     let _s = Semaphore::binary_with_pnext(&device, Some(&empty))
@@ -248,19 +229,20 @@ fn semaphore_timeline_with_pnext_combines_chains() {
     // new timeline_with_pnext path prepends it then appends whatever the
     // caller supplied. Passing an empty extra chain must still produce a
     // valid timeline semaphore.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     if device.dispatch().vkGetSemaphoreCounterValue.is_none() {
-        eprintln!("SKIP: timeline semaphores not supported");
-        return;
+        return common::skipped_unsupported(
+            "timeline semaphores (Vulkan 1.2 / VK_KHR_timeline_semaphore)",
+        );
     }
     let empty = PNextChain::new();
     let sem = match Semaphore::timeline_with_pnext(&device, 7, Some(&empty)) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("SKIP: timeline semaphore creation failed: {e:?}");
-            return;
+            return common::skipped_unsupported(&format!("timeline semaphore creation ({e:?})"));
         }
     };
     assert_eq!(sem.kind(), vulkane::safe::SemaphoreKind::Timeline);
@@ -277,8 +259,7 @@ fn device_create_info_pnext_is_plumbed_without_error() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: Vulkan not available: {e}");
-            return;
+            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
         }
     };
     let Some(physical) = instance.enumerate_physical_devices().ok().and_then(|v| {
@@ -288,7 +269,7 @@ fn device_create_info_pnext_is_plumbed_without_error() {
                 .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
         })
     }) else {
-        return;
+        return common::skipped("no physical device exposes a compute-capable queue family");
     };
     let qf = physical
         .queue_family_properties()
@@ -315,7 +296,7 @@ fn instance_create_info_pnext_is_plumbed_without_error() {
     });
     match result {
         Ok(_) => {}
-        Err(e) => eprintln!("SKIP: Vulkan not available: {e}"),
+        Err(e) => common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}")),
     }
 }
 
@@ -325,8 +306,9 @@ fn device_memory_get_win32_handle_graceful_missing_function() {
     // Without VK_KHR_external_memory_win32 enabled, vkGetMemoryWin32HandleKHR
     // isn't loaded — the safe wrapper must surface a clean
     // MissingFunction error rather than panicking.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let buffer = Buffer::new(
         &device,
@@ -340,7 +322,9 @@ fn device_memory_get_win32_handle_graceful_missing_function() {
     let Some(mt) =
         physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
     else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
     let mem = DeviceMemory::allocate(&device, req.size, mt).expect("allocate");
 
@@ -360,8 +344,9 @@ fn device_memory_get_win32_handle_graceful_missing_function() {
 #[test]
 fn semaphore_get_win32_handle_graceful_missing_function() {
     use vulkane::raw::bindings::EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let sem = Semaphore::binary(&device).expect("binary semaphore");
     match sem.get_win32_handle(EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT) {
@@ -376,8 +361,9 @@ fn semaphore_get_win32_handle_graceful_missing_function() {
 #[cfg(unix)]
 #[test]
 fn device_memory_get_fd_graceful_missing_function() {
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let buffer = Buffer::new(
         &device,
@@ -391,7 +377,9 @@ fn device_memory_get_fd_graceful_missing_function() {
     let Some(mt) =
         physical.find_memory_type(req.memory_type_bits, MemoryPropertyFlags::DEVICE_LOCAL)
     else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
     let mem = DeviceMemory::allocate(&device, req.size, mt).expect("allocate");
 
@@ -411,8 +399,9 @@ fn buffer_barrier2_graceful_missing_function() {
     // either Ok() or MissingFunction(vkCmdPipelineBarrier2).
     use vulkane::safe::{AccessFlags2, PipelineStage2, Queue};
 
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
     };
     let queue: Queue = device.get_queue(qf, 0);
 

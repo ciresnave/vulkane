@@ -10,8 +10,12 @@
 //! 7. Reports GPU info via vkGetPhysicalDeviceProperties
 //! 8. Cleans up via vkDestroyInstance
 //!
-//! If no Vulkan driver is installed, the test prints a notice and passes
-//! (rather than failing CI on machines without Vulkan).
+//! If no Vulkan driver is installed, the test declares the skip through
+//! [`common`] and passes — rather than failing CI on machines without Vulkan.
+//! Under `VULKANE_REQUIRE_DEVICE` it fails instead: both skip paths here are
+//! device-absence, which is exactly what that variable exists to catch.
+
+mod common;
 
 use std::ffi::CStr;
 use vulkane::raw::bindings::*;
@@ -23,8 +27,9 @@ fn test_real_vulkan_loader() {
     let library = match VulkanLibrary::new() {
         Ok(lib) => lib,
         Err(e) => {
-            eprintln!("SKIP: Vulkan library not available on this system: {}", e);
-            return;
+            return common::skipped(&format!(
+                "the Vulkan shared library could not be loaded: {e}"
+            ));
         }
     };
     println!("[OK] Loaded Vulkan shared library");
@@ -86,8 +91,10 @@ fn test_real_vulkan_loader() {
     // Actions runner, which ships vulkan-1.dll but no GPU driver. It's a
     // legitimate "no Vulkan available" outcome, not a test failure.
     if result == VkResult::ERROR_INCOMPATIBLE_DRIVER {
-        eprintln!("SKIP: Vulkan loader is present but no compatible driver is installed");
-        return;
+        return common::skipped(
+            "the Vulkan loader is present but no compatible ICD is installed \
+             (vkCreateInstance returned ERROR_INCOMPATIBLE_DRIVER)",
+        );
     }
 
     assert_eq!(

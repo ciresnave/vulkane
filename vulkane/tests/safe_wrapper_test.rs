@@ -1,7 +1,16 @@
 //! Integration test for the safe wrapper module.
 //!
 //! Validates the entire safe API end-to-end against a real Vulkan driver.
-//! Skips gracefully on systems without Vulkan installed.
+//! Skips gracefully on systems without Vulkan installed — and declares every
+//! skip through [`common`], so that a run which was *supposed* to have a device
+//! fails instead of quietly reporting `ok`.
+//!
+//! This is the largest concentration of device-gated tests in the repository:
+//! 63 of its tests can return before asserting anything. Almost all of them are
+//! local hygiene rather than freeze-path evidence, which is why they were done
+//! after `kiss_target_live.rs` rather than first.
+
+mod common;
 
 use vulkane::safe::{
     AccessFlags, AccessFlags2, AllocationCreateInfo, AllocationStrategy, AllocationUsage,
@@ -26,7 +35,7 @@ fn test_safe_instance_creation_and_enumeration() {
     }) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: Vulkan not available: {e}");
+            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
             return;
         }
     };
@@ -62,7 +71,7 @@ fn test_xlib_xcb_surface_constructors_callable() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: cannot create Vulkan instance: {e}");
+            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
             return;
         }
     };
@@ -98,7 +107,7 @@ fn test_safe_device_creation_and_drop() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(_) => {
-            eprintln!("SKIP: Vulkan not available");
+            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
             return;
         }
     };
@@ -107,7 +116,7 @@ fn test_safe_device_creation_and_drop() {
     let physical = match physicals.first() {
         Some(p) => p.clone(),
         None => {
-            eprintln!("SKIP: no physical devices");
+            common::skipped("an ICD is present but reports no physical devices");
             return;
         }
     };
@@ -141,14 +150,14 @@ fn test_safe_buffer_with_host_visible_memory() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(_) => {
-            eprintln!("SKIP: Vulkan not available");
+            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
             return;
         }
     };
 
     let physicals = instance.enumerate_physical_devices().unwrap();
     let Some(physical) = physicals.first().cloned() else {
-        eprintln!("SKIP: no physical devices");
+        common::skipped("an ICD is present but reports no physical devices");
         return;
     };
 
@@ -216,14 +225,14 @@ fn test_safe_full_gpu_round_trip() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(_) => {
-            eprintln!("SKIP: Vulkan not available");
+            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
             return;
         }
     };
 
     let physicals = instance.enumerate_physical_devices().unwrap();
     let Some(physical) = physicals.first().cloned() else {
-        eprintln!("SKIP: no physical devices");
+        common::skipped("an ICD is present but reports no physical devices");
         return;
     };
 
@@ -331,24 +340,13 @@ fn test_buffer_usage_bitor() {
 
 #[test]
 fn test_shader_module_from_spirv_bytes() {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => return,
-    };
-    let physicals = instance.enumerate_physical_devices().unwrap();
-    let Some(physical) = physicals.first().cloned() else {
+    // Hand-rolled the same instance → device sequence as `try_init_compute`,
+    // but with three undeclared bails and an `.unwrap()` on the queue-family
+    // lookup that the helper handles. Using the helper both declares the skip
+    // and removes the divergence.
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
-    let queue_family = physical.find_queue_family(QueueFlags::COMPUTE).unwrap();
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo {
-                queue_family_index: queue_family,
-                queue_priorities: vec![1.0],
-            }],
-            ..Default::default()
-        })
-        .unwrap();
 
     // Load the pre-compiled SPIR-V from disk and create a shader module.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -363,29 +361,9 @@ fn test_shader_module_from_spirv_bytes() {
 #[test]
 fn test_compute_pipeline_full_dispatch() {
     // End-to-end compute test: same as the compute_square example, in test form.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => return,
-    };
-    let physicals = instance.enumerate_physical_devices().unwrap();
-    let Some(physical) = physicals.first().cloned() else {
+    let Some((_inst, physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
-
-    let queue_family = match physical.find_queue_family(QueueFlags::COMPUTE) {
-        Some(q) => q,
-        None => return,
-    };
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo {
-                queue_family_index: queue_family,
-                queue_priorities: vec![1.0],
-            }],
-            ..Default::default()
-        })
-        .unwrap();
-    let queue = device.get_queue(queue_family, 0);
 
     // Storage buffer with 64 u32s = 256 bytes
     const N: u32 = 64;
@@ -495,20 +473,35 @@ fn test_compute_pipeline_full_dispatch() {
 
 /// Helper: try to spin up a (instance, physical, device, queue, queue_family).
 /// Returns None if no Vulkan ICD is available so tests can skip cleanly.
-fn try_init_compute() -> Option<(
+type ComputeSetup = (
     Instance,
     vulkane::safe::PhysicalDevice,
     vulkane::safe::Device,
     vulkane::safe::Queue,
     u32,
-)> {
-    let instance = Instance::new(InstanceCreateInfo::default()).ok()?;
+);
+
+/// Instance → physical device → device → compute queue, or the **specific**
+/// precondition that failed.
+///
+/// Four distinct failures used to arrive at the call site as one `None`, and
+/// all 43 call sites printed the same `SKIP: no Vulkan ICD` for every one of
+/// them. Three of the four are not that: an ICD can be present and enumeration
+/// fail, present and report no devices, or present with a device that has no
+/// compute queue family. Anyone who hit one of those was told to go install a
+/// driver they already had.
+fn try_init_compute() -> Result<ComputeSetup, &'static str> {
+    let instance = Instance::new(InstanceCreateInfo::default())
+        .map_err(|_| "no Vulkan ICD, or the loader declined to create an instance")?;
     let physical = instance
         .enumerate_physical_devices()
-        .ok()?
+        .map_err(|_| "an ICD is present but enumerating physical devices failed")?
         .into_iter()
-        .next()?;
-    let queue_family = physical.find_queue_family(QueueFlags::COMPUTE)?;
+        .next()
+        .ok_or("an ICD is present but reports no physical devices")?;
+    let queue_family = physical
+        .find_queue_family(QueueFlags::COMPUTE)
+        .ok_or("the first physical device exposes no compute-capable queue family")?;
     let device = physical
         .create_device(DeviceCreateInfo {
             queue_create_infos: &[QueueCreateInfo {
@@ -517,9 +510,28 @@ fn try_init_compute() -> Option<(
             }],
             ..Default::default()
         })
-        .ok()?;
+        .map_err(|_| "a compute-capable device was found but vkCreateDevice failed")?;
     let queue = device.get_queue(queue_family, 0);
-    Some((instance, physical, device, queue, queue_family))
+    Ok((instance, physical, device, queue, queue_family))
+}
+
+/// [`try_init_compute`], with the failure **already declared** by the time this
+/// returns `None` — and already fatal, if `VULKANE_REQUIRE_DEVICE` is set.
+///
+/// The `let … else { return; }` at the call sites is therefore not a silent
+/// skip, despite looking like one; the reason was printed inside. That is why
+/// this wrapper exists rather than the call sites matching on the `Result`
+/// directly: 43 identical four-line `match` blocks would bury the one line of
+/// each test that differs, and the name here is what tells a reader — and the
+/// next person to copy the pattern — that the skip is accounted for.
+fn compute_or_skip() -> Option<ComputeSetup> {
+    match try_init_compute() {
+        Ok(setup) => Some(setup),
+        Err(why) => {
+            common::skipped(why);
+            None
+        }
+    }
 }
 
 #[test]
@@ -568,8 +580,7 @@ fn test_buffer_copy_struct() {
 
 #[test]
 fn test_async_compute_queue_helper_returns_compute_capable() {
-    let Some((_inst, physical, _dev, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _dev, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -597,8 +608,7 @@ fn test_async_compute_queue_helper_returns_compute_capable() {
 
 #[test]
 fn test_timestamp_period_is_nonneg() {
-    let Some((_inst, physical, _dev, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _dev, _q, _qf)) = compute_or_skip() else {
         return;
     };
     // Should be a finite, non-negative number on any conformant device.
@@ -609,8 +619,7 @@ fn test_timestamp_period_is_nonneg() {
 
 #[test]
 fn test_max_push_constants_size_meets_spec_minimum() {
-    let Some((_inst, physical, _dev, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _dev, _q, _qf)) = compute_or_skip() else {
         return;
     };
     // Vulkan spec guarantees at least 128 bytes.
@@ -620,8 +629,7 @@ fn test_max_push_constants_size_meets_spec_minimum() {
 
 #[test]
 fn test_pipeline_layout_with_push_constants() {
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -653,15 +661,16 @@ fn test_pipeline_layout_with_push_constants() {
 
 #[test]
 fn test_query_pool_timestamp_creation_and_metadata() {
-    let Some((_inst, physical, device, _q, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, queue_family)) = compute_or_skip() else {
         return;
     };
 
     // Skip if the chosen queue family doesn't support timestamps.
     let families = physical.queue_family_properties();
     if families[queue_family as usize].timestamp_valid_bits() == 0 {
-        eprintln!("SKIP: queue family does not support timestamps");
+        common::skipped_unsupported(
+            "a queue family with timestamp support (timestampValidBits > 0)",
+        );
         return;
     }
 
@@ -672,8 +681,7 @@ fn test_query_pool_timestamp_creation_and_metadata() {
 
 #[test]
 fn test_copy_buffer_staging_round_trip() {
-    let Some((_inst, physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
 
@@ -773,8 +781,7 @@ fn test_dispatch_indirect_with_explicit_count() {
     // Build an indirect-dispatch test using the existing square_buffer
     // shader: write x=4, y=1, z=1 into an INDIRECT_BUFFER and dispatch 256
     // elements = 4 workgroups of 64.
-    let Some((_inst, physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
 
@@ -908,13 +915,14 @@ fn test_dispatch_indirect_with_explicit_count() {
 
 #[test]
 fn test_query_pool_records_timestamp_around_dispatch() {
-    let Some((_inst, physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
     let families = physical.queue_family_properties();
     if families[queue_family as usize].timestamp_valid_bits() == 0 {
-        eprintln!("SKIP: queue family does not support timestamps");
+        common::skipped_unsupported(
+            "a queue family with timestamp support (timestampValidBits > 0)",
+        );
         return;
     }
 
@@ -1035,8 +1043,7 @@ fn test_uniform_buffer_descriptor_round_trip() {
     // write, the descriptor wiring is correct. (A shader-using UBO test
     // would need a second pre-compiled SPIR-V shader; this is sufficient
     // to validate the safe wrapper plumbing.)
-    let Some((_inst, physical, device, _queue, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _queue, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -1109,7 +1116,9 @@ fn test_enumerate_layer_properties_succeeds_or_skips() {
     let layers = match Instance::enumerate_layer_properties() {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("SKIP: cannot load Vulkan library: {e}");
+            common::skipped(&format!(
+                "the Vulkan shared library could not be loaded: {e}"
+            ));
             return;
         }
     };
@@ -1129,7 +1138,9 @@ fn test_enumerate_instance_extension_properties() {
     let exts = match Instance::enumerate_extension_properties() {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("SKIP: cannot load Vulkan library: {e}");
+            common::skipped(&format!(
+                "the Vulkan shared library could not be loaded: {e}"
+            ));
             return;
         }
     };
@@ -1144,8 +1155,7 @@ fn test_enumerate_instance_extension_properties() {
 
 #[test]
 fn test_physical_device_enumerate_extension_properties() {
-    let Some((_inst, physical, _dev, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _dev, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let exts = physical.enumerate_extension_properties().unwrap();
@@ -1169,7 +1179,7 @@ fn test_instance_with_no_layers_or_extensions() {
     if let Ok(_inst) = Instance::new(info) {
         // OK.
     } else {
-        eprintln!("SKIP: no Vulkan ICD");
+        common::skipped("no Vulkan ICD, or the loader declined to create an instance");
     }
 }
 
@@ -1201,12 +1211,12 @@ fn test_instance_with_validation_when_available() {
     let layers = match Instance::enumerate_layer_properties() {
         Ok(l) => l,
         Err(_) => {
-            eprintln!("SKIP: no Vulkan loader");
+            common::skipped("the Vulkan shared library could not be loaded");
             return;
         }
     };
     if !layers.iter().any(|l| l.name() == KHRONOS_VALIDATION_LAYER) {
-        eprintln!("SKIP: validation layer not installed");
+        common::skipped_unsupported("the VK_LAYER_KHRONOS_validation layer");
         return;
     }
     let exts = Instance::enumerate_extension_properties().unwrap();
@@ -1214,7 +1224,7 @@ fn test_instance_with_validation_when_available() {
         .iter()
         .any(|e| e.name() == vulkane::raw::bindings::EXT_DEBUG_UTILS_EXTENSION_NAME)
     {
-        eprintln!("SKIP: debug utils extension not present");
+        common::skipped_unsupported("VK_EXT_debug_utils");
         return;
     }
 
@@ -1242,7 +1252,9 @@ fn test_instance_with_validation_when_available() {
     let instance = match Instance::new(info) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: validation instance creation failed: {e}");
+            common::skipped_unsupported(&format!(
+                "an instance with the validation layer enabled ({e})"
+            ));
             return;
         }
     };
@@ -1272,7 +1284,7 @@ fn test_instance_validation_constructor_when_available() {
         .unwrap_or(false);
 
     if !has_validation {
-        eprintln!("SKIP: validation layer not installed");
+        common::skipped_unsupported("the VK_LAYER_KHRONOS_validation layer");
         return;
     }
     match Instance::new(InstanceCreateInfo::validation()) {
@@ -1311,8 +1323,7 @@ fn test_buffer_image_copy_full_2d_helper() {
 
 #[test]
 fn test_image_2d_creation_and_memory_binding() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -1356,8 +1367,7 @@ fn test_image_buffer_round_trip_via_layout_transitions() {
     // Validates: layout transitions, buffer -> image copy, image -> buffer
     // copy. We don't run a shader here — just verify that the bytes survive
     // a round trip through an image's storage on the GPU.
-    let Some((_inst, physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
 
@@ -1513,8 +1523,7 @@ fn test_storage_image_descriptor_wiring() {
     // Validates that allocating a STORAGE_IMAGE descriptor and pointing it
     // at an ImageView round-trips through the safe wrapper without errors.
     // We don't dispatch a shader here — that would need a shipped .spv file.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -1569,8 +1578,7 @@ fn test_storage_image_descriptor_wiring() {
 
 #[test]
 fn test_binary_semaphore_creation_and_drop() {
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let s = Semaphore::binary(&device).unwrap();
@@ -1580,15 +1588,14 @@ fn test_binary_semaphore_creation_and_drop() {
 
 #[test]
 fn test_timeline_semaphore_host_signal_and_wait() {
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
     let sem = match Semaphore::timeline(&device, 5) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            common::skipped_unsupported(&format!("timeline semaphores ({e})"));
             return;
         }
     };
@@ -1607,14 +1614,13 @@ fn test_timeline_semaphore_host_signal_and_wait() {
 
 #[test]
 fn test_timeline_semaphore_gpu_signal_then_host_wait() {
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
     let sem = match Semaphore::timeline(&device, 0) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            common::skipped_unsupported(&format!("timeline semaphores ({e})"));
             return;
         }
     };
@@ -1649,14 +1655,13 @@ fn test_timeline_semaphore_chained_dispatches() {
     // Two-pass compute: pass A signals timeline to 1, pass B waits on
     // value 1 before running. Validates that the safe wrapper threads the
     // wait/signal correctly through submit_with_sync.
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
     let sem = match Semaphore::timeline(&device, 0) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("SKIP: timeline semaphores not supported: {e}");
+            common::skipped_unsupported(&format!("timeline semaphores ({e})"));
             return;
         }
     };
@@ -1713,8 +1718,7 @@ fn test_timeline_semaphore_chained_dispatches() {
 
 #[test]
 fn test_pipeline_cache_create_serialize_reuse() {
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -1739,8 +1743,7 @@ fn test_specialization_constants_baked_into_pipeline() {
     // for a shader that doesn't actually consume any spec constants. The
     // build path is the same with or without populated entries; this just
     // exercises the code path that builds VkSpecializationInfo.
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
 
@@ -1773,8 +1776,7 @@ fn test_specialization_constants_baked_into_pipeline() {
 
 #[test]
 fn test_sync2_memory_barrier_when_supported() {
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
 
@@ -1799,7 +1801,7 @@ fn test_sync2_memory_barrier_when_supported() {
             fence.wait(u64::MAX).unwrap();
         }
         Err(e) => {
-            eprintln!("SKIP: sync2 not supported: {e}");
+            common::skipped_unsupported(&format!("synchronization2 ({e})"));
         }
     }
 }
@@ -1810,8 +1812,7 @@ fn test_sync2_memory_barrier_when_supported() {
 
 #[test]
 fn test_allocator_creation_and_statistics_start_zero() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let alloc = Allocator::new(&device, &physical).unwrap();
@@ -1824,8 +1825,7 @@ fn test_allocator_creation_and_statistics_start_zero() {
 
 #[test]
 fn test_allocator_create_buffer_pool_path() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -1868,8 +1868,7 @@ fn test_allocation_drop_returns_to_pool() {
     // a forgotten `allocator.free()` leaked the slot until the entire
     // Allocator was dropped. Now dropping the Allocation directly is
     // equivalent.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -1907,8 +1906,7 @@ fn test_allocation_drop_returns_to_pool() {
 fn test_allocation_clone_keeps_alive_until_last_drop() {
     // `Allocation` is internally Arc-shared. The slot must only be
     // returned when the *last* clone is dropped.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -1936,8 +1934,7 @@ fn test_allocation_clone_keeps_alive_until_last_drop() {
 fn test_allocator_many_buffers_share_one_block() {
     // Allocating many small buffers should reuse the same underlying
     // VkDeviceMemory block — the whole point of sub-allocation.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -1990,8 +1987,7 @@ fn test_allocator_many_buffers_share_one_block() {
 
 #[test]
 fn test_allocator_dedicated_for_huge_buffer() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2028,8 +2024,7 @@ fn test_allocator_per_allocation_device_mask_forces_dedicated() {
     // VkMemoryAllocateFlagsInfo with VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT
     // is honored). On a single-device group the only valid mask is 0b1,
     // which is what default_device_mask() returns.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2069,8 +2064,7 @@ fn test_allocator_device_mask_rejects_custom_pool() {
     // Custom pools have their device mask fixed at block creation time;
     // combining them with per-allocation device_mask must error rather
     // than silently ignoring the mask.
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2119,8 +2113,7 @@ fn test_allocator_device_mask_rejects_custom_pool() {
 
 #[test]
 fn test_allocator_create_image_2d_via_pool() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2148,8 +2141,7 @@ fn test_allocator_create_image_2d_via_pool() {
 
 #[test]
 fn test_allocator_persistent_mapped_pointer() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2191,8 +2183,7 @@ fn test_allocator_persistent_mapped_pointer() {
 
 #[test]
 fn test_allocator_peak_bytes_tracks_high_watermark() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2243,12 +2234,13 @@ fn test_allocator_peak_bytes_tracks_high_watermark() {
 
 #[test]
 fn test_memory_budget_query_succeeds_or_skips() {
-    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let Some(budget) = physical.memory_budget() else {
-        eprintln!("SKIP: vkGetPhysicalDeviceMemoryProperties2 not loaded");
+        common::skipped_unsupported(
+            "vkGetPhysicalDeviceMemoryProperties2 (Vulkan 1.1 / VK_KHR_get_physical_device_properties2)",
+        );
         return;
     };
     // The structure is valid even if VK_EXT_memory_budget wasn't enabled
@@ -2266,12 +2258,13 @@ fn test_memory_budget_query_succeeds_or_skips() {
 
 #[test]
 fn test_device_identity_query_succeeds_or_skips() {
-    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let Some(identity) = physical.device_identity() else {
-        eprintln!("SKIP: vkGetPhysicalDeviceProperties2 not loaded");
+        common::skipped_unsupported(
+            "vkGetPhysicalDeviceProperties2 (Vulkan 1.1 / VK_KHR_get_physical_device_properties2)",
+        );
         return;
     };
     // device_uuid is always populated on a props2-capable loader (1.1
@@ -2310,8 +2303,7 @@ fn test_device_identity_query_succeeds_or_skips() {
 // this test asserts, and it is the reason the test can exist at all.
 #[test]
 fn test_cooperative_matrix_properties_safe_without_extension() {
-    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     // No instance/device extension was enabled by try_init_compute, so on
@@ -2330,7 +2322,11 @@ fn test_cooperative_matrix_properties_safe_without_extension() {
              {} shapes were reported",
             shapes.len()
         );
-        eprintln!("cooperative matrix: not advertised — honest empty Vec");
+        // NOT a skip: the `assert!` above is this test's actual claim on a
+        // device without the extension — that the query returns an honest
+        // empty Vec rather than fabricating shapes. The return is because
+        // there is nothing further to check, not because nothing was checked.
+        eprintln!("cooperative matrix: not advertised — asserted the empty Vec");
         return;
     }
     for s in &shapes {
@@ -2352,17 +2348,44 @@ fn test_cooperative_matrix_properties_safe_without_extension() {
 /// behave as 1.0 — it leaves 1.1+ `pNext` property structs untouched
 /// even on a 1.3 device. Queries for those structs therefore need an
 /// instance created at the matching version to be exercised at all.
-fn try_init_at(version: ApiVersion) -> Option<(Instance, vulkane::safe::PhysicalDevice)> {
-    let instance = Instance::new(InstanceCreateInfo {
+///
+/// Declares its own failure, and distinguishes the two that look alike here.
+/// "Cannot create a 1.2 instance" has two causes with opposite verdicts: there
+/// is no ICD (an environment fault, fatal under `VULKANE_REQUIRE_DEVICE`), or
+/// there is one and it predates 1.2 (conformant, never fatal). They are told
+/// apart by asking for a default 1.0 instance as well — if *that* succeeds,
+/// the ICD is present and merely older than the caller wants.
+fn init_at_or_skip(
+    version: ApiVersion,
+    version_label: &str,
+) -> Option<(Instance, vulkane::safe::PhysicalDevice)> {
+    let instance = match Instance::new(InstanceCreateInfo {
         api_version: version,
         ..Default::default()
-    })
-    .ok()?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .next()?;
+    }) {
+        Ok(i) => i,
+        Err(_) => {
+            if Instance::new(InstanceCreateInfo::default()).is_ok() {
+                common::skipped_unsupported(&format!("a Vulkan {version_label} instance"));
+            } else {
+                common::skipped("no Vulkan ICD, or the loader declined to create an instance");
+            }
+            return None;
+        }
+    };
+    let physical = match instance.enumerate_physical_devices() {
+        Ok(devices) => match devices.into_iter().next() {
+            Some(p) => p,
+            None => {
+                common::skipped("an ICD is present but reports no physical devices");
+                return None;
+            }
+        },
+        Err(_) => {
+            common::skipped("an ICD is present but enumerating physical devices failed");
+            return None;
+        }
+    };
     Some((instance, physical))
 }
 
@@ -2381,8 +2404,7 @@ fn try_init_at(version: ApiVersion) -> Option<(Instance, vulkane::safe::Physical
 ///   succeed — exactly when the extension is advertised.
 #[test]
 fn test_version_gated_queries_on_a_1_0_instance() {
-    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let eff = physical.effective_api_version();
@@ -2427,12 +2449,11 @@ fn test_version_gated_queries_on_a_1_0_instance() {
 
 #[test]
 fn test_subgroup_properties_query_succeeds_or_skips() {
-    let Some((_inst, physical)) = try_init_at(ApiVersion::V1_1) else {
-        eprintln!("SKIP: no Vulkan ICD, or no 1.1-capable loader");
+    let Some((_inst, physical)) = init_at_or_skip(ApiVersion::V1_1, "1.1") else {
         return;
     };
     let Some(sg) = physical.subgroup_properties() else {
-        eprintln!("SKIP: device is below Vulkan 1.1 or props2 unavailable");
+        common::skipped_unsupported("a Vulkan 1.1 device exposing vkGetPhysicalDeviceProperties2");
         return;
     };
     // Vulkan requires a subgroup size of at least 1 and, in practice, a
@@ -2495,12 +2516,11 @@ fn test_subgroup_properties_query_succeeds_or_skips() {
 
 #[test]
 fn test_driver_properties_query_succeeds_or_skips() {
-    let Some((_inst, physical)) = try_init_at(ApiVersion::V1_2) else {
-        eprintln!("SKIP: no Vulkan ICD, or no 1.2-capable loader");
+    let Some((_inst, physical)) = init_at_or_skip(ApiVersion::V1_2, "1.2") else {
         return;
     };
     let Some(dp) = physical.driver_properties() else {
-        eprintln!("SKIP: device below Vulkan 1.2 without VK_KHR_driver_properties");
+        common::skipped_unsupported("Vulkan 1.2 or VK_KHR_driver_properties");
         return;
     };
     // A conforming driver always names itself. driver_info may be empty
@@ -2528,32 +2548,58 @@ fn test_driver_properties_query_succeeds_or_skips() {
 /// Helper that creates an Instance + PhysicalDevice + Device with the
 /// requested feature set enabled. Returns None on devices/drivers that
 /// don't support the requested features so callers can skip cleanly.
-fn try_init_with_features(
-    features: DeviceFeatures,
-) -> Option<(
-    Instance,
-    vulkane::safe::PhysicalDevice,
-    vulkane::safe::Device,
-    vulkane::safe::Queue,
-    u32,
-)> {
-    let instance = Instance::new(InstanceCreateInfo::default()).ok()?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .next()?;
-    let queue_family = physical.find_queue_family(QueueFlags::COMPUTE)?;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo {
-                queue_family_index: queue_family,
-                queue_priorities: vec![1.0],
-            }],
-            enabled_features: Some(&features),
-            ..Default::default()
-        })
-        .ok()?;
+/// Bring up a device with `features` enabled, declaring the failure through
+/// the correct [`common`] helper and returning `None`.
+///
+/// `label` names the feature set for the not-supported case, e.g.
+/// `"the bufferDeviceAddress feature"`.
+///
+/// The two outcomes must not be conflated. A device that declines
+/// `bufferDeviceAddress` is conformant, so that skip can never be fatal. No
+/// ICD at all is an environment fault, and under `VULKANE_REQUIRE_DEVICE` it
+/// must be. Before this split every call site declared the *feature* reason
+/// for both, which meant a Linux CI run that had lost its ICD entirely would
+/// have reported "the bufferDeviceAddress feature is unsupported" and passed.
+fn features_or_skip(features: DeviceFeatures, label: &str) -> Option<ComputeSetup> {
+    let instance = match Instance::new(InstanceCreateInfo::default()) {
+        Ok(i) => i,
+        Err(_) => {
+            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
+            return None;
+        }
+    };
+    let physical = match instance.enumerate_physical_devices() {
+        Ok(devices) => match devices.into_iter().next() {
+            Some(p) => p,
+            None => {
+                common::skipped("an ICD is present but reports no physical devices");
+                return None;
+            }
+        },
+        Err(_) => {
+            common::skipped("an ICD is present but enumerating physical devices failed");
+            return None;
+        }
+    };
+    let Some(queue_family) = physical.find_queue_family(QueueFlags::COMPUTE) else {
+        common::skipped("the first physical device exposes no compute-capable queue family");
+        return None;
+    };
+    // Only *this* step is capability-gated: everything above is device absence.
+    let device = match physical.create_device(DeviceCreateInfo {
+        queue_create_infos: &[QueueCreateInfo {
+            queue_family_index: queue_family,
+            queue_priorities: vec![1.0],
+        }],
+        enabled_features: Some(&features),
+        ..Default::default()
+    }) {
+        Ok(d) => d,
+        Err(_) => {
+            common::skipped_unsupported(label);
+            return None;
+        }
+    };
     let queue = device.get_queue(queue_family, 0);
     Some((instance, physical, device, queue, queue_family))
 }
@@ -2563,8 +2609,9 @@ fn test_device_features_default_creates_normally() {
     // A DeviceFeatures::default() with no flags set must successfully
     // create a device on every conformant Vulkan implementation.
     let features = DeviceFeatures::default();
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_with_features(features) else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) =
+        features_or_skip(features, "device creation with no features requested")
+    else {
         return;
     };
     assert!(!device.raw().is_null());
@@ -2576,8 +2623,9 @@ fn test_device_features_buffer_device_address_round_trip() {
     // returns a non-zero address when called against a buffer with
     // SHADER_DEVICE_ADDRESS usage.
     let features = DeviceFeatures::default().with_buffer_device_address();
-    let Some((_inst, physical, device, _q, _qf)) = try_init_with_features(features) else {
-        eprintln!("SKIP: bufferDeviceAddress not supported by device");
+    let Some((_inst, physical, device, _q, _qf)) =
+        features_or_skip(features, "the bufferDeviceAddress feature")
+    else {
         return;
     };
 
@@ -2592,7 +2640,7 @@ fn test_device_features_buffer_device_address_round_trip() {
     ) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("SKIP: SHADER_DEVICE_ADDRESS buffer creation failed: {e}");
+            common::skipped_unsupported(&format!("a SHADER_DEVICE_ADDRESS buffer ({e})"));
             return;
         }
     };
@@ -2610,12 +2658,16 @@ fn test_device_features_buffer_device_address_round_trip() {
     let memory = match DeviceMemory::allocate(&device, req.size, mt) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("SKIP: vkAllocateMemory rejected the device-address buffer: {e}");
+            common::skipped_unsupported(&format!(
+                "vkAllocateMemory for a device-address buffer ({e})"
+            ));
             return;
         }
     };
     if let Err(e) = buffer.bind_memory(&memory, 0) {
-        eprintln!("SKIP: vkBindBufferMemory rejected the device-address buffer: {e}");
+        common::skipped_unsupported(&format!(
+            "vkBindBufferMemory for a device-address buffer ({e})"
+        ));
         return;
     }
     match buffer.device_address() {
@@ -2629,7 +2681,7 @@ fn test_device_features_buffer_device_address_round_trip() {
         Err(e) => {
             // Some implementations require additional flags we don't yet
             // pass; this is acceptable.
-            eprintln!("SKIP: vkGetBufferDeviceAddress returned: {e}");
+            common::skipped_unsupported(&format!("vkGetBufferDeviceAddress ({e})"));
         }
     }
 }
@@ -2643,8 +2695,9 @@ fn test_allocator_buffer_device_address() {
     // depends on — unlike the manual round-trip test above, it must NOT skip
     // on the missing-flag path, because the allocator now sets the flag.
     let features = DeviceFeatures::default().with_buffer_device_address();
-    let Some((_inst, physical, device, _q, _qf)) = try_init_with_features(features) else {
-        eprintln!("SKIP: bufferDeviceAddress not supported by device");
+    let Some((_inst, physical, device, _q, _qf)) =
+        features_or_skip(features, "the bufferDeviceAddress feature")
+    else {
         return;
     };
 
@@ -2669,7 +2722,9 @@ fn test_allocator_buffer_device_address() {
     ) {
         Ok(pair) => pair,
         Err(e) => {
-            eprintln!("SKIP: device-address buffer allocation failed: {e}");
+            common::skipped_unsupported(&format!(
+                "an allocation for a device-address buffer ({e})"
+            ));
             return;
         }
     };
@@ -2683,7 +2738,7 @@ fn test_allocator_buffer_device_address() {
             // vkGetBufferDeviceAddress fn pointer not loaded on this ICD
             // (e.g. a 1.0 driver without VK_KHR_buffer_device_address). The
             // allocator wiring is still exercised by the successful bind above.
-            eprintln!("SKIP: vkGetBufferDeviceAddress unavailable: {e}");
+            common::skipped_unsupported(&format!("vkGetBufferDeviceAddress ({e})"));
         }
     }
 
@@ -2694,16 +2749,16 @@ fn test_allocator_buffer_device_address() {
 #[test]
 fn test_device_features_timeline_semaphore_round_trip() {
     let features = DeviceFeatures::default().with_timeline_semaphore();
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_with_features(features)
+    let Some((_inst, _physical, device, queue, queue_family)) =
+        features_or_skip(features, "the timelineSemaphore feature")
     else {
-        eprintln!("SKIP: timelineSemaphore not supported");
         return;
     };
 
     let sem = match Semaphore::timeline(&device, 0) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("SKIP: timeline semaphore creation failed: {e}");
+            common::skipped_unsupported(&format!("timeline semaphore creation ({e})"));
             return;
         }
     };
@@ -2740,9 +2795,9 @@ fn test_device_features_timeline_semaphore_round_trip() {
 #[test]
 fn test_device_features_synchronization2_round_trip() {
     let features = DeviceFeatures::default().with_synchronization2();
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_with_features(features)
+    let Some((_inst, _physical, device, queue, queue_family)) =
+        features_or_skip(features, "the synchronization2 feature")
     else {
-        eprintln!("SKIP: synchronization2 not supported");
         return;
     };
 
@@ -2769,15 +2824,14 @@ fn test_device_features_synchronization2_round_trip() {
             // Even with the feature enabled, vkCmdPipelineBarrier2 might
             // not be loaded on Vulkan 1.0/1.1 devices that lack
             // VK_KHR_synchronization2 as an extension. Acceptable.
-            eprintln!("SKIP: vkCmdPipelineBarrier2 not loaded: {e}");
+            common::skipped_unsupported(&format!("vkCmdPipelineBarrier2 ({e})"));
         }
     }
 }
 
 #[test]
 fn test_supported_features_query_succeeds() {
-    let Some((_inst, physical, _device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let _features = physical.supported_features();
@@ -2792,8 +2846,7 @@ fn test_supported_features_query_succeeds() {
 
 #[test]
 fn test_allocator_custom_freelist_pool_round_trip() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2866,8 +2919,7 @@ fn test_allocator_custom_freelist_pool_round_trip() {
 
 #[test]
 fn test_allocator_linear_pool_supports_reset() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -2957,8 +3009,7 @@ fn test_allocator_linear_pool_supports_reset() {
 
 #[test]
 fn test_allocator_linear_pool_full_returns_error() {
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -3047,8 +3098,7 @@ fn test_allocator_defragmentation_compacts_fragmented_pool() {
     //     are stable)
     //   - the post-defrag positions are contiguous from offset 0
     //   - the pool can still allocate from the freed space afterward
-    let Some((_inst, physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     let allocator = Allocator::new(&device, &physical).unwrap();
@@ -3193,14 +3243,14 @@ fn test_enumerate_physical_device_groups() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("SKIP: cannot create Vulkan instance: {e}");
+            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
             return;
         }
     };
     let groups = match instance.enumerate_physical_device_groups() {
         Ok(g) => g,
         Err(e) => {
-            eprintln!("SKIP: enumerate_physical_device_groups returned: {e}");
+            common::skipped_unsupported(&format!("vkEnumeratePhysicalDeviceGroups ({e})"));
             return;
         }
     };
@@ -3223,8 +3273,7 @@ fn test_device_singleton_group_unification() {
     // Verify that a device created via the legacy
     // physical.create_device(...) path internally exposes a length-1
     // physical-device group, matching the device-group representation.
-    let Some((_inst, _physical, device, _q, _qf)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, _q, _qf)) = compute_or_skip() else {
         return;
     };
     assert_eq!(
@@ -3245,8 +3294,7 @@ fn test_submit_with_groups_default_mask_round_trip() {
     // submit_with_sync. This exercises the VkDeviceGroupSubmitInfo
     // pNext-chaining path: we explicitly pass Some(&[mask]), which forces
     // the chain to be added.
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
     let pool = CommandPool::new(&device, queue_family).unwrap();
@@ -3270,8 +3318,7 @@ fn test_submit_with_groups_default_mask_round_trip() {
 
 #[test]
 fn test_submit_with_groups_rejects_mask_length_mismatch() {
-    let Some((_inst, _physical, device, queue, queue_family)) = try_init_compute() else {
-        eprintln!("SKIP: no Vulkan ICD");
+    let Some((_inst, _physical, device, queue, queue_family)) = compute_or_skip() else {
         return;
     };
     let pool = CommandPool::new(&device, queue_family).unwrap();
@@ -3298,7 +3345,7 @@ fn test_device_create_via_physical_device_group() {
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(_) => {
-            eprintln!("SKIP: no Vulkan ICD");
+            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
             return;
         }
     };
@@ -3307,11 +3354,11 @@ fn test_device_create_via_physical_device_group() {
         .ok()
         .and_then(|gs| gs.into_iter().next())
     else {
-        eprintln!("SKIP: no physical device groups");
+        common::skipped_unsupported("physical device groups (Vulkan 1.1 / VK_KHR_device_group)");
         return;
     };
     let Some(physical) = group.physical_devices().first() else {
-        eprintln!("SKIP: empty physical device group");
+        common::skipped_unsupported("a non-empty physical device group");
         return;
     };
     let queue_family = physical.find_queue_family(QueueFlags::TRANSFER).unwrap();
