@@ -28,7 +28,7 @@ use vulkane::raw::bindings::{
 use vulkane::safe::{
     Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceMemory, Fence, Format, Image,
     Image2dCreateInfo, ImageUsage, Instance, InstanceCreateInfo, MemoryAllocateInfo,
-    MemoryPropertyFlags, PNextChain, QueueCreateInfo, QueueFlags, Semaphore,
+    MemoryPropertyFlags, PNextChain, QueueCreateInfo, Semaphore,
 };
 
 /// Boot an instance → physical device → device, or name the precondition that
@@ -256,26 +256,34 @@ fn device_create_info_pnext_is_plumbed_without_error() {
     // device still creates. This proves the internal chain + user chain
     // composition path in new_inner doesn't accidentally truncate the
     // chain head when user pnext is None-empty.
+    //
+    // Deliberately does *not* go through `bootstrap()`. What is under test is
+    // chain composition, which needs a device and any queue family at all —
+    // not a compute one. Requiring compute would narrow the environments this
+    // runs in for no gain, and since a failed precondition here is fatal under
+    // VULKANE_REQUIRE_DEVICE, over-constraining it would fail runs on hardware
+    // perfectly able to answer the question the test asks.
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
         Err(e) => {
             return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
         }
     };
-    let Some(physical) = instance.enumerate_physical_devices().ok().and_then(|v| {
-        v.into_iter().find(|pd| {
-            pd.queue_family_properties()
-                .iter()
-                .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        })
-    }) else {
-        return common::skipped("no physical device exposes a compute-capable queue family");
+    let physical = match instance.enumerate_physical_devices() {
+        Ok(devices) => match devices.into_iter().next() {
+            Some(p) => p,
+            None => return common::skipped("an ICD is present but reports no physical devices"),
+        },
+        Err(e) => {
+            return common::skipped(&format!("enumerating physical devices failed: {e}"));
+        }
     };
-    let qf = physical
-        .queue_family_properties()
-        .iter()
-        .position(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        .unwrap() as u32;
+    // Family 0. Every physical device exposes at least one queue family, and
+    // this test does not care which kind it is.
+    if physical.queue_family_properties().is_empty() {
+        return common::skipped("the physical device reports no queue families at all");
+    }
+    let qf = 0u32;
 
     let empty = PNextChain::new();
     let _device = physical

@@ -131,10 +131,24 @@ pub fn skipped_unsupported(what: &str) {
 /// "no Vulkan" when the real cause was "no compute queue family" sends them to
 /// fix the wrong thing.
 ///
-/// Every cause here is device-absence, not capability-absence — a Vulkan
-/// implementation that exposes graphics must expose a queue family supporting
-/// compute — so all of them are legitimately fatal under [`REQUIRE_DEVICE`].
-/// Pair with [`skipped`], not [`skipped_unsupported`].
+/// Every cause here is treated as device-absence rather than
+/// capability-absence, so all of them are fatal under [`REQUIRE_DEVICE`]. Pair
+/// with [`skipped`], not [`skipped_unsupported`].
+///
+/// That is a **declared precondition of this test suite**, not something the
+/// Vulkan spec entails. The guarantee the spec gives about compute queues is
+/// implementation-wide and conditional on graphics being exposed at all; it
+/// does not promise that any *given* physical device has a compute-capable
+/// family, and a conformant device may have none. The callers of this helper
+/// need compute, and the environments that set [`REQUIRE_DEVICE`] are declared
+/// to provide a device that can run them — so "no compute queue family here"
+/// means that declaration is wrong, which is worth failing over.
+///
+/// A test that does **not** need compute should not reach for this helper. It
+/// would inherit a precondition it does not have, and turn hardware capable of
+/// answering its question into a failed run. See
+/// `extension_pnext_test::device_create_info_pnext_is_plumbed_without_error`
+/// for one that bootstraps itself for exactly this reason.
 #[allow(dead_code)]
 pub fn compute_device(
     app_name: &str,
