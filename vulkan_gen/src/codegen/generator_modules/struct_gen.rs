@@ -59,6 +59,7 @@ impl StructGenerator {
         enum_defaults: &EnumDefaultMap,
         known_structure_types: &KnownStructureTypes,
         enum_type_names: &std::collections::HashSet<String>,
+        written_by_command: &std::collections::HashSet<String>,
         _output_dir: &Path,
     ) -> String {
         let mut code = String::new();
@@ -122,7 +123,13 @@ impl StructGenerator {
             // implementation newer than this vk.xml may report a value outside
             // the declared set, and reading that is UB. See
             // `is_driver_written_enum_field`.
-            if self.is_driver_written_enum_field(struct_def, field, &rust_type, enum_type_names) {
+            if self.is_driver_written_enum_field(
+                struct_def,
+                field,
+                &rust_type,
+                enum_type_names,
+                written_by_command,
+            ) {
                 code.push_str(&format!(
                     "    /// Raw `{}` value, written by the implementation.\n",
                     rust_type
@@ -172,6 +179,7 @@ impl StructGenerator {
                     field,
                     &rust_type,
                     enum_type_names,
+                    written_by_command,
                 ) {
                     // Now an `i32`, so the "0 is not a valid variant" problem
                     // that `enum_defaults` exists to dodge cannot arise: no
@@ -548,8 +556,10 @@ impl StructGenerator {
         field: &crate::parser::vk_types::StructMember,
         rust_type: &str,
         enum_type_names: &std::collections::HashSet<String>,
+        written_by_command: &std::collections::HashSet<String>,
     ) -> bool {
-        if struct_def.returnedonly.as_deref() != Some("true") {
+        let marked = struct_def.returnedonly.as_deref() == Some("true");
+        if !marked && !written_by_command.contains(&struct_def.name) {
             return false;
         }
         if field.name == "sType" {
@@ -558,6 +568,77 @@ impl StructGenerator {
         // Only a bare enum-typed field; `map_member_type` has already folded
         // pointers and arrays into the spelling, so anything decorated is out.
         enum_type_names.contains(rust_type)
+    }
+
+    /// Structs the implementation writes into, **derived from command
+    /// signatures** rather than from the registry's own marker.
+    ///
+    /// `returnedonly="true"` is authoritative when present, and it was the sole
+    /// rule here originally. It is not always present. `VkCooperativeVectorPropertiesNV`
+    /// is filled by `vkGetPhysicalDeviceCooperativeVectorPropertiesNV` and
+    /// carries no marker, while its sibling `VkPhysicalDeviceCooperativeVectorPropertiesNV`
+    /// does — so keying only on the marker left five `VkComponentTypeKHR`
+    /// fields typed as a Rust enum that a driver fills. A driver reporting a
+    /// component type this `vk.xml` does not define makes reading them
+    /// undefined behaviour, which is the exact defect the marker-based rule was
+    /// written to remove.
+    ///
+    /// So the marker is now a *source* of the answer rather than the whole of
+    /// it: a struct also counts as driver-written when it appears as a
+    /// **non-const pointer parameter** of a `vkGet*` or `vkEnumerate*` command,
+    /// which is what "the implementation fills this for you" looks like in the
+    /// C signature. Derived, so a future `vk.xml` that adds another
+    /// under-annotated query struct is covered without anyone noticing and
+    /// hand-listing it.
+    ///
+    /// Measured against `vk.xml` at header 348 the derived set adds exactly two
+    /// structs beyond the marked ones — `VkCooperativeVectorPropertiesNV` (5
+    /// fields) and `VkDataGraphPipelinePropertyQueryResultARM` (1) — so this is
+    /// a surgical correction, not a reclassification of the binding surface.
+    fn build_driver_written_structs(&self, input_dir: &Path) -> std::collections::HashSet<String> {
+        use crate::parser::vk_types::VulkanCommand;
+
+        let mut written = std::collections::HashSet::new();
+        let path = input_dir.join("functions.json");
+        // Deliberately fatal rather than a soft fallback. A silent empty set
+        // here degrades exactly one thing — whether driver-written enum fields
+        // are typed `i32` — and it degrades it *invisibly*: the bindings still
+        // compile, the tests still pass, and the UB comes back. The whole point
+        // of this function is to remove a defect that produced no symptom, so
+        // it must not fail in a way that produces no symptom.
+        let content = fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "cannot read {} ({e}) — the driver-written struct set would be \
+                 empty and enum fields a driver fills would silently regain \
+                 their UB-prone typing",
+                path.display()
+            )
+        });
+        let commands: Vec<VulkanCommand> = serde_json::from_str(&content).unwrap_or_else(|e| {
+            panic!(
+                "cannot parse {} as commands ({e}) — see above; an empty set \
+                 here is silently unsound, not merely incomplete",
+                path.display()
+            )
+        });
+
+        for command in &commands {
+            if command.is_alias {
+                continue;
+            }
+            if !(command.name.starts_with("vkGet") || command.name.starts_with("vkEnumerate")) {
+                continue;
+            }
+            for param in &command.parameters {
+                // `const T*` is an input the caller fills; `T*` is an output the
+                // implementation fills. That distinction is the whole signal.
+                let decl = &param.definition;
+                if decl.contains('*') && !decl.contains("const") {
+                    written.insert(param.type_name.clone());
+                }
+            }
+        }
+        written
     }
 
     /// Build a map from enum name to the variant identifier to use for `Default::default()`.
@@ -681,6 +762,7 @@ impl StructGenerator {
         // can be emitted as raw integers instead. See
         // `is_driver_written_enum_field`.
         let enum_type_names = self.build_enum_type_names(input_dir);
+        let written_by_command = self.build_driver_written_structs(input_dir);
 
         // Generate code
         let mut generated_code = String::new();
@@ -699,6 +781,7 @@ impl StructGenerator {
                 &enum_defaults,
                 &known_structure_types,
                 &enum_type_names,
+                &written_by_command,
                 output_dir,
             ));
         }
@@ -824,6 +907,99 @@ mod tests {
         );
     }
 
+    /// The derived driver-written set must find a struct that `vk.xml` fails to
+    /// mark `returnedonly`. `VkCooperativeVectorPropertiesNV` is the real case:
+    /// filled by `vkGetPhysicalDeviceCooperativeVectorPropertiesNV`, unmarked,
+    /// and five `VkComponentTypeKHR` fields wide.
+    #[test]
+    fn driver_written_set_is_derived_from_output_pointer_params() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let json = r#"[
+          {
+            "name": "vkGetPhysicalDeviceCooperativeVectorPropertiesNV",
+            "return_type": "VkResult",
+            "comment": null, "successcodes": null, "errorcodes": null,
+            "alias": null, "api": null, "deprecated": null,
+            "cmdbufferlevel": null, "pipeline": null, "queues": null,
+            "renderpass": null, "videocoding": null,
+            "raw_content": "", "is_alias": false,
+            "parameters": [
+              {"name":"physicalDevice","type_name":"VkPhysicalDevice","optional":null,"len":null,
+               "altlen":null,"externsync":null,"noautovalidity":null,"objecttype":null,"stride":null,
+               "validstructs":null,"api":null,"deprecated":null,"comment":null,
+               "definition":"VkPhysicalDevice physicalDevice","raw_content":""},
+              {"name":"pProperties","type_name":"VkCooperativeVectorPropertiesNV","optional":"true",
+               "len":"pPropertyCount","altlen":null,"externsync":null,"noautovalidity":null,
+               "objecttype":null,"stride":null,"validstructs":null,"api":null,"deprecated":null,
+               "comment":null,
+               "definition":"VkCooperativeVectorPropertiesNV * pProperties","raw_content":""}
+            ]
+          },
+          {
+            "name": "vkCreateInstance",
+            "return_type": "VkResult",
+            "comment": null, "successcodes": null, "errorcodes": null,
+            "alias": null, "api": null, "deprecated": null,
+            "cmdbufferlevel": null, "pipeline": null, "queues": null,
+            "renderpass": null, "videocoding": null,
+            "raw_content": "", "is_alias": false,
+            "parameters": [
+              {"name":"pCreateInfo","type_name":"VkInstanceCreateInfo","optional":null,"len":null,
+               "altlen":null,"externsync":null,"noautovalidity":null,"objecttype":null,"stride":null,
+               "validstructs":null,"api":null,"deprecated":null,"comment":null,
+               "definition":"const VkInstanceCreateInfo * pCreateInfo","raw_content":""}
+            ]
+          }
+        ]"#;
+        std::fs::write(dir.path().join("functions.json"), json).unwrap();
+
+        let g = StructGenerator::new();
+        let set = g.build_driver_written_structs(dir.path());
+
+        assert!(
+            set.contains("VkCooperativeVectorPropertiesNV"),
+            "a non-const pointer output param must mark its struct driver-written; got {set:?}"
+        );
+        // A `const` input must not be swept in: doing so would retype fields the
+        // *caller* fills, which is a gratuitous API break and not a soundness fix.
+        assert!(
+            !set.contains("VkInstanceCreateInfo"),
+            "a const input param must not count as driver-written; got {set:?}"
+        );
+    }
+
+    #[test]
+    fn unmarked_struct_in_derived_set_still_gets_raw_fields() {
+        let g = StructGenerator::new();
+        let s = mk_struct(
+            "VkCooperativeVectorPropertiesNV",
+            vec![
+                mk_member("sType", "VkStructureType", None),
+                mk_member("inputType", "VkComponentTypeKHR", None),
+            ],
+        );
+        // NOT returnedonly — exactly the vk.xml situation.
+        assert!(s.returnedonly.is_none());
+
+        let mut derived = std::collections::HashSet::new();
+        derived.insert("VkCooperativeVectorPropertiesNV".to_string());
+
+        let code = g.generate_struct(
+            &s,
+            &enum_names(&[]),
+            &EnumDefaultMap::new(),
+            &known_stypes(&[]),
+            &enum_names(&["VkComponentTypeKHR", "VkStructureType"]),
+            &derived,
+            Path::new("."),
+        );
+        assert!(
+            code.contains("pub inputType: i32,"),
+            "unmarked-but-derived struct must still get raw fields, got:
+{code}"
+        );
+    }
+
     fn mk_member(
         name: &str,
         type_name: &str,
@@ -904,6 +1080,7 @@ mod tests {
             &EnumDefaultMap::new(),
             &known_stypes(&[]),
             &enum_names(&["VkComponentTypeKHR", "VkStructureType"]),
+            &enum_names(&[]),
             Path::new("."),
         );
 
@@ -950,6 +1127,7 @@ mod tests {
             &EnumDefaultMap::new(),
             &known_stypes(&[]),
             &enum_names(&["VkFormat", "VkStructureType"]),
+            &enum_names(&[]),
             Path::new("."),
         );
 
@@ -989,6 +1167,7 @@ mod tests {
             &defaults,
             &known_stypes(&[]),
             &enum_names(&["VkComponentTypeKHR"]),
+            &enum_names(&[]),
             Path::new("."),
         );
 
