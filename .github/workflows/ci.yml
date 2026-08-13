@@ -187,15 +187,23 @@ jobs:
           key: ${{ runner.os }}-shaderc-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-shaderc-
-      # The `shaderc` crate prefers a system libshaderc and otherwise builds
-      # glslang from source, which needs CMake, Python and a C++ compiler.
-      # Installing the system library keeps the job to seconds instead of
-      # minutes; the source fallback stays available if the package is ever
-      # dropped, which is why the build tools are installed too.
-      - name: Install shaderc toolchain
+      # Deliberately does NOT install `libshaderc-dev`.
+      #
+      # `shaderc-sys` prefers a system library and only builds from source when
+      # it finds none. Ubuntu's `libshaderc-dev` is found and then fails to
+      # link: it resolves the shaderc symbols but not the SPIRV-Tools ones it
+      # depends on, so the build dies on a wall of
+      # `undefined symbol: spvtools::Optimizer::...`. An incomplete system
+      # library is worse than no system library, because it wins the search and
+      # suppresses the fallback that would have worked.
+      #
+      # Building from source takes minutes rather than seconds. That is the
+      # cost of this job being deterministic instead of dependent on how a
+      # distribution happens to split its packages this year.
+      - name: Install shaderc build toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y libshaderc-dev glslang-tools cmake ninja-build python3
+          sudo apt-get install -y cmake ninja-build python3 git g++
       - name: Build and test with shaderc
         run: cargo test -p vulkane --features fetch-spec,shaderc --test shaderc_test
 
