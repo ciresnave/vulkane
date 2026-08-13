@@ -209,7 +209,14 @@ jobs:
 
   slang:
     name: slang (Slang -> SPIR-V)
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`. This job needs a LunarG apt repository named
+    # for a specific Ubuntu release, and `ubuntu-latest` is a moving target —
+    # when GitHub repoints it, a hardcoded release name silently starts
+    # installing packages built for a different one. Pinning makes the runner
+    # and the repository name one decision instead of two that can drift apart;
+    # the codename is derived from the runner below rather than written twice,
+    # so bumping this line is the only edit needed.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -231,18 +238,27 @@ jobs:
       # Slang present and still failed on the bindgen step.
       - name: Install Slang toolchain
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y libclang-dev clang
+          # Codename from the runner itself, so the repository always matches
+          # the image actually in use rather than one written here months ago.
+          CODENAME="$(lsb_release -cs)"
           wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
             | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
-            https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo wget -qO "/etc/apt/sources.list.d/lunarg-vulkan-${CODENAME}.list" \
+            "https://packages.lunarg.com/vulkan/lunarg-vulkan-${CODENAME}.list"
           sudo apt-get update
           sudo apt-get install -y vulkan-sdk
+          # Discovered rather than hardcoded to an LLVM version directory. A
+          # wrong path here fails as "Unable to find libclang", which reads like
+          # a Slang problem and is not — so it is found, checked, and exported
+          # rather than assumed.
+          LIBCLANG_DIR="$(dirname "$(find /usr/lib -name 'libclang.so*' -print -quit)")"
+          test -d "$LIBCLANG_DIR" || { echo "libclang not found after install"; exit 1; }
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
+          echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
       - name: Build and test with slang
-        env:
-          VULKAN_SDK: /usr
-          LIBCLANG_PATH: /usr/lib/llvm-18/lib
         run: cargo test -p vulkane --features fetch-spec,slang --test slang_test
 
   docs:
