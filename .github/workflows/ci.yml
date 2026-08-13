@@ -63,8 +63,13 @@ jobs:
       - name: Build (default features)
         run: cargo build -p vulkane --features fetch-spec
 
-      - name: Build (no default features)
-        run: cargo build -p vulkane --features fetch-spec --no-default-features
+      # Tested, not merely built. Building proves the cfg gates compile;
+      # running proves the crate still behaves without `build-support`, which
+      # is a default feature and therefore the configuration least likely to be
+      # exercised by anyone locally. 82 tests pass here that a build alone
+      # never executed.
+      - name: Test (no default features)
+        run: cargo test -p vulkane --features fetch-spec --no-default-features
 
       - name: Build with naga feature
         run: cargo build -p vulkane --features fetch-spec,naga
@@ -121,14 +126,30 @@ jobs:
           VULKANE_REQUIRE_DEVICE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
+      # All eighteen, not a subset. An example that does not compile is a
+      # broken artifact shipped inside the crate, and until `ci_coverage.rs`
+      # existed, eleven of these were never built by anything — the repository
+      # would not have noticed one rotting. `every_example_is_built_by_ci`
+      # fails if a new one is added without a line here.
       - name: Build examples
         run: |
-          cargo build -p vulkane --features fetch-spec --example device_info
-          cargo build -p vulkane --features fetch-spec --example fill_buffer
-          cargo build -p vulkane --features fetch-spec --example compute_square
+          cargo build -p vulkane --features fetch-spec --example allocator_compute
+          cargo build -p vulkane --features fetch-spec --example buffer_upload
           cargo build -p vulkane --features fetch-spec --example compute_image_invert
+          cargo build -p vulkane --features fetch-spec --example compute_square
+          cargo build -p vulkane --features fetch-spec --example deferred_shading
+          cargo build -p vulkane --features fetch-spec --example depth_prepass
+          cargo build -p vulkane --features fetch-spec --example device_info
+          cargo build -p vulkane --features fetch-spec --example external_memory_export
+          cargo build -p vulkane --features fetch-spec --example fill_buffer
           cargo build -p vulkane --features fetch-spec --example headless_triangle
+          cargo build -p vulkane --features fetch-spec --example instanced_mesh
+          cargo build -p vulkane --features fetch-spec --example raw_interop
+          cargo build -p vulkane --features fetch-spec --example ray_tracing_as_build
+          cargo build -p vulkane --features fetch-spec --example shadow_map
+          cargo build -p vulkane --features fetch-spec --example textured_quad
           cargo build -p vulkane --features fetch-spec --example windowed_triangle
+          cargo build -p vulkane --features fetch-spec,derive --example derive_vertex
           cargo build -p vulkane --features fetch-spec,naga --example compile_shader
 
       - name: Run examples on Linux (with Lavapipe)
@@ -139,6 +160,106 @@ jobs:
           cargo run -p vulkane --features fetch-spec --example compute_square
           cargo run -p vulkane --features fetch-spec --example compute_image_invert
           cargo run -p vulkane --features fetch-spec --example headless_triangle
+
+  # `shaderc` and `slang` gate whole test files behind `#![cfg(feature = "…")]`,
+  # and until these jobs existed neither feature was switched on anywhere in
+  # CI — so `shaderc_test.rs` (4 tests) and `slang_test.rs` (5 tests) compiled
+  # to nothing and reported `running 0 tests ... ok`, exactly the silent-absence
+  # failure described in `vulkane/tests/ci_coverage.rs`.
+  #
+  # They are separate jobs rather than steps in `build` for two reasons: both
+  # need a native toolchain the main matrix has no other use for, and keeping
+  # them apart means a toolchain problem in one is attributable instead of
+  # taking an otherwise-healthy platform leg down with it.
+  shaderc:
+    name: shaderc (GLSL/HLSL -> SPIR-V)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-shaderc-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-shaderc-
+      # Deliberately does NOT install `libshaderc-dev`.
+      #
+      # `shaderc-sys` prefers a system library and only builds from source when
+      # it finds none. Ubuntu's `libshaderc-dev` is found and then fails to
+      # link: it resolves the shaderc symbols but not the SPIRV-Tools ones it
+      # depends on, so the build dies on a wall of
+      # `undefined symbol: spvtools::Optimizer::...`. An incomplete system
+      # library is worse than no system library, because it wins the search and
+      # suppresses the fallback that would have worked.
+      #
+      # Building from source takes minutes rather than seconds. That is the
+      # cost of this job being deterministic instead of dependent on how a
+      # distribution happens to split its packages this year.
+      - name: Install shaderc build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 git g++
+      - name: Build and test with shaderc
+        run: cargo test -p vulkane --features fetch-spec,shaderc --test shaderc_test
+
+  slang:
+    name: slang (Slang -> SPIR-V)
+    # Pinned, not `ubuntu-latest`. This job needs a LunarG apt repository named
+    # for a specific Ubuntu release, and `ubuntu-latest` is a moving target —
+    # when GitHub repoints it, a hardcoded release name silently starts
+    # installing packages built for a different one. Pinning makes the runner
+    # and the repository name one decision instead of two that can drift apart;
+    # the codename is derived from the runner below rather than written twice,
+    # so bumping this line is the only edit needed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-slang-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-slang-
+      # `shader-slang-sys` needs two separate things, and its build script
+      # fails differently for each: the Slang library itself (found via
+      # SLANG_DIR / VULKAN_SDK) and libclang, because it runs bindgen. Missing
+      # libclang produces "Unable to find libclang", which reads like a Slang
+      # problem and is not — verified locally against a Vulkan SDK that had
+      # Slang present and still failed on the bindgen step.
+      - name: Install Slang toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang
+          # Codename from the runner itself, so the repository always matches
+          # the image actually in use rather than one written here months ago.
+          CODENAME="$(lsb_release -cs)"
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+          sudo wget -qO "/etc/apt/sources.list.d/lunarg-vulkan-${CODENAME}.list" \
+            "https://packages.lunarg.com/vulkan/lunarg-vulkan-${CODENAME}.list"
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+          # Discovered rather than hardcoded to an LLVM version directory. A
+          # wrong path here fails as "Unable to find libclang", which reads like
+          # a Slang problem and is not — so it is found, checked, and exported
+          # rather than assumed.
+          LIBCLANG_DIR="$(dirname "$(find /usr/lib -name 'libclang.so*' -print -quit)")"
+          test -d "$LIBCLANG_DIR" || { echo "libclang not found after install"; exit 1; }
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
+          echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
+      - name: Build and test with slang
+        run: cargo test -p vulkane --features fetch-spec,slang --test slang_test
 
   docs:
     name: Build docs
