@@ -538,6 +538,24 @@ pub enum ComponentType {
     U32,
     /// Unsigned 64-bit integer.
     U64,
+    /// 8-bit float, OCP OFP8 **E4M3**: 1 sign / 4 exponent / 3 mantissa,
+    /// finite-only — no infinities, one NaN encoding, max magnitude 448.
+    ///
+    /// `VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT`. Spells `f8e4m3fn`; the `fn` suffix
+    /// is "finite", and it is **mandatory** rather than decorative — `e4m3`
+    /// alone does not identify a format, because the AMD `fnuz` variant differs
+    /// in both NaN handling and exponent bias.
+    ///
+    /// Named as of vocabulary version 3. The layout is pinned normatively by
+    /// KISS-OPS-6.16-0004; this vocabulary only spells it.
+    F8E4M3FN,
+    /// 8-bit float, OCP OFP8 **E5M2**: 1 sign / 5 exponent / 2 mantissa, an
+    /// IEEE-style format that *does* carry infinities and NaNs, max finite
+    /// magnitude 57344.
+    ///
+    /// `VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT`. Spells `f8e5m2`. Pinned by
+    /// KISS-OPS-6.16-0005. Named as of vocabulary version 3.
+    F8E5M2,
     /// A type this vocabulary version does not name, carried by its raw
     /// `VkComponentTypeKHR` value.
     ///
@@ -563,6 +581,8 @@ impl ComponentType {
             Self::U16 => "u16".into(),
             Self::U32 => "u32".into(),
             Self::U64 => "u64".into(),
+            Self::F8E4M3FN => "f8e4m3fn".into(),
+            Self::F8E5M2 => "f8e5m2".into(),
             Self::Other(n) => format!("x{n}"),
         }
     }
@@ -581,6 +601,8 @@ impl ComponentType {
             "u16" => Self::U16,
             "u32" => Self::U32,
             "u64" => Self::U64,
+            "f8e4m3fn" => Self::F8E4M3FN,
+            "f8e5m2" => Self::F8E5M2,
             other => {
                 let n = other.strip_prefix('x')?;
                 if n.is_empty() || (n.len() > 1 && n.starts_with('0')) {

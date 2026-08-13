@@ -268,16 +268,33 @@ impl DeviceCapabilities {
 ///   onto `S8`/`U8` would collapse two distinct Vulkan values onto one token
 ///   and let a packed-only device satisfy a target asking for plain `s8`. An
 ///   honest `Other` beats a token claiming something the device doesn't offer.
-/// - **`FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT`** — blocked on the KISS `sk4`
-///   schema event, for two independent reasons. [`ComponentType`] has no FP8
-///   variant and is published without `#[non_exhaustive]`, so adding one is a
-///   breaking change that must *ride* the coordinated `sk4` major rather than
-///   precede it. Separately, the arm could not be written correctly even with
-///   a variant in hand: these names denote a **layout**, KISS §3.1.5 makes the
-///   `fn`/`fnuz` suffix mandatory, and the Vulkan registry never says which
-///   variant is meant — so the mapping would be a guess between `f8e4m3fn` and
-///   `f8e4m3fnuz`, and guessing wrong is a silently wrong token rather than an
-///   error.
+/// - **`FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT`** — mapped as of vocabulary
+///   version 3. Both blockers that previously stood here are now discharged,
+///   and the second one is worth recording because it was resolved by argument
+///   rather than by waiting.
+///
+///   The first was ordering: [`ComponentType`] had no FP8 variant, and adding
+///   one had to ride the coordinated `sk4` schema event rather than precede it.
+///   `sk4` Phase-0 has merged, and the enum is now `#[non_exhaustive]`.
+///
+///   The second was that these names denote a **layout**, the `fn`/`fnuz`
+///   suffix is mandatory, and `vk.xml` says nothing about which is meant — so
+///   the mapping looked like a guess between `f8e4m3fn` and `f8e4m3fnuz`, where
+///   guessing wrong yields a silently wrong token rather than an error. That
+///   was the right worry and it has an answer that does not depend on reading
+///   prose: **KISS reserves the two `fnuz` spellings with no computation
+///   semantics at all** — a `structure_key` using one must be met with a typed
+///   decline (KISS-CLASSIFY-6.1-0001). Mapping a type a device *actually
+///   computes with* onto a spelling defined to have no computation semantics
+///   is incoherent, which leaves `f8e4m3fn` / `f8e5m2` as the only coherent
+///   targets. Vulkan also exposes no `fnuz` enumerant, so no value can collide.
+///   The layouts themselves are pinned normatively by KISS-OPS-6.16-0004 and
+///   -0005 (OCP OFP8), which did not exist when this comment first said the
+///   registry was silent.
+///
+///   `FLOAT_E4M3_NV` / `FLOAT_E5M2_NV` are *aliases* of the EXT enumerants —
+///   the generator emits them as `pub const`s pointing at the same variant, so
+///   there is one value per name and no second arm to write.
 ///
 /// Values outside all of these become [`ComponentType::Other`] rather than an
 /// error: new Vulkan component types appear faster than a vocabulary revision
@@ -289,6 +306,8 @@ fn component(raw: u32) -> ComponentType {
     // not — so the one that could be silently wrong is the one the compiler
     // should own.
     const BFLOAT16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_BFLOAT16_KHR as u32;
+    const F8E4M3: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32;
+    const F8E5M2: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32;
 
     match raw {
         0 => ComponentType::F16,
@@ -303,6 +322,8 @@ fn component(raw: u32) -> ComponentType {
         9 => ComponentType::U32,
         10 => ComponentType::U64,
         BFLOAT16 => ComponentType::BF16,
+        F8E4M3 => ComponentType::F8E4M3FN,
+        F8E5M2 => ComponentType::F8E5M2,
         n => ComponentType::Other(n),
     }
 }
@@ -350,18 +371,16 @@ mod component_tests {
         }
     }
 
-    /// The packed NV types and the FP8 types are *deliberately* unmapped, for
-    /// reasons recorded on [`component`]. This asserts the deliberate choice so
-    /// that mapping them later is a decision someone makes on purpose — a
-    /// well-meant `SINT8_PACKED_NV => S8` would otherwise be a silent widening
-    /// that lets a packed-only device answer to plain `s8`.
+    /// The packed NV types remain *deliberately* unmapped, for reasons recorded
+    /// on [`component`]. This asserts the deliberate choice so that mapping them
+    /// later is a decision someone makes on purpose — a well-meant
+    /// `SINT8_PACKED_NV => S8` would otherwise be a silent widening that lets a
+    /// packed-only device answer to plain `s8`.
     #[test]
-    fn packed_and_fp8_types_are_deliberately_unmapped() {
+    fn packed_types_are_deliberately_unmapped() {
         for raw in [
             VkComponentTypeKHR::COMPONENT_TYPE_SINT8_PACKED_NV as u32,
             VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32,
-            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32,
-            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32,
         ] {
             assert_eq!(
                 component(raw),
@@ -370,5 +389,94 @@ mod component_tests {
                  If you are mapping it, update that note and this test together."
             );
         }
+    }
+
+    /// FP8 derives from the raw device value, and derives to the **finite**
+    /// spelling.
+    ///
+    /// The variant assertion is the cheap half. The token assertion is the one
+    /// that matters: `f8e4m3fn` and `f8e4m3fnuz` differ by four characters and
+    /// name different formats — different NaN handling, different exponent bias
+    /// — and KISS gives the second no computation semantics at all. A device
+    /// deriving the `fnuz` spelling would be claiming to compute in a format the
+    /// spec says must be met with a typed decline.
+    #[test]
+    fn fp8_derives_from_the_raw_device_value_as_the_finite_variant() {
+        for (raw, want, spelling) in [
+            (
+                VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32,
+                ComponentType::F8E4M3FN,
+                "f8e4m3fn",
+            ),
+            (
+                VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32,
+                ComponentType::F8E5M2,
+                "f8e5m2",
+            ),
+        ] {
+            assert_eq!(
+                component(raw),
+                want,
+                "VkComponentTypeKHR value {raw} must derive {want:?}, not Other — \
+                 otherwise FP8 is spellable but not derivable, which is the exact \
+                 defect bfloat16 had"
+            );
+
+            // Spelled through a real token rather than a component-level
+            // accessor: what a consumer byte-matches is the token, and the
+            // vocabulary exposes no per-component spell function publicly.
+            let token = VulkanTarget {
+                subgroup: Subgroup::Fixed(32),
+                ops: kiss_vulkan_vocab::OpClasses::NONE,
+                arith: kiss_vulkan_vocab::Arith::NONE,
+                coop: CoopMatrix::from_shapes(vec![kiss_vulkan_vocab::CoopShape {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                    a: want,
+                    b: want,
+                    c: want,
+                    result: want,
+                    saturating: false,
+                }]),
+            }
+            .to_token();
+            assert!(
+                token.contains(spelling),
+                "the derived token must spell {spelling}: {token}"
+            );
+            assert!(
+                !token.contains("fnuz"),
+                "a derived token must never carry a reserved `fnuz` spelling — \
+                 KISS gives those no computation semantics: {token}"
+            );
+        }
+    }
+
+    /// The two NV names are registry *aliases* of the EXT enumerants, not
+    /// separate values. Asserted because the alias is what makes one match arm
+    /// sufficient: if a future `vk.xml` split them into distinct values, this
+    /// fails and the second arm becomes necessary — where otherwise an NV-only
+    /// driver would silently derive `Other`.
+    #[test]
+    fn the_nv_fp8_names_alias_the_ext_enumerants() {
+        assert_eq!(
+            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32,
+            vulkane_raw_nv_e4m3(),
+            "VK_COMPONENT_TYPE_FLOAT_E4M3_NV must alias FLOAT8_E4M3_EXT"
+        );
+        assert_eq!(
+            VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32,
+            vulkane_raw_nv_e5m2(),
+            "VK_COMPONENT_TYPE_FLOAT_E5M2_NV must alias FLOAT8_E5M2_EXT"
+        );
+    }
+
+    fn vulkane_raw_nv_e4m3() -> u32 {
+        crate::raw::bindings::COMPONENT_TYPE_FLOAT_E4M3_NV as u32
+    }
+
+    fn vulkane_raw_nv_e5m2() -> u32 {
+        crate::raw::bindings::COMPONENT_TYPE_FLOAT_E5M2_NV as u32
     }
 }

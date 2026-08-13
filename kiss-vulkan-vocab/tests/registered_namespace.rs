@@ -42,15 +42,16 @@
 use kiss_vulkan_vocab::*;
 
 /// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
-/// **vocabulary version 2**, the paragraph reading:
+/// **vocabulary version 3**, the paragraph reading:
 ///
 /// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
-/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, or `x<n>` for a
-/// > `VkComponentTypeKHR` [this vocabulary does not name]
+/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`, or
+/// > `x<n>` for a `VkComponentTypeKHR` [this vocabulary does not name]
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[
-    "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
+    "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f8e4m3fn",
+    "f8e5m2",
 ];
 
 /// Every named `ComponentType`, paired with the spelling the registered
@@ -69,7 +70,23 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::U16, "u16"),
     (ComponentType::U32, "u32"),
     (ComponentType::U64, "u64"),
+    (ComponentType::F8E4M3FN, "f8e4m3fn"),
+    (ComponentType::F8E5M2, "f8e5m2"),
 ];
+
+/// Spellings KISS **reserves** and this vocabulary must therefore never emit.
+///
+/// `f8e4m3fnuz` / `f8e5m2fnuz` are members of KISS's closed dtype set but carry
+/// no computation semantics — a `structure_key` using one must be met with a
+/// typed decline. Vulkan exposes no enumerant for either, so nothing should
+/// ever derive them.
+///
+/// This is here because the *reason* the FP8 mapping is safe is that these two
+/// are excluded. If a future change wired `FLOAT8_E4M3_EXT` to the `fnuz`
+/// spelling — a one-character slip in a string literal — every round-trip test
+/// in this crate would still pass, because the crate would agree with itself.
+/// This is the assertion that would not.
+const RESERVED_NEVER_EMITTED: &[&str] = &["f8e4m3fnuz", "f8e5m2fnuz"];
 
 /// What to do when one of these fails. Shared, because the answer is the same
 /// for every assertion here and repeating it per-message buries the part that
@@ -168,6 +185,55 @@ fn every_registered_token_is_accepted_on_parse() {
             parsed.to_token(),
             token,
             "registered spelling {spelling:?} must round-trip byte-exactly"
+        );
+    }
+}
+
+/// No component type may spell a **reserved** KISS dtype.
+///
+/// The FP8 mapping rests entirely on this exclusion: `FLOAT8_E4M3_EXT` maps to
+/// `f8e4m3fn` rather than `f8e4m3fnuz` *because* the `fnuz` spellings are
+/// reserved with no computation semantics, so a type a device computes with
+/// cannot coherently be one. That argument is only worth as much as its
+/// enforcement, and a `fnuz` slip is four characters in a string literal that
+/// every round-trip and canonical-spelling test in this crate would sail past —
+/// the crate would simply agree with itself about the wrong spelling.
+#[test]
+fn no_component_type_spells_a_reserved_dtype() {
+    for &(component, _) in NAMED_COMPONENT_TYPES {
+        let token = token_for(component);
+        for spelling in cm_section(&token).split('-').skip(3) {
+            assert!(
+                !RESERVED_NEVER_EMITTED.contains(&spelling),
+                "{component:?} spells {spelling:?}, which KISS reserves \
+                 (KISS-CLASSIFY-6.1-0001: recognized on parse, no computation \
+                 semantics, must be answered with a typed decline). A derived \
+                 token must never contain one — it would claim a device computes \
+                 in a format the spec says carries no semantics at this schema \
+                 version.{ON_FAILURE}"
+            );
+        }
+    }
+}
+
+/// The reserved spellings must also not be *parseable* into a named variant.
+///
+/// Complements the test above: that one proves we never emit `fnuz`, this one
+/// proves we do not quietly accept it either. A reserved dtype arriving in a
+/// token is not this vocabulary's to resolve — it is an unnamed type, so it
+/// must land in `Other` via the `x<n>` route or fail to parse, never silently
+/// become `F8E4M3FN`.
+#[test]
+fn reserved_spellings_do_not_parse_as_named_component_types() {
+    for reserved in RESERVED_NEVER_EMITTED {
+        let token = format!(
+            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{reserved}-{reserved}-{reserved}-{reserved}"
+        );
+        assert!(
+            VulkanTarget::parse(&token).is_err(),
+            "the reserved spelling {reserved:?} parsed as a valid target. It is \
+             not in this vocabulary and must not be accepted as though it were: \
+             accepting it maps a no-semantics dtype onto a real component type."
         );
     }
 }
