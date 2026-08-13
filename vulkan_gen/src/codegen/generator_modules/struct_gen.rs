@@ -603,32 +603,31 @@ impl StructGenerator {
     /// structs beyond the marked ones — `VkCooperativeVectorPropertiesNV` (5
     /// fields) and `VkDataGraphPipelinePropertyQueryResultARM` (1) — so this is
     /// a surgical correction, not a reclassification of the binding surface.
-    fn build_driver_written_structs(&self, input_dir: &Path) -> std::collections::HashSet<String> {
+    /// # Failure is fatal, and propagates
+    ///
+    /// A missing or unparseable `functions.json` yields an error rather than an
+    /// empty set. An empty set degrades exactly one thing — whether
+    /// driver-written enum fields are typed `i32` — and degrades it
+    /// *invisibly*: the bindings still compile, the tests still pass, and the
+    /// UB comes back. This function exists to remove a defect that produced no
+    /// symptom, so it must not fail in a way that produces no symptom either.
+    ///
+    /// Reported through [`GeneratorError`] rather than a panic so the failure
+    /// stays inside the module's error model — reportable by the caller,
+    /// consistent with every other input this generator reads, and testable
+    /// without catching unwinds. Still fatal: `generate_all_structs` propagates
+    /// it and generation fails.
+    fn build_driver_written_structs(
+        &self,
+        input_dir: &Path,
+    ) -> GeneratorResult<std::collections::HashSet<String>> {
         use crate::parser::vk_types::VulkanCommand;
 
         let mut written = std::collections::HashSet::new();
         let path = input_dir.join("functions.json");
-        // Deliberately fatal rather than a soft fallback. A silent empty set
-        // here degrades exactly one thing — whether driver-written enum fields
-        // are typed `i32` — and it degrades it *invisibly*: the bindings still
-        // compile, the tests still pass, and the UB comes back. The whole point
-        // of this function is to remove a defect that produced no symptom, so
-        // it must not fail in a way that produces no symptom.
-        let content = fs::read_to_string(&path).unwrap_or_else(|e| {
-            panic!(
-                "cannot read {} ({e}) — the driver-written struct set would be \
-                 empty and enum fields a driver fills would silently regain \
-                 their UB-prone typing",
-                path.display()
-            )
-        });
-        let commands: Vec<VulkanCommand> = serde_json::from_str(&content).unwrap_or_else(|e| {
-            panic!(
-                "cannot parse {} as commands ({e}) — see above; an empty set \
-                 here is silently unsound, not merely incomplete",
-                path.display()
-            )
-        });
+        let content = fs::read_to_string(&path).map_err(GeneratorError::Io)?;
+        let commands: Vec<VulkanCommand> =
+            serde_json::from_str(&content).map_err(GeneratorError::Json)?;
 
         for command in &commands {
             if command.is_alias {
@@ -646,7 +645,7 @@ impl StructGenerator {
                 }
             }
         }
-        written
+        Ok(written)
     }
 
     /// Build a map from enum name to the variant identifier to use for `Default::default()`.
@@ -770,7 +769,7 @@ impl StructGenerator {
         // can be emitted as raw integers instead. See
         // `is_driver_written_enum_field`.
         let enum_type_names = self.build_enum_type_names(input_dir);
-        let written_by_command = self.build_driver_written_structs(input_dir);
+        let written_by_command = self.build_driver_written_structs(input_dir)?;
 
         // Generate code
         let mut generated_code = String::new();
@@ -962,7 +961,9 @@ mod tests {
         std::fs::write(dir.path().join("functions.json"), json).unwrap();
 
         let g = StructGenerator::new();
-        let set = g.build_driver_written_structs(dir.path());
+        let set = g
+            .build_driver_written_structs(dir.path())
+            .expect("synthetic functions.json must load");
 
         assert!(
             set.contains("VkCooperativeVectorPropertiesNV"),
