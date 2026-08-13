@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking) — `vulkan:` vocabulary version 3 names FP8
+
+`VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT` and `VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT` now derive
+`f8e4m3fn` and `f8e5m2` instead of falling through to the `x<n>` escape. `ComponentType`
+gains `F8E4M3FN` and `F8E5M2`, and `vulkane::kiss::component` maps both.
+
+**This changes the bytes of tokens already in the wild.** A device reporting FP8
+cooperative-matrix shapes previously derived `x1000491002` / `x1000491003`; it now derives
+the named spellings. §6.8-0002 matching is byte-exact, so an old token and its version-3
+equivalent **do not match**: caches keyed on version-2 tokens for such a device are stale
+and must be **invalidated, not migrated**.
+
+That this is a version bump rather than an additive change is not a judgement call. The
+registered namespace's §4 additive test says to compare against the registry baseline
+recorded for the previous version — `VK_HEADER_VERSION` 348 — and both enumerants are
+already assigned at 348 (value `1000491002`, extension 492's block). Assigned at the
+baseline means a conformant device could already have reported it, so a derivable token
+could already have been affected by the absence of the name. **Bump.** Devices with no FP8
+support are unaffected: their tokens never contained these values.
+
+The `fn` suffix is mandatory and load-bearing. `f8e4m3fn` is the OCP OFP8 finite variant;
+`f8e4m3fnuz` is a different format that KISS **reserves with no computation semantics**, so
+a deriver must never emit it. `kiss-vulkan-vocab` now asserts both directions — no named
+component spells a reserved dtype, and a reserved spelling does not parse as a named
+component — because a `fnuz` slip is four characters that every round-trip test in the
+crate would otherwise sail past.
+
+`VK_COMPONENT_TYPE_FLOAT_E4M3_NV` / `..._E5M2_NV` are registry *aliases* of the EXT
+enumerants, so one mapping covers both; a test pins that, since a future registry splitting
+them would silently return NV-only drivers to `x<n>`.
+
+Namespace document: `spec/namespaces/vulkan.md` at vocabulary version 3, rules V-10 and V-11.
+
 ### Changed (breaking) — `vulkan:` tokens spell signed integers with an `i` prefix
 
 Part of the KISS `sk4` coordinated schema event. The registered `vulkan:` namespace was amended to
