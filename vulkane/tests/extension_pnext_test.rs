@@ -37,8 +37,8 @@ use vulkane::safe::{
 /// This used to declare "Vulkan not available" for the *first* of its five
 /// failures and return a bare `None` for the other four, so a run that got as
 /// far as `vkCreateDevice` and failed there reported nothing at all.
-fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
-{
+fn bootstrap()
+-> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), common::Missing> {
     common::compute_device("vulkane-ext-pnext-test")
 }
 
@@ -48,7 +48,7 @@ fn memory_allocate_with_empty_pnext_matches_plain_allocate() {
     // to allocate(). Both call the same underlying path now.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
 
     let buffer = Buffer::new(
@@ -86,7 +86,7 @@ fn memory_allocate_with_pnext_accepts_allocate_flags_info() {
     // broadly supported — we just need the memory type to exist.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
 
     let buffer = Buffer::new(
@@ -139,7 +139,7 @@ fn buffer_new_with_pnext_accepts_external_memory_info() {
     // of VK_KHR_external_memory_{win32,fd} export.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
 
     let mut chain = PNextChain::new();
@@ -174,7 +174,7 @@ fn buffer_new_with_pnext_accepts_external_memory_info() {
 fn image_new_2d_with_pnext_accepts_external_memory_info() {
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
 
     let mut chain = PNextChain::new();
@@ -206,7 +206,7 @@ fn image_new_2d_with_pnext_accepts_external_memory_info() {
 fn fence_new_with_pnext_empty_chain_works() {
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let empty = PNextChain::new();
     let _f = Fence::new_with_pnext(&device, Some(&empty)).expect("fence with empty pnext chain");
@@ -216,7 +216,7 @@ fn fence_new_with_pnext_empty_chain_works() {
 fn semaphore_binary_with_pnext_empty_chain_works() {
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let empty = PNextChain::new();
     let _s = Semaphore::binary_with_pnext(&device, Some(&empty))
@@ -231,7 +231,7 @@ fn semaphore_timeline_with_pnext_combines_chains() {
     // valid timeline semaphore.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     if device.dispatch().vkGetSemaphoreCounterValue.is_none() {
         return common::skipped_unsupported(
@@ -316,7 +316,7 @@ fn device_memory_get_win32_handle_graceful_missing_function() {
     // MissingFunction error rather than panicking.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let buffer = Buffer::new(
         &device,
@@ -354,7 +354,7 @@ fn semaphore_get_win32_handle_graceful_missing_function() {
     use vulkane::raw::bindings::EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let sem = Semaphore::binary(&device).expect("binary semaphore");
     match sem.get_win32_handle(EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT) {
@@ -371,7 +371,7 @@ fn semaphore_get_win32_handle_graceful_missing_function() {
 fn device_memory_get_fd_graceful_missing_function() {
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let buffer = Buffer::new(
         &device,
@@ -409,7 +409,7 @@ fn buffer_barrier2_graceful_missing_function() {
 
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 

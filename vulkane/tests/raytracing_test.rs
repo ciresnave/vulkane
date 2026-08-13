@@ -22,8 +22,8 @@ use vulkane::safe::{
     InstanceCreateInfo, Queue, ShaderBindingRegion,
 };
 
-fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
-{
+fn bootstrap()
+-> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), common::Missing> {
     common::compute_device("vulkane-raytracing-test")
 }
 
@@ -32,7 +32,7 @@ fn acceleration_structure_build_sizes_rejects_length_mismatch() {
     // Pure safe-layer validation before dispatch.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let r = device.acceleration_structure_build_sizes(
         AccelerationStructureBuildType::Device,
@@ -64,7 +64,7 @@ fn acceleration_structure_build_sizes_graceful_missing_function() {
     // extension enabled, it returns sensible non-negative sizes.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     match device.acceleration_structure_build_sizes(
         AccelerationStructureBuildType::Device,
@@ -95,7 +95,7 @@ fn acceleration_structure_new_graceful_missing_function() {
     // Attempting to create the handle without the extension enabled.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     // Create a placeholder buffer — won't actually be valid AS storage
     // but the safe wrapper should fail at the extension-load step,
@@ -157,7 +157,7 @@ fn build_acceleration_structure_rejects_length_mismatch() {
     // trust that the length check runs before we even reach the driver.
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -224,7 +224,7 @@ fn build_acceleration_structure_rejects_length_mismatch() {
 fn trace_rays_graceful_missing_function() {
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 

@@ -21,7 +21,7 @@ use vulkane::safe::{
 /// The previous version also returned the `Instance`, and every caller bound it
 /// as `_instance` — it was kept alive for nothing, since `Device` holds its own
 /// `Arc` to the instance internals.
-fn bootstrap() -> Result<(vulkane::safe::Device, u32), &'static str> {
+fn bootstrap() -> Result<(vulkane::safe::Device, u32), common::Missing> {
     let (device, _physical, qf) = common::compute_device("vulkane generator-live-device test")?;
     Ok((device, qf))
 }
@@ -55,7 +55,7 @@ fn generated_device_wait_idle_live() {
     // body's `Result<()>` translation works against a real driver.
     let (device, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     <vulkane::safe::Device as DeviceSafeExt>::device_wait_idle(&device)
         .expect("device_wait_idle must succeed on an idle device");
@@ -66,7 +66,7 @@ fn generated_queue_wait_idle_live() {
     // Queue-dispatch via the generated QueueSafeExt.
     let (device, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue = device.get_queue(qf, 0);
     <vulkane::safe::Queue as QueueSafeExt>::queue_wait_idle(&queue)
@@ -79,7 +79,7 @@ fn generated_physical_device_get_queue_family_properties_live() {
     // enumerate that the safe wrapper surfaces.
     let (device, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let _ = device;
     let instance = Instance::new(InstanceCreateInfo::default()).unwrap();

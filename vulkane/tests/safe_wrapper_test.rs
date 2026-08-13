@@ -490,27 +490,16 @@ type ComputeSetup = (
 /// fail, present and report no devices, or present with a device that has no
 /// compute queue family. Anyone who hit one of those was told to go install a
 /// driver they already had.
-fn try_init_compute() -> Result<ComputeSetup, &'static str> {
-    let instance = Instance::new(InstanceCreateInfo::default())
-        .map_err(|_| "no Vulkan ICD, or the loader declined to create an instance")?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .map_err(|_| "an ICD is present but enumerating physical devices failed")?
-        .into_iter()
-        .next()
-        .ok_or("an ICD is present but reports no physical devices")?;
-    let queue_family = physical
-        .find_queue_family(QueueFlags::COMPUTE)
-        .ok_or("the first physical device exposes no compute-capable queue family")?;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo {
-                queue_family_index: queue_family,
-                queue_priorities: vec![1.0],
-            }],
-            ..Default::default()
-        })
-        .map_err(|_| "a compute-capable device was found but vkCreateDevice failed")?;
+/// Built on the shared primitives in [`common`] rather than its own copy of the
+/// boot sequence. That also fixed a divergence: this used to take physical
+/// device *0* and ask whether it had a compute family, so on a multi-adapter
+/// machine it could skip while a usable second adapter sat idle.
+/// [`common::first_compute`] searches, which is what `compute_device` already
+/// did — the two no longer disagree about what "no compute device" means.
+fn try_init_compute() -> Result<ComputeSetup, common::Missing> {
+    let (instance, devices) = common::instance_and_devices("vulkane test", ApiVersion::V1_0)?;
+    let (physical, queue_family) = common::first_compute(devices)?;
+    let device = common::create_device_on(&physical, queue_family, None)?;
     let queue = device.get_queue(queue_family, 0);
     Ok((instance, physical, device, queue, queue_family))
 }
@@ -527,8 +516,8 @@ fn try_init_compute() -> Result<ComputeSetup, &'static str> {
 fn compute_or_skip() -> Option<ComputeSetup> {
     match try_init_compute() {
         Ok(setup) => Some(setup),
-        Err(why) => {
-            common::skipped(why);
+        Err(cause) => {
+            common::skip(cause);
             None
         }
     }
@@ -2359,34 +2348,42 @@ fn init_at_or_skip(
     version: ApiVersion,
     version_label: &str,
 ) -> Option<(Instance, vulkane::safe::PhysicalDevice)> {
-    let instance = match Instance::new(InstanceCreateInfo {
-        api_version: version,
-        ..Default::default()
-    }) {
-        Ok(i) => i,
-        Err(_) => {
-            if Instance::new(InstanceCreateInfo::default()).is_ok() {
-                common::skipped_unsupported(&format!("a Vulkan {version_label} instance"));
+    match try_init_at(version, version_label) {
+        Ok(pair) => Some(pair),
+        Err(cause) => {
+            common::skip(cause);
+            None
+        }
+    }
+}
+
+fn try_init_at(
+    version: ApiVersion,
+    version_label: &str,
+) -> Result<(Instance, vulkane::safe::PhysicalDevice), common::Missing> {
+    // Note the deliberate difference from `try_init_compute`: this takes the
+    // *first* physical device rather than the first compute-capable one. What
+    // is under test is version-gated property queries, which every device
+    // answers — requiring compute would import a precondition this has no need
+    // of, and make it fatal under VULKANE_REQUIRE_DEVICE for no reason.
+    let (instance, devices) = match common::instance_and_devices("vulkane test", version) {
+        Ok(v) => v,
+        Err(common::Missing::Device(reason)) => {
+            // "Cannot create a 1.2 instance" has two causes with opposite
+            // verdicts: no ICD (fatal), or an ICD older than the caller wants
+            // (conformant). Asking for a default instance tells them apart.
+            return Err(if Instance::new(InstanceCreateInfo::default()).is_ok() {
+                common::Missing::capability(format!("a Vulkan {version_label} instance"))
             } else {
-                common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            }
-            return None;
+                common::Missing::device(reason)
+            });
         }
+        Err(other) => return Err(other),
     };
-    let physical = match instance.enumerate_physical_devices() {
-        Ok(devices) => match devices.into_iter().next() {
-            Some(p) => p,
-            None => {
-                common::skipped("an ICD is present but reports no physical devices");
-                return None;
-            }
-        },
-        Err(_) => {
-            common::skipped("an ICD is present but enumerating physical devices failed");
-            return None;
-        }
-    };
-    Some((instance, physical))
+    let physical = devices.into_iter().next().ok_or_else(|| {
+        common::Missing::device("an ICD is present but reports no physical devices")
+    })?;
+    Ok((instance, physical))
 }
 
 /// On a 1.0 instance the two version-gated queries must behave
@@ -2545,11 +2542,8 @@ fn test_driver_properties_query_succeeds_or_skips() {
 // DeviceFeatures + features-enabled tests
 // ---------------------------------------------------------------------------
 
-/// Helper that creates an Instance + PhysicalDevice + Device with the
-/// requested feature set enabled. Returns None on devices/drivers that
-/// don't support the requested features so callers can skip cleanly.
 /// Bring up a device with `features` enabled, declaring the failure through
-/// the correct [`common`] helper and returning `None`.
+/// [`common::skip`] and returning `None`.
 ///
 /// `label` names the feature set for the not-supported case, e.g.
 /// `"the bufferDeviceAddress feature"`.
@@ -2560,48 +2554,27 @@ fn test_driver_properties_query_succeeds_or_skips() {
 /// must be. Before this split every call site declared the *feature* reason
 /// for both, which meant a Linux CI run that had lost its ICD entirely would
 /// have reported "the bufferDeviceAddress feature is unsupported" and passed.
+///
+/// The classification now travels in the [`common::Missing`] the primitives
+/// return, so this function chooses nothing — it only supplies the label that
+/// [`common::create_device_on`] uses when the *features* step is the one that
+/// failed.
 fn features_or_skip(features: DeviceFeatures, label: &str) -> Option<ComputeSetup> {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => {
-            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            return None;
+    match try_features(features, label) {
+        Ok(setup) => Some(setup),
+        Err(cause) => {
+            common::skip(cause);
+            None
         }
-    };
-    let physical = match instance.enumerate_physical_devices() {
-        Ok(devices) => match devices.into_iter().next() {
-            Some(p) => p,
-            None => {
-                common::skipped("an ICD is present but reports no physical devices");
-                return None;
-            }
-        },
-        Err(_) => {
-            common::skipped("an ICD is present but enumerating physical devices failed");
-            return None;
-        }
-    };
-    let Some(queue_family) = physical.find_queue_family(QueueFlags::COMPUTE) else {
-        common::skipped("the first physical device exposes no compute-capable queue family");
-        return None;
-    };
-    // Only *this* step is capability-gated: everything above is device absence.
-    let device = match physical.create_device(DeviceCreateInfo {
-        queue_create_infos: &[QueueCreateInfo {
-            queue_family_index: queue_family,
-            queue_priorities: vec![1.0],
-        }],
-        enabled_features: Some(&features),
-        ..Default::default()
-    }) {
-        Ok(d) => d,
-        Err(_) => {
-            common::skipped_unsupported(label);
-            return None;
-        }
-    };
+    }
+}
+
+fn try_features(features: DeviceFeatures, label: &str) -> Result<ComputeSetup, common::Missing> {
+    let (instance, devices) = common::instance_and_devices("vulkane test", ApiVersion::V1_0)?;
+    let (physical, queue_family) = common::first_compute(devices)?;
+    let device = common::create_device_on(&physical, queue_family, Some((&features, label)))?;
     let queue = device.get_queue(queue_family, 0);
-    Some((instance, physical, device, queue, queue_family))
+    Ok((instance, physical, device, queue, queue_family))
 }
 
 #[test]

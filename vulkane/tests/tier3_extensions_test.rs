@@ -27,8 +27,8 @@ use vulkane::safe::{
     ShaderStageFlags,
 };
 
-fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
-{
+fn bootstrap()
+-> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), common::Missing> {
     common::compute_device("vulkane-tier3-test")
 }
 
@@ -38,7 +38,7 @@ fn memory_allocate_info_default_is_plain_allocation() {
     // the plain allocate() path — no priority, no pnext.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let buffer = Buffer::new(
         &device,
@@ -75,7 +75,7 @@ fn memory_priority_chains_through_allocate_with() {
     // proves the chain-merge path doesn't corrupt allocation.
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let buffer = Buffer::new(
         &device,
@@ -117,7 +117,7 @@ fn memory_priority_composes_with_user_pnext() {
     use vulkane::safe::PNextChain;
     let (device, physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let buffer = Buffer::new(
         &device,
@@ -163,7 +163,7 @@ fn compute_pipeline_with_required_subgroup_size_path_compiles() {
     // error or a panic before reaching the driver.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
 
     // Build a minimal descriptor layout + pipeline layout for the
@@ -195,7 +195,7 @@ fn descriptor_buffer_size_graceful_missing_function() {
     // panic or UB.
     let (device, _physical, _qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let set_layout = DescriptorSetLayout::new(
         &device,
@@ -229,7 +229,7 @@ fn descriptor_buffer_size_graceful_missing_function() {
 fn bind_descriptor_buffers_graceful_missing_function() {
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -276,7 +276,7 @@ fn set_descriptor_buffer_offsets_rejects_mismatched_lengths() {
     // we return InvalidArgument *before* touching the driver.
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
     let set_layout = DescriptorSetLayout::new(

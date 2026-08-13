@@ -27,8 +27,8 @@ use vulkane::safe::{
     PushDescriptorWrite, Queue, RenderingAttachment, RenderingInfo,
 };
 
-fn bootstrap() -> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), &'static str>
-{
+fn bootstrap()
+-> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), common::Missing> {
     common::compute_device("vulkane-tier2-test")
 }
 
@@ -45,7 +45,7 @@ fn push_descriptor_set_graceful_missing_function() {
 
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -105,7 +105,7 @@ fn dynamic_rendering_begin_end_graceful_missing_function() {
     // and accept either success or MissingFunction.
     let (device, physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -234,7 +234,7 @@ fn buffer_barrier2_in_recording_via_tier2_path() {
     // Tier-2 additions reshaped the command.rs file layout.
     let (device, _physical, qf) = match bootstrap() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
     let buffer = Buffer::new(
