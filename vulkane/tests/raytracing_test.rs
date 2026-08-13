@@ -5,50 +5,34 @@
 //! expose the underlying extension — we only assert on safe-layer
 //! surface behaviour (no panics, clean `MissingFunction` surfacing,
 //! `InvalidArgument` on mismatched lengths, etc.).
+//!
+//! This is the file where the two skip classes in [`common`] are furthest
+//! apart. Ray tracing is absent from most devices and from Lavapipe entirely,
+//! so nearly every degradation here is [`common::skipped_unsupported`] — loud
+//! but never fatal. Only *device absence* is fatal, because only that is
+//! something `VULKANE_REQUIRE_DEVICE` is entitled to assert.
+
+mod common;
 
 use std::sync::Arc;
 use vulkane::safe::{
     AccelerationStructure, AccelerationStructureBuildFlags, AccelerationStructureBuildMode,
     AccelerationStructureBuildType, AccelerationStructureCreateInfo, AccelerationStructureGeometry,
-    AccelerationStructureType, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, BuildRange,
-    DeviceCreateInfo, Instance, InstanceCreateInfo, Queue, QueueCreateInfo, QueueFlags,
-    ShaderBindingRegion,
+    AccelerationStructureType, Buffer, BufferCreateInfo, BufferUsage, BuildRange, Instance,
+    InstanceCreateInfo, Queue, ShaderBindingRegion,
 };
 
-fn bootstrap() -> Option<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32)> {
-    let instance = Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane-raytracing-test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    })
-    .ok()?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .ok()?
-        .into_iter()
-        .find(|pd| {
-            pd.queue_family_properties()
-                .iter()
-                .any(|q| q.queue_flags().contains(QueueFlags::COMPUTE))
-        })?;
-    let qf = physical
-        .queue_family_properties()
-        .iter()
-        .position(|q| q.queue_flags().contains(QueueFlags::COMPUTE))? as u32;
-    let device = physical
-        .create_device(DeviceCreateInfo {
-            queue_create_infos: &[QueueCreateInfo::single(qf)],
-            ..Default::default()
-        })
-        .ok()?;
-    Some((device, physical, qf))
+fn bootstrap()
+-> Result<(vulkane::safe::Device, vulkane::safe::PhysicalDevice, u32), common::Missing> {
+    common::compute_device("vulkane-raytracing-test")
 }
 
 #[test]
 fn acceleration_structure_build_sizes_rejects_length_mismatch() {
     // Pure safe-layer validation before dispatch.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
     };
     let r = device.acceleration_structure_build_sizes(
         AccelerationStructureBuildType::Device,
@@ -78,8 +62,9 @@ fn acceleration_structure_build_sizes_graceful_missing_function() {
     // Well-formed input: 1 geometry + 1 primitive count. Without the
     // extension enabled, the call surfaces MissingFunction. With the
     // extension enabled, it returns sensible non-negative sizes.
-    let Some((device, _physical, _qf)) = bootstrap() else {
-        return;
+    let (device, _physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
     };
     match device.acceleration_structure_build_sizes(
         AccelerationStructureBuildType::Device,
@@ -108,8 +93,9 @@ fn acceleration_structure_build_sizes_graceful_missing_function() {
 #[test]
 fn acceleration_structure_new_graceful_missing_function() {
     // Attempting to create the handle without the extension enabled.
-    let Some((device, physical, _qf)) = bootstrap() else {
-        return;
+    let (device, physical, _qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
     };
     // Create a placeholder buffer — won't actually be valid AS storage
     // but the safe wrapper should fail at the extension-load step,
@@ -121,17 +107,19 @@ fn acceleration_structure_new_graceful_missing_function() {
             usage: BufferUsage::STORAGE_BUFFER,
         },
     ) else {
-        return;
+        return common::skipped_unsupported("a 4 KiB STORAGE_BUFFER");
     };
     let req = buffer.memory_requirements();
     let Some(mt) = physical.find_memory_type(
         req.memory_type_bits,
         vulkane::safe::MemoryPropertyFlags::DEVICE_LOCAL,
     ) else {
-        return;
+        return common::skipped_unsupported(
+            "a DEVICE_LOCAL memory type this buffer's memory_type_bits accepts",
+        );
     };
     let Ok(memory) = vulkane::safe::DeviceMemory::allocate(&device, req.size, mt) else {
-        return;
+        return common::skipped_unsupported("an allocation of the buffer's required size");
     };
     let _ = buffer.bind_memory(&memory, 0);
 
@@ -167,8 +155,9 @@ fn build_acceleration_structure_rejects_length_mismatch() {
     // we can't build one without the extension being live, we set up
     // the AccelerationStructureGeometry / BuildRange slices first and
     // trust that the length check runs before we even reach the driver.
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -186,7 +175,7 @@ fn build_acceleration_structure_rejects_length_mismatch() {
     )
     .ok()
     .map(Arc::new) else {
-        return;
+        return common::skipped_unsupported("a 4 KiB STORAGE_BUFFER");
     };
     let dst = match AccelerationStructure::new(
         &device,
@@ -200,8 +189,7 @@ fn build_acceleration_structure_rejects_length_mismatch() {
     ) {
         Ok(a) => a,
         Err(_) => {
-            eprintln!("SKIP: cannot create AS (extension not loaded)");
-            return;
+            return common::skipped_unsupported("VK_KHR_acceleration_structure");
         }
     };
 
@@ -234,8 +222,9 @@ fn build_acceleration_structure_rejects_length_mismatch() {
 
 #[test]
 fn trace_rays_graceful_missing_function() {
-    let Some((device, _physical, qf)) = bootstrap() else {
-        return;
+    let (device, _physical, qf) = match bootstrap() {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
     };
     let queue: Queue = device.get_queue(qf, 0);
 
@@ -267,7 +256,9 @@ fn ray_tracing_pipeline_properties_queryable() {
     // Should never panic regardless of driver support.
     let instance = match Instance::new(InstanceCreateInfo::default()) {
         Ok(i) => i,
-        Err(_) => return,
+        Err(e) => {
+            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
+        }
     };
     for pd in instance.enumerate_physical_devices().unwrap_or_default() {
         let props = pd.ray_tracing_pipeline_properties();
