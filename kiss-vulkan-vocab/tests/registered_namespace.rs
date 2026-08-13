@@ -351,3 +351,141 @@ fn operand_positions_survive_the_round_trip_in_order() {
         "operands came back transposed"
     );
 }
+
+/// The one `vulkan:` token published in an artifact **someone else generated**.
+///
+/// From KISS `conformance/corpus/structure_key_vectors.json`, clause
+/// KISS-CLASSIFY-6.8, artifact `source_commit` `19c3ad7`. That file is emitted
+/// by KISS's reference codec and byte-compared in their CI, so the token was
+/// produced by a different implementation from a different vocabulary — it is
+/// not something this project wrote down and then checked against itself.
+///
+/// Which is the whole reason it is here. Every other assertion in this file
+/// compares the crate to a constant transcribed out of our own namespace
+/// document; they catch the *crate* drifting and cannot catch the document
+/// moving. This one is the only place where the thing being compared against
+/// has an author who is not us.
+const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none";
+
+#[test]
+fn the_published_external_vector_round_trips_byte_exactly() {
+    let parsed = VulkanTarget::parse(PUBLISHED_VECTOR).unwrap_or_else(|e| {
+        panic!(
+            "the published `vulkan:` reference vector failed to parse: \
+             {PUBLISHED_VECTOR}\n  {e:?}\n\nThis token is in KISS's committed \
+             corpus and other implementations byte-match against it. If this \
+             crate cannot read it, the vocabulary has diverged from what is \
+             published — fix the crate, not this constant.{ON_FAILURE}"
+        )
+    });
+    assert_eq!(
+        parsed.to_token(),
+        PUBLISHED_VECTOR,
+        "re-spelling the published reference vector did not reproduce it \
+         byte-for-byte. §6.8-0002 matching is byte-exact with no subset or \
+         implication logic, so this is a silent non-match for every consumer \
+         keying on that token — not a cosmetic difference.{ON_FAILURE}"
+    );
+}
+
+/// Cross-check the pinned copy above against the artifact itself.
+///
+/// Pinning a token as a `const` is a transcription, and transcription at the
+/// last mile is its own defect class — the same one that makes
+/// `REGISTERED_COMPONENT_TYPES` "a ratchet, not a proof". So where the KISS
+/// checkout is reachable, the constant is verified against the real file rather
+/// than trusted.
+///
+/// Matched as a **quoted** JSON string rather than a bare substring. The
+/// artifact stores the token as a complete string value, so the surrounding
+/// double quotes are the boundary, and requiring them is what makes this an
+/// equality check rather than a prefix check.
+///
+/// A bare substring search passes against any token that merely *extends* ours
+/// — `…cm-none` is a substring of `…cm-nonesuch` — so if KISS regenerated the
+/// corpus with a longer `vulkan:` token, the check would still have gone green
+/// while our exact bytes were no longer in the file. That is precisely the
+/// drift this test exists to catch, so the weaker form was checking something
+/// adjacent to its own claim.
+///
+/// Still not JSON-parsed: this crate is dependency-free by §6.9-0003, and the
+/// property is that our exact bytes appear as a complete value in their
+/// artifact — which quoted search answers without a JSON parser having to agree
+/// with us about anything.
+///
+/// **Declared, not silent, when it cannot run.** The artifact lives in a
+/// separate repository that is not present in CI or for downstream users, so
+/// this legitimately does not run everywhere. The test above always runs; only
+/// the drift check between our copy and theirs is conditional.
+#[test]
+fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
+    let Some(path) = kiss_vectors_path() else {
+        eprintln!(
+            "SKIP: KISS corpus not reachable — set KISS_REPO or place a KISS \
+             checkout beside this workspace to cross-check {PUBLISHED_VECTOR} \
+             against conformance/corpus/structure_key_vectors.json"
+        );
+        return;
+    };
+
+    let corpus = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
+    assert!(
+        corpus.contains(&quoted),
+        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a \
+         complete JSON string value in {}. Either the artifact was regenerated \
+         with a different `vulkan:` token — in which case update the constant \
+         to match it, since they generate and we follow — or the constant was \
+         mistyped. Do not 'fix' this by deleting the check, and do not weaken \
+         it to an unquoted substring search: it is the only assertion in this \
+         crate whose expected value has an author other than us.",
+        path.display()
+    );
+}
+
+/// The boundary in the check above has to actually bite, or it is a prefix
+/// check wearing an equality check's error message.
+///
+/// Asserted on constructed strings rather than on the artifact, so it holds
+/// wherever the corpus is unreachable — this is a property of the matching
+/// rule, not of the file.
+#[test]
+fn the_artifact_match_requires_a_complete_value_not_a_prefix() {
+    let extended = format!("{PUBLISHED_VECTOR}such");
+    assert!(
+        extended.contains(PUBLISHED_VECTOR),
+        "sanity: the longer token really does contain ours as a bare substring, \
+         which is the hazard being guarded against"
+    );
+
+    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
+    assert!(
+        !format!("\"{extended}\"").contains(&quoted),
+        "a token that merely extends ours must not satisfy the quoted match — \
+         if it does, the corpus check has silently become a prefix check and \
+         would pass while our exact bytes were gone from the artifact"
+    );
+}
+
+/// The KISS `structure_key_vectors.json`, if a checkout is reachable.
+///
+/// `KISS_REPO` wins so this works on any layout; otherwise a sibling checkout
+/// next to this workspace is the conventional arrangement here.
+fn kiss_vectors_path() -> Option<std::path::PathBuf> {
+    const RELATIVE: &str = "conformance/corpus/structure_key_vectors.json";
+
+    if let Some(repo) = std::env::var_os("KISS_REPO") {
+        let path = std::path::Path::new(&repo).join(RELATIVE);
+        return path.is_file().then_some(path);
+    }
+    // `CARGO_MANIFEST_DIR` is `<workspace>/kiss-vulkan-vocab`; two levels up is
+    // the directory holding the workspace.
+    let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .parent()?
+        .join("KISS")
+        .join(RELATIVE);
+    sibling.is_file().then_some(sibling)
+}
