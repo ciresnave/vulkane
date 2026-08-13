@@ -52,6 +52,14 @@ impl StructGenerator {
     }
 
     /// Generate Rust code for a single struct
+    ///
+    /// Every parameter after `struct_def` is a read-only lookup table built once
+    /// in `generate_all_structs` and threaded through from its single call site.
+    /// Bundling them into a context struct would read better and is worth doing,
+    /// but it is a refactor of its own rather than something to fold into a
+    /// soundness fix — the eighth argument is what tipped the lint, not a change
+    /// in how the function is used.
+    #[allow(clippy::too_many_arguments)]
     fn generate_struct(
         &self,
         struct_def: &StructDefinition,
