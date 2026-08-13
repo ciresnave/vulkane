@@ -396,10 +396,22 @@ fn the_published_external_vector_round_trips_byte_exactly() {
 /// checkout is reachable, the constant is verified against the real file rather
 /// than trusted.
 ///
-/// Compared as a substring rather than parsed as JSON deliberately: this crate
-/// is dependency-free by §6.9-0003, and the property under test is that our
-/// exact bytes appear in their artifact — which substring search answers
-/// without a JSON parser having to agree with us about anything.
+/// Matched as a **quoted** JSON string rather than a bare substring. The
+/// artifact stores the token as a complete string value, so the surrounding
+/// double quotes are the boundary, and requiring them is what makes this an
+/// equality check rather than a prefix check.
+///
+/// A bare substring search passes against any token that merely *extends* ours
+/// — `…cm-none` is a substring of `…cm-nonesuch` — so if KISS regenerated the
+/// corpus with a longer `vulkan:` token, the check would still have gone green
+/// while our exact bytes were no longer in the file. That is precisely the
+/// drift this test exists to catch, so the weaker form was checking something
+/// adjacent to its own claim.
+///
+/// Still not JSON-parsed: this crate is dependency-free by §6.9-0003, and the
+/// property is that our exact bytes appear as a complete value in their
+/// artifact — which quoted search answers without a JSON parser having to agree
+/// with us about anything.
 ///
 /// **Declared, not silent, when it cannot run.** The artifact lives in a
 /// separate repository that is not present in CI or for downstream users, so
@@ -419,15 +431,41 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
     let corpus = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
 
+    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
     assert!(
-        corpus.contains(PUBLISHED_VECTOR),
-        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear in \
-         {}. Either the artifact was regenerated with a different `vulkan:` \
-         token — in which case update the constant to match it, since they \
-         generate and we follow — or the constant was mistyped. Do not \
-         'fix' this by deleting the check: it is the only assertion in this \
+        corpus.contains(&quoted),
+        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a \
+         complete JSON string value in {}. Either the artifact was regenerated \
+         with a different `vulkan:` token — in which case update the constant \
+         to match it, since they generate and we follow — or the constant was \
+         mistyped. Do not 'fix' this by deleting the check, and do not weaken \
+         it to an unquoted substring search: it is the only assertion in this \
          crate whose expected value has an author other than us.",
         path.display()
+    );
+}
+
+/// The boundary in the check above has to actually bite, or it is a prefix
+/// check wearing an equality check's error message.
+///
+/// Asserted on constructed strings rather than on the artifact, so it holds
+/// wherever the corpus is unreachable — this is a property of the matching
+/// rule, not of the file.
+#[test]
+fn the_artifact_match_requires_a_complete_value_not_a_prefix() {
+    let extended = format!("{PUBLISHED_VECTOR}such");
+    assert!(
+        extended.contains(PUBLISHED_VECTOR),
+        "sanity: the longer token really does contain ours as a bare substring, \
+         which is the hazard being guarded against"
+    );
+
+    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
+    assert!(
+        !format!("\"{extended}\"").contains(&quoted),
+        "a token that merely extends ours must not satisfy the quoted match — \
+         if it does, the corpus check has silently become a prefix check and \
+         would pass while our exact bytes were gone from the artifact"
     );
 }
 
