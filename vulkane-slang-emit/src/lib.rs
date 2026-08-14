@@ -54,7 +54,7 @@ use crate::backend::{Backend, GeneratedKernel, LowerError, Lowering, const_lit, 
 use crate::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use crate::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
 use crate::plan::{KernelPlan, Schedule};
-use unpopped_vocab::ElementKind;
+use unpopped_vocab::{ElementKind, TargetId};
 
 /// The Slang compute-shader backend. Lowers a [`KernelPlan`] to `.slang` source.
 #[derive(Copy, Clone, Debug, Default)]
@@ -81,7 +81,26 @@ impl Backend for Slang {
         "unpopped"
     }
 
-    fn supports_dtype(&self, dtype: ElementKind) -> bool {
+    fn supports_dtype(&self, dtype: ElementKind, _target: TargetId) -> bool {
+        // `_target` is unused, and unlike CpuC's (where it is unused because C
+        // is C everywhere) that is a **gap**, not an answer.
+        //
+        // Slang's own conformance docs: only `int`/`int32_t` and `uint`/`uint32_t`
+        // are universally supported, and *"the others depend on target +
+        // capabilities"*. So `i8`/`i16`/`u8`/`u16` are spellable on a capable
+        // target, and declining them everywhere is over-refusal.
+        //
+        // What is missing is no longer the parameter — it is the **data**.
+        // Answering differently means reading a `vulkan:` capability set and
+        // knowing whether it implies `shaderInt8`/`shaderInt16`, and that
+        // vocabulary belongs to the Vulkan namespace's maintainer
+        // (KISS-CLASSIFY §6.8-0004). Transcribing our guess at it here is the
+        // exact coupling KISS #171's machine-readable capability manifest
+        // exists to remove, and a wrong guess emits a type the target cannot
+        // compile — the fall-through the backend contract forbids.
+        //
+        // So this still declines, but for a reason that is now true: no
+        // capability data. When the manifest lands this becomes a lookup.
         slang_ctype(dtype).is_some()
     }
 
@@ -484,17 +503,20 @@ mod tests {
 
     #[test]
     fn declines_f16_and_non_scalar_dtypes_via_supports_dtype() {
-        assert!(!Slang.supports_dtype(ElementKind::F16));
-        assert!(!Slang.supports_dtype(ElementKind::Bf16));
-        assert!(!Slang.supports_dtype(ElementKind::U32));
-        assert!(!Slang.supports_dtype(ElementKind::I8));
+        assert!(!Slang.supports_dtype(ElementKind::F16, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::Bf16, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::U32, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::I8, ArchSku::Sm89.into()));
         for dt in [
             ElementKind::F32,
             ElementKind::F64,
             ElementKind::I32,
             ElementKind::I64,
         ] {
-            assert!(Slang.supports_dtype(dt), "{dt:?} should be supported");
+            assert!(
+                Slang.supports_dtype(dt, ArchSku::Sm89.into()),
+                "{dt:?} should be supported"
+            );
         }
     }
 
