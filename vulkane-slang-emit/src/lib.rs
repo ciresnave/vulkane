@@ -182,6 +182,9 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
             },
             unary: &|op, x| slang_unary(op, x, plan.dtype),
             binary: &|op, a, b| slang_binary(op, a, b, plan.dtype),
+            // Slang lowers no struct-typed dtype, so the C operator is always
+            // right here; the seam exists for backends that do.
+            arith: &|op, a, b| format!("({a} {} {b})", op.c_operator()),
             select: &|c, a, b| slang_select(c, a, b, plan.dtype),
             constant: &const_lit,
         },
