@@ -376,38 +376,36 @@ fn operand_positions_survive_the_round_trip_in_order() {
 /// document; they catch the *crate* drifting and cannot catch the document
 /// moving. This one is the only place where the thing being compared against
 /// has an author who is not us.
-const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none";
+const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none";
 
-/// **Tripwire, not a round-trip — and deliberately so.**
+/// The published vector must parse and re-spell byte-for-byte.
 ///
-/// The published vector is a *four*-field token, minted before vocabulary
-/// version 4 added `<coopvec>`. Under v4 this crate cannot parse it, and that
-/// is correct: V-1 fixes the arity at five with no omissible fields.
+/// Regenerated to the five-field v4 form by KISS in `bea9416`, against the
+/// published grammar rather than minted by us — which is the only reason this
+/// constant is worth anything. A vector we authored, asserting we agree with
+/// ourselves, would be a forged contract.
 ///
-/// It would have been trivial to "fix" this by editing `PUBLISHED_VECTOR` to
-/// the five-field form. That was refused. The value of this constant is that
-/// its author is not us — a vector we minted, asserting we agree with
-/// ourselves, is a forged contract rather than evidence. KISS regenerates the
-/// artifact against the published grammar; we follow it.
-///
-/// So this asserts the *current* truth and fails the moment it stops being
-/// true. **When this test fails, the artifact has been regenerated** — update
-/// `PUBLISHED_VECTOR` to the new five-field token, and restore this to the
-/// byte-exact round-trip it was before v4.
-///
-/// Worth recording why a single externally-authored value earns this much
-/// ceremony: the four-leg byte-match over this artifact *passed*, with a leg
-/// comparing this very token and matching it. Implementations agreed with each
-/// other while all of them disagreed with the published document. Agreement
-/// between implementations is not conformance to a spec.
+/// Worth knowing what this one value produced. Tracing a report from it found
+/// that the target token had **no independent derivation anywhere in the
+/// chain**: KISS authored the literal, Fuel interpolates it verbatim, Unpopped
+/// carries it opaquely. Three byte-exact comparisons of one authored string.
+/// The byte-match never failed — it *agreed*, and would have agreed at any
+/// vocabulary version. Agreement between implementations is not conformance to
+/// a document.
 #[test]
-fn the_published_vector_is_still_the_pre_v4_four_field_form() {
-    let err = VulkanTarget::parse(PUBLISHED_VECTOR).expect_err(
-        "the published vector parsed under v4. That means the KISS artifact has          been regenerated to the five-field form — which is the expected end          state, not a bug. Update PUBLISHED_VECTOR to the regenerated token and          restore the byte-exact round-trip assertion this test replaced.",
-    );
-    assert!(
-        matches!(err, ParseError::FieldCount { found: 4 }),
-        "expected the pre-v4 four-field shape, got {err:?}. If the artifact now          carries something else again, read it before assuming."
+fn the_published_external_vector_round_trips_byte_exactly() {
+    let parsed = VulkanTarget::parse(PUBLISHED_VECTOR).unwrap_or_else(|e| {
+        panic!(
+            "the published `vulkan:` reference vector failed to parse:              {PUBLISHED_VECTOR}
+  {e:?}
+
+This token is in KISS's committed              corpus and other implementations byte-match against it. If this              crate cannot read it, the vocabulary has diverged from what is              published — fix the crate, not this constant.{ON_FAILURE}"
+        )
+    });
+    assert_eq!(
+        parsed.to_token(),
+        PUBLISHED_VECTOR,
+        "re-spelling the published reference vector did not reproduce it          byte-for-byte. §6.8-0002 matching is byte-exact with no subset or          implication logic, so this is a silent non-match for every consumer          keying on that token — not a cosmetic difference.{ON_FAILURE}"
     );
 }
 
@@ -451,45 +449,47 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
         return;
     };
 
-    let corpus = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let corpus = read_published_corpus(&path);
 
     let quoted = format!("\"{PUBLISHED_VECTOR}\"");
     assert!(
         corpus.contains(&quoted),
-        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a \
-         complete JSON string value in {}. Either the artifact was regenerated \
-         with a different `vulkan:` token — in which case update the constant \
-         to match it, since they generate and we follow — or the constant was \
-         mistyped. Do not 'fix' this by deleting the check, and do not weaken \
-         it to an unquoted substring search: it is the only assertion in this \
-         crate whose expected value has an author other than us.",
+        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a          complete JSON string value in the published corpus.
+
+         Two causes, and they need different fixes. Either the artifact was          regenerated with a different `vulkan:` token — update the constant to          match it, since they generate and we follow — or this comparison read          a stale tree. Do not weaken this to an unquoted substring search, and          do not delete it: it is the only assertion in this crate whose expected          value has an author other than us. Path consulted: {}",
         path.display()
     );
 }
 
-/// The boundary in the check above has to actually bite, or it is a prefix
-/// check wearing an equality check's error message.
+/// The corpus as **published**, preferring `git show origin/main:<path>` over
+/// the working tree.
 ///
-/// Asserted on constructed strings rather than on the artifact, so it holds
-/// wherever the corpus is unreachable — this is a property of the matching
-/// rule, not of the file.
-#[test]
-fn the_artifact_match_requires_a_complete_value_not_a_prefix() {
-    let extended = format!("{PUBLISHED_VECTOR}such");
-    assert!(
-        extended.contains(PUBLISHED_VECTOR),
-        "sanity: the longer token really does contain ours as a bare substring, \
-         which is the hazard being guarded against"
-    );
-
-    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
-    assert!(
-        !format!("\"{extended}\"").contains(&quoted),
-        "a token that merely extends ours must not satisfy the quoted match — \
-         if it does, the corpus check has silently become a prefix check and \
-         would pass while our exact bytes were gone from the artifact"
-    );
+/// The working tree is whatever that checkout happens to be sitting on, and a
+/// shared checkout is routinely behind. Reading it made a stale local clone
+/// indistinguishable from real drift — the failure message would have said "the
+/// artifact was regenerated with a different token" when the artifact was fine
+/// and the clone was old. Comparing against the ref removes a whole class of
+/// false red, and never disturbs a checkout someone else may be using.
+fn read_published_corpus(path: &std::path::Path) -> String {
+    let repo = path
+        .ancestors()
+        .nth(3)
+        .expect("<repo>/conformance/corpus/<file> always has three ancestors");
+    let relative = "conformance/corpus/structure_key_vectors.json";
+    if let Ok(out) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("show")
+        .arg(format!("origin/main:{relative}"))
+        .output()
+    {
+        if out.status.success() {
+            return String::from_utf8_lossy(&out.stdout).into_owned();
+        }
+    }
+    // No git, no such ref, or a non-repository copy: the working tree is the
+    // only thing left to read, and reading it is still better than skipping.
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
 /// The KISS `structure_key_vectors.json`, if a checkout is reachable.
