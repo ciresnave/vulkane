@@ -34,6 +34,7 @@ fn sample() -> VulkanTarget {
             ComponentType::F16,
             ComponentType::F32,
         )]),
+        coopvec: CoopVector::None,
     }
 }
 
@@ -41,7 +42,7 @@ fn sample() -> VulkanTarget {
 fn spells_the_documented_shape() {
     assert_eq!(
         sample().to_token(),
-        "vulkan:sg32.ops-abr.arith-f16-i8.cm-16-16-16-f16-f16-f32-f32"
+        "vulkan:sg32.ops-abr.arith-f16-i8.cm-16-16-16-f16-f16-f32-f32.cv-none"
     );
 }
 
@@ -59,6 +60,7 @@ fn round_trips_every_interesting_variant() {
             ops: OpClasses::NONE,
             arith: Arith::NONE,
             coop: CoopMatrix::None,
+            coopvec: CoopVector::None,
         },
         VulkanTarget {
             subgroup: Subgroup::Fixed(64),
@@ -69,12 +71,14 @@ fn round_trips_every_interesting_variant() {
                 shape(8, 8, 32, ComponentType::BF16, ComponentType::F32),
                 shape(16, 16, 16, ComponentType::Other(9999), ComponentType::F32),
             ]),
+            coopvec: CoopVector::None,
         },
         VulkanTarget {
             subgroup: Subgroup::Fixed(128),
             ops: OpClasses::NONE,
             arith: Arith::NONE,
             coop: CoopMatrix::Digest(0xdead_beef_0000_0001),
+            coopvec: CoopVector::None,
         },
     ];
     for t in cases {
@@ -100,9 +104,11 @@ fn saturating_shapes_are_distinct_cells() {
         ops: OpClasses::NONE,
         arith: Arith::NONE,
         coop: a,
+        coopvec: CoopVector::None,
     };
     let tb = VulkanTarget {
         coop: b,
+        coopvec: CoopVector::None,
         ..ta.clone()
     };
     assert_ne!(ta.to_token(), tb.to_token());
@@ -114,25 +120,25 @@ fn saturating_shapes_are_distinct_cells() {
 fn rejects_unsorted_op_letters() {
     // `ba` names the same set as `ab`. Accepting it would create two byte
     // strings for one cell, which §6.8-0002 would then fail to match.
-    let e = VulkanTarget::parse("vulkan:sg32.ops-ba.arith-none.cm-none").unwrap_err();
+    let e = VulkanTarget::parse("vulkan:sg32.ops-ba.arith-none.cm-none.cv-none").unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
 
 #[test]
 fn rejects_duplicate_op_letters() {
-    let e = VulkanTarget::parse("vulkan:sg32.ops-aab.arith-none.cm-none").unwrap_err();
+    let e = VulkanTarget::parse("vulkan:sg32.ops-aab.arith-none.cm-none.cv-none").unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
 
 #[test]
 fn rejects_unsorted_or_duplicated_coop_shapes() {
     let unsorted = "vulkan:sg32.ops-none.arith-none.\
-                    cm-16-16-16-i8-i8-i32-i32,8-8-32-f16-f16-f32-f32";
+                    cm-16-16-16-i8-i8-i32-i32,8-8-32-f16-f16-f32-f32.cv-none";
     let e = VulkanTarget::parse(unsorted).unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 
     let dup = "vulkan:sg32.ops-none.arith-none.\
-               cm-8-8-32-f16-f16-f32-f32,8-8-32-f16-f16-f32-f32";
+               cm-8-8-32-f16-f16-f32-f32,8-8-32-f16-f16-f32-f32.cv-none";
     let e = VulkanTarget::parse(dup).unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
@@ -140,24 +146,25 @@ fn rejects_unsorted_or_duplicated_coop_shapes() {
 #[test]
 fn rejects_leading_zeros() {
     // `sg032` and `sg32` would be two spellings of one width.
-    assert!(VulkanTarget::parse("vulkan:sg032.ops-none.arith-none.cm-none").is_err());
+    assert!(VulkanTarget::parse("vulkan:sg032.ops-none.arith-none.cm-none.cv-none").is_err());
     // Same hazard inside a shape's dimensions.
     assert!(
-        VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-016-16-16-f16-f16-f32-f32")
+        VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-016-16-16-f16-f16-f32-f32.cv-none")
             .is_err()
     );
 }
 
 #[test]
 fn rejects_uppercase_digest_hex() {
-    let e = VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-fnv1a64-DEADBEEF00000001")
-        .unwrap_err();
+    let e =
+        VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-fnv1a64-DEADBEEF00000001.cv-none")
+            .unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
 
 #[test]
 fn rejects_non_power_of_two_width() {
-    let e = VulkanTarget::parse("vulkan:sg48.ops-none.arith-none.cm-none").unwrap_err();
+    let e = VulkanTarget::parse("vulkan:sg48.ops-none.arith-none.cm-none.cv-none").unwrap_err();
     assert!(matches!(e, ParseError::NonCanonical { .. }), "{e:?}");
 }
 
@@ -216,12 +223,12 @@ fn never_panics_on_arbitrary_input() {
         "vulkan:",
         "vulkan:...",
         "vulkan:sg.ops.arith.cm",
-        "vulkan:sg-1.ops-none.arith-none.cm-none",
-        "vulkan:sg99999999999999999999.ops-none.arith-none.cm-none",
-        "vulkan:sgdyn.ops-zzz.arith-none.cm-none",
-        "vulkan:sgdyn.ops-none.arith-none.cm-fnv1a64-",
-        "vulkan:sgdyn.ops-none.arith-none.cm-1-2-3-f16",
-        "vulkan:sgdyn.ops-none.arith-none.cm-,",
+        "vulkan:sg-1.ops-none.arith-none.cm-none.cv-none",
+        "vulkan:sg99999999999999999999.ops-none.arith-none.cm-none.cv-none",
+        "vulkan:sgdyn.ops-zzz.arith-none.cm-none.cv-none",
+        "vulkan:sgdyn.ops-none.arith-none.cm-fnv1a64-.cv-none",
+        "vulkan:sgdyn.ops-none.arith-none.cm-1-2-3-f16.cv-none",
+        "vulkan:sgdyn.ops-none.arith-none.cm-,.cv-none",
     ];
     for i in inputs {
         let _ = VulkanTarget::parse(i);
@@ -253,6 +260,7 @@ fn digest_is_length_triggered_not_preferential() {
             ops: OpClasses::NONE,
             arith: Arith::NONE,
             coop: CoopMatrix::from_shapes(shapes.clone()),
+            coopvec: CoopVector::None,
         };
         let tok = t.to_token();
         let field = tok.rsplit_once(".cm-").map(|(_, f)| f).unwrap_or("");
@@ -345,6 +353,7 @@ fn switches_at_the_exact_byte_boundary() {
             ops: OpClasses::NONE,
             arith: Arith::NONE,
             coop: CoopMatrix::from_shapes(shapes.to_vec()),
+            coopvec: CoopVector::None,
         }
         .to_token()
         .contains(".cm-fnv1a64-")
@@ -383,9 +392,18 @@ fn digest_runs_over_the_canonical_enumeration() {
         ops: OpClasses::NONE,
         arith: Arith::NONE,
         coop,
+        coopvec: CoopVector::None,
     };
     let tok = t.to_token();
-    let hex = tok.rsplit_once("fnv1a64-").expect("expected digest form").1;
+    // Bounded at the next `.`: since vocabulary version 4 the `cm-` field is
+    // no longer last, so the tail carries `.cv-none` too.
+    let hex = tok
+        .rsplit_once("fnv1a64-")
+        .expect("expected digest form")
+        .1
+        .split('.')
+        .next()
+        .expect("split yields at least one element");
 
     let mut sorted = shapes;
     sorted.sort();
@@ -438,6 +456,7 @@ fn every_spelled_token_reparses() {
             ops: OpClasses(ops_bits),
             arith: Arith::NONE,
             coop: CoopMatrix::None,
+            coopvec: CoopVector::None,
         };
         let tok = t.to_token();
         assert_eq!(VulkanTarget::parse(&tok).unwrap(), t, "ops {ops_bits:#b}");
@@ -448,6 +467,7 @@ fn every_spelled_token_reparses() {
             ops: OpClasses::NONE,
             arith: Arith(arith_bits),
             coop: CoopMatrix::None,
+            coopvec: CoopVector::None,
         };
         let tok = t.to_token();
         assert_eq!(

@@ -55,7 +55,8 @@
 use crate::raw::bindings::VkComponentTypeKHR;
 use crate::safe::{PhysicalDevice, SubgroupFeatureFlags};
 use kiss_vulkan_vocab::{
-    Arith, ComponentType, CoopMatrix, CoopShape, OpClasses, Subgroup, VulkanTarget,
+    Arith, ComponentType, CoopMatrix, CoopShape, CoopVecCombo, CoopVector, OpClasses, Subgroup,
+    VulkanTarget,
 };
 
 /// What a physical device offers, in `vulkan:` vocabulary terms.
@@ -77,6 +78,11 @@ pub struct DeviceCapabilities {
     pub arith: Arith,
     /// Cooperative-matrix shapes the device supports, canonically ordered.
     pub coop: Vec<CoopShape>,
+    /// Cooperative-*vector* combinations the device supports, canonically
+    /// ordered. Empty on the overwhelming majority of devices — an AMD 610M
+    /// reports none, an RTX 4070 reports 16 — and empty is the honest answer
+    /// there, not a failure.
+    pub coopvec: Vec<CoopVecCombo>,
 }
 
 impl DeviceCapabilities {
@@ -174,6 +180,30 @@ impl DeviceCapabilities {
         coop.sort();
         coop.dedup();
 
+        // Same `.ok()?` discipline as the matrix query, for the same reason:
+        // an empty list spells `cv-none`, so treating a failed query as "no
+        // combinations" would derive a token asserting this device has no
+        // cooperative-vector support. Declining is honest; a wrong token is a
+        // different cell that matches nothing.
+        let mut coopvec: Vec<CoopVecCombo> = physical
+            .cooperative_vector_properties()
+            .ok()?
+            .iter()
+            .map(|p| CoopVecCombo {
+                // `_raw` throughout, for the reason given on the shapes above:
+                // an unnameable value must keep the number that distinguishes
+                // it rather than collapsing to `None`.
+                input: component(p.input_type_raw() as u32),
+                input_interpretation: component(p.input_interpretation_raw() as u32),
+                matrix_interpretation: component(p.matrix_interpretation_raw() as u32),
+                bias_interpretation: component(p.bias_interpretation_raw() as u32),
+                result: component(p.result_type_raw() as u32),
+                transpose: p.transpose(),
+            })
+            .collect();
+        coopvec.sort();
+        coopvec.dedup();
+
         Some(Self {
             default_subgroup: sg.subgroup_size,
             subgroup_range: sg
@@ -182,6 +212,7 @@ impl DeviceCapabilities {
             ops,
             arith,
             coop,
+            coopvec,
         })
     }
 
@@ -227,6 +258,7 @@ impl DeviceCapabilities {
             ops: self.ops,
             arith: self.arith,
             coop: CoopMatrix::from_shapes(self.coop.clone()),
+            coopvec: CoopVector::from_combos(self.coopvec.clone()),
         }
     }
 
@@ -446,6 +478,7 @@ mod component_tests {
                     result: want,
                     saturating: false,
                 }]),
+                coopvec: CoopVector::None,
             }
             .to_token();
             assert!(

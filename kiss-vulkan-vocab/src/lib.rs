@@ -59,15 +59,16 @@
 //! | coop | `cm-16-16-16-f16-f16-f32-f32`, `cm-none`, `cm-fnv1a64-<hex>` | cooperative-matrix shapes the kernel uses |
 //!
 //! ```
-//! use kiss_vulkan_vocab::{VulkanTarget, Subgroup, OpClasses, Arith, CoopMatrix};
+//! use kiss_vulkan_vocab::{VulkanTarget, Subgroup, OpClasses, Arith, CoopMatrix, CoopVector};
 //!
 //! let t = VulkanTarget {
 //!     subgroup: Subgroup::Fixed(32),
 //!     ops: OpClasses::BASIC | OpClasses::ARITHMETIC,
 //!     arith: Arith::FLOAT16,
 //!     coop: CoopMatrix::None,
+//!     coopvec: CoopVector::None,
 //! };
-//! assert_eq!(t.to_token(), "vulkan:sg32.ops-ab.arith-f16.cm-none");
+//! assert_eq!(t.to_token(), "vulkan:sg32.ops-ab.arith-f16.cm-none.cv-none");
 //! assert_eq!(VulkanTarget::parse(&t.to_token()).unwrap(), t);
 //! ```
 //!
@@ -556,6 +557,23 @@ pub enum ComponentType {
     /// `VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT`. Spells `f8e5m2`. Pinned by
     /// KISS-OPS-6.16-0005. Named as of vocabulary version 3.
     F8E5M2,
+    /// Signed 8-bit integers in a **packed** cooperative-vector layout.
+    ///
+    /// `VK_COMPONENT_TYPE_SINT8_PACKED_NV`. Spells `i8packed`, deliberately not
+    /// `i8`: the packed layout is a different shader-side contract, and
+    /// collapsing the two would let a packed-only device satisfy a target
+    /// asking for plain `i8`.
+    ///
+    /// Reachable only through cooperative *vector* properties — the packed
+    /// enumerants are defined by `VK_NV_cooperative_vector` with no dependency
+    /// on `VK_KHR_cooperative_matrix`. Named as of vocabulary version 4, when
+    /// the deriver gained that query.
+    S8Packed,
+    /// Unsigned 8-bit integers in a packed cooperative-vector layout.
+    ///
+    /// `VK_COMPONENT_TYPE_UINT8_PACKED_NV`. Spells `u8packed`. See
+    /// [`S8Packed`](Self::S8Packed).
+    U8Packed,
     /// A type this vocabulary version does not name, carried by its raw
     /// `VkComponentTypeKHR` value.
     ///
@@ -583,6 +601,8 @@ impl ComponentType {
             Self::U64 => "u64".into(),
             Self::F8E4M3FN => "f8e4m3fn".into(),
             Self::F8E5M2 => "f8e5m2".into(),
+            Self::S8Packed => "i8packed".into(),
+            Self::U8Packed => "u8packed".into(),
             Self::Other(n) => format!("x{n}"),
         }
     }
@@ -603,6 +623,8 @@ impl ComponentType {
             "u64" => Self::U64,
             "f8e4m3fn" => Self::F8E4M3FN,
             "f8e5m2" => Self::F8E5M2,
+            "i8packed" => Self::S8Packed,
+            "u8packed" => Self::U8Packed,
             other => {
                 let n = other.strip_prefix('x')?;
                 if n.is_empty() || (n.len() > 1 && n.starts_with('0')) {
@@ -781,6 +803,154 @@ impl CoopMatrix {
     }
 }
 
+/// One supported cooperative-**vector** combination.
+///
+/// Structurally unlike [`CoopShape`], which is why cooperative vector needs its
+/// own token field rather than sharing `cm-`: there are no `M`/`N`/`K`
+/// dimensions, and the five component types describe an input, three
+/// *interpretations*, and a result. A tuple grammar that splits on `-` cannot
+/// carry both shapes without ambiguity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CoopVecCombo {
+    /// Component type of the input vector.
+    pub input: ComponentType,
+    /// How the input is interpreted — one of the positions the packed types
+    /// legitimately appear in.
+    pub input_interpretation: ComponentType,
+    /// How the matrix operand is interpreted.
+    pub matrix_interpretation: ComponentType,
+    /// How the bias operand is interpreted.
+    pub bias_interpretation: ComponentType,
+    /// Component type of the result.
+    pub result: ComponentType,
+    /// Whether the combination transposes the matrix operand.
+    pub transpose: bool,
+}
+
+impl CoopVecCombo {
+    /// `<input>-<inputInterp>-<matrixInterp>-<biasInterp>-<result>[-t]`.
+    ///
+    /// `transpose` is a suffix rather than a boolean spelling, matching how
+    /// `CoopShape` spells saturation: a flag that is usually absent costs one
+    /// character when set and nothing when clear.
+    fn spell(&self) -> String {
+        let mut s = format!(
+            "{}-{}-{}-{}-{}",
+            self.input.spell(),
+            self.input_interpretation.spell(),
+            self.matrix_interpretation.spell(),
+            self.bias_interpretation.spell(),
+            self.result.spell(),
+        );
+        if self.transpose {
+            s.push_str("-t");
+        }
+        s
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split('-').collect();
+        let (fields, transpose) = match parts.len() {
+            5 => (&parts[..], false),
+            6 if parts[5] == "t" => (&parts[..5], true),
+            _ => return None,
+        };
+        Some(Self {
+            input: ComponentType::parse(fields[0])?,
+            input_interpretation: ComponentType::parse(fields[1])?,
+            matrix_interpretation: ComponentType::parse(fields[2])?,
+            bias_interpretation: ComponentType::parse(fields[3])?,
+            result: ComponentType::parse(fields[4])?,
+            transpose,
+        })
+    }
+}
+
+/// The cooperative-vector combinations a kernel uses.
+///
+/// Mirrors [`CoopMatrix`] exactly — including the length-triggered digest —
+/// because the reason for that design does not change between the two fields:
+/// the switch must be a deterministic function of the encoded bytes, never an
+/// implementation preference, or two honest producers spell one target
+/// differently.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CoopVector {
+    /// The kernel uses no cooperative-vector operations.
+    None,
+    /// The exact combinations it uses, canonically sorted and deduplicated.
+    Combos(Vec<CoopVecCombo>),
+    /// A digest of a list too long to spell inline.
+    Digest(u64),
+}
+
+impl CoopVector {
+    /// Canonically sort and deduplicate a combination list.
+    pub fn from_combos(mut combos: Vec<CoopVecCombo>) -> Self {
+        if combos.is_empty() {
+            return Self::None;
+        }
+        combos.sort();
+        combos.dedup();
+        Self::Combos(combos)
+    }
+
+    fn spell(&self) -> String {
+        match self {
+            Self::None => "cv-none".to_string(),
+            Self::Digest(h) => format!("cv-fnv1a64-{h:016x}"),
+            Self::Combos(combos) => {
+                let joined = combos
+                    .iter()
+                    .map(CoopVecCombo::spell)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if joined.len() <= COOP_DIGEST_THRESHOLD {
+                    format!("cv-{joined}")
+                } else {
+                    format!("cv-fnv1a64-{:016x}", fnv1a64(joined.as_bytes()))
+                }
+            }
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self, ParseError> {
+        let bad = || ParseError::Field {
+            field: "coopvec",
+            found: s.to_string(),
+        };
+        let body = s.strip_prefix("cv-").ok_or_else(bad)?;
+        if body == "none" {
+            return Ok(Self::None);
+        }
+        if let Some(hex) = body.strip_prefix("fnv1a64-") {
+            if hex.len() != 16 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(bad());
+            }
+            if hex.bytes().any(|b| b.is_ascii_uppercase()) {
+                return Err(ParseError::NonCanonical {
+                    why: "digest hex must be lowercase",
+                });
+            }
+            return Ok(Self::Digest(
+                u64::from_str_radix(hex, 16).map_err(|_| bad())?,
+            ));
+        }
+        let mut combos = Vec::new();
+        for t in body.split(',') {
+            combos.push(CoopVecCombo::parse(t).ok_or_else(bad)?);
+        }
+        let mut sorted = combos.clone();
+        sorted.sort();
+        sorted.dedup();
+        if sorted != combos {
+            return Err(ParseError::NonCanonical {
+                why: "cooperative-vector combinations must be sorted and unique",
+            });
+        }
+        Ok(Self::Combos(combos))
+    }
+}
+
 /// A fully-specified `vulkan:` compilation target — the capability contract a
 /// kernel requires of the device that runs it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -793,6 +963,13 @@ pub struct VulkanTarget {
     pub arith: Arith,
     /// Cooperative-matrix shapes the kernel uses.
     pub coop: CoopMatrix,
+    /// Cooperative-vector combinations the kernel uses.
+    ///
+    /// Added in vocabulary version 4. Cooperative vector is a distinct
+    /// capability from cooperative matrix, reported by a distinct query, and
+    /// the only place the packed component types can appear — so it needs a
+    /// field of its own rather than a corner of `coop`.
+    pub coopvec: CoopVector,
 }
 
 impl VulkanTarget {
@@ -802,12 +979,13 @@ impl VulkanTarget {
     /// if they are the same specialization cell.
     pub fn to_token(&self) -> String {
         format!(
-            "{}:{}.{}.{}.{}",
+            "{}:{}.{}.{}.{}.{}",
             NAMESPACE,
             self.subgroup.spell(),
             self.ops.spell(),
             self.arith.spell(),
             self.coop.spell(),
+            self.coopvec.spell(),
         )
     }
 
@@ -837,7 +1015,7 @@ impl VulkanTarget {
         }
 
         // `.` separates fields uniformly — always, and always into exactly
-        // four. No field may contain one, which is why the digest marker is
+        // five (four before vocabulary version 4). No field may contain one, which is why the digest marker is
         // spelled `fnv1a64-<hex>` rather than `fnv1a64.<hex>`: the latter
         // would force a positional "the first three dots separate" rule, and a
         // parser written to the obvious greedy reading would then accept every
@@ -845,7 +1023,7 @@ impl VulkanTarget {
         // large devices that are hardest to test. A uniform rule needs no
         // caveat and is enforced by construction.
         let fields: Vec<&str> = caps.split('.').collect();
-        if fields.len() != 4 {
+        if fields.len() != 5 {
             return Err(ParseError::FieldCount {
                 found: fields.len(),
             });
@@ -855,6 +1033,7 @@ impl VulkanTarget {
             ops: OpClasses::parse(fields[1])?,
             arith: Arith::parse(fields[2])?,
             coop: CoopMatrix::parse(fields[3])?,
+            coopvec: CoopVector::parse(fields[4])?,
         })
     }
 }

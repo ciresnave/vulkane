@@ -82,7 +82,7 @@ fn crate_links_no_vulkan() {
     // construction — if this test binary links, the crate pulled in no
     // driver — but the assertion documents the intent for a reader.
     let t = kiss_vulkan_vocab::VulkanTarget::parse(
-        "vulkan:sg64.ops-abr.arith-f16-i8.cm-16-16-16-f16-f16-f32-f32",
+        "vulkan:sg64.ops-abr.arith-f16-i8.cm-16-16-16-f16-f16-f32-f32.cv-none",
     );
     assert!(t.is_ok(), "parsing must not require a Vulkan loader");
 }

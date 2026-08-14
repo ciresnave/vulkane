@@ -42,16 +42,17 @@
 use kiss_vulkan_vocab::*;
 
 /// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
-/// **vocabulary version 3**, the paragraph reading:
+/// **vocabulary version 4**, the paragraph reading:
 ///
 /// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
-/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`, or
-/// > `x<n>` for a `VkComponentTypeKHR` [this vocabulary does not name]
+/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`,
+/// > `i8packed`, `u8packed`, or `x<n>` for a `VkComponentTypeKHR` [this
+/// > vocabulary does not name]
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[
     "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f8e4m3fn",
-    "f8e5m2",
+    "f8e5m2", "i8packed", "u8packed",
 ];
 
 /// Every named `ComponentType`, paired with the spelling the registered
@@ -72,6 +73,8 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::U64, "u64"),
     (ComponentType::F8E4M3FN, "f8e4m3fn"),
     (ComponentType::F8E5M2, "f8e5m2"),
+    (ComponentType::S8Packed, "i8packed"),
+    (ComponentType::U8Packed, "u8packed"),
 ];
 
 /// Spellings KISS **reserves** and this vocabulary must therefore never emit.
@@ -105,10 +108,16 @@ const ON_FAILURE: &str = "\n\nIf a spelling changed deliberately, the registered
 /// crate's own API would only prove the crate agrees with itself, which is the
 /// exact blind spot described at the top of this file.
 fn cm_section(token: &str) -> &str {
+    // Bounded at the next `.` — since vocabulary version 4 the `cm-` field is
+    // no longer last, and taking "everything after `.cm-`" swallowed `.cv-none`
+    // into the final component, which surfaced as the spelling `f16.cv`.
     token
         .rsplit_once(".cm-")
         .map(|(_, section)| section)
         .expect("every emitted token carries a `.cm-` section")
+        .split('.')
+        .next()
+        .expect("split always yields at least one element")
 }
 
 /// Build a target whose cooperative-matrix section is a single shape using
@@ -129,6 +138,7 @@ fn token_for(c: ComponentType) -> String {
             result: c,
             saturating: false,
         }]),
+        coopvec: CoopVector::None,
     }
     .to_token()
 }
@@ -177,7 +187,7 @@ fn no_component_type_spells_an_unregistered_token() {
 fn every_registered_token_is_accepted_on_parse() {
     for spelling in REGISTERED_COMPONENT_TYPES {
         let token = format!(
-            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{spelling}-{spelling}-{spelling}-{spelling}"
+            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{spelling}-{spelling}-{spelling}-{spelling}.cv-none"
         );
         let parsed = VulkanTarget::parse(&token)
             .unwrap_or_else(|e| panic!("registered spelling {spelling:?} must parse, got {e:?}"));
@@ -227,7 +237,7 @@ fn no_component_type_spells_a_reserved_dtype() {
 fn reserved_spellings_do_not_parse_as_named_component_types() {
     for reserved in RESERVED_NEVER_EMITTED {
         let token = format!(
-            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{reserved}-{reserved}-{reserved}-{reserved}"
+            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{reserved}-{reserved}-{reserved}-{reserved}.cv-none"
         );
         assert!(
             VulkanTarget::parse(&token).is_err(),
@@ -332,6 +342,7 @@ fn operand_positions_survive_the_round_trip_in_order() {
         ops: OpClasses::NONE,
         arith: Arith::NONE,
         coop: CoopMatrix::from_shapes(vec![shape]),
+        coopvec: CoopVector::None,
     }
     .to_token();
 
@@ -367,24 +378,36 @@ fn operand_positions_survive_the_round_trip_in_order() {
 /// has an author who is not us.
 const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none";
 
+/// **Tripwire, not a round-trip — and deliberately so.**
+///
+/// The published vector is a *four*-field token, minted before vocabulary
+/// version 4 added `<coopvec>`. Under v4 this crate cannot parse it, and that
+/// is correct: V-1 fixes the arity at five with no omissible fields.
+///
+/// It would have been trivial to "fix" this by editing `PUBLISHED_VECTOR` to
+/// the five-field form. That was refused. The value of this constant is that
+/// its author is not us — a vector we minted, asserting we agree with
+/// ourselves, is a forged contract rather than evidence. KISS regenerates the
+/// artifact against the published grammar; we follow it.
+///
+/// So this asserts the *current* truth and fails the moment it stops being
+/// true. **When this test fails, the artifact has been regenerated** — update
+/// `PUBLISHED_VECTOR` to the new five-field token, and restore this to the
+/// byte-exact round-trip it was before v4.
+///
+/// Worth recording why a single externally-authored value earns this much
+/// ceremony: the four-leg byte-match over this artifact *passed*, with a leg
+/// comparing this very token and matching it. Implementations agreed with each
+/// other while all of them disagreed with the published document. Agreement
+/// between implementations is not conformance to a spec.
 #[test]
-fn the_published_external_vector_round_trips_byte_exactly() {
-    let parsed = VulkanTarget::parse(PUBLISHED_VECTOR).unwrap_or_else(|e| {
-        panic!(
-            "the published `vulkan:` reference vector failed to parse: \
-             {PUBLISHED_VECTOR}\n  {e:?}\n\nThis token is in KISS's committed \
-             corpus and other implementations byte-match against it. If this \
-             crate cannot read it, the vocabulary has diverged from what is \
-             published — fix the crate, not this constant.{ON_FAILURE}"
-        )
-    });
-    assert_eq!(
-        parsed.to_token(),
-        PUBLISHED_VECTOR,
-        "re-spelling the published reference vector did not reproduce it \
-         byte-for-byte. §6.8-0002 matching is byte-exact with no subset or \
-         implication logic, so this is a silent non-match for every consumer \
-         keying on that token — not a cosmetic difference.{ON_FAILURE}"
+fn the_published_vector_is_still_the_pre_v4_four_field_form() {
+    let err = VulkanTarget::parse(PUBLISHED_VECTOR).expect_err(
+        "the published vector parsed under v4. That means the KISS artifact has          been regenerated to the five-field form — which is the expected end          state, not a bug. Update PUBLISHED_VECTOR to the regenerated token and          restore the byte-exact round-trip assertion this test replaced.",
+    );
+    assert!(
+        matches!(err, ParseError::FieldCount { found: 4 }),
+        "expected the pre-v4 four-field shape, got {err:?}. If the artifact now          carries something else again, read it before assuming."
     );
 }
 
