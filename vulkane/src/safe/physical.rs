@@ -303,6 +303,58 @@ impl PhysicalDevice {
             .collect()
     }
 
+    /// Supported cooperative-*vector* combinations via
+    /// `VK_NV_cooperative_vector`.
+    ///
+    /// Gated on the device's own advertisement rather than on a non-null
+    /// dispatch entry, for the reason spelled out on
+    /// [`cooperative_matrix_properties`](Self::cooperative_matrix_properties):
+    /// a loader may hand back a stub for a call the device does not implement,
+    /// and invoking it can crash. An empty `Vec` therefore means "this device
+    /// reports no cooperative-vector support", never "we could not tell".
+    ///
+    /// This is a **separate capability** from cooperative matrix and is queried
+    /// separately because the two report different things. It is also the only
+    /// place the packed component types can appear: they are defined by
+    /// `VK_NV_cooperative_vector` with no dependency on
+    /// `VK_KHR_cooperative_matrix`, so no amount of reading cooperative-matrix
+    /// properties will ever observe one.
+    pub fn cooperative_vector_properties(&self) -> Vec<CooperativeVectorProperties> {
+        let advertised = self
+            .enumerate_extension_properties()
+            .map(|exts| exts.iter().any(|e| e.name() == "VK_NV_cooperative_vector"))
+            .unwrap_or(false);
+        if !advertised {
+            return Vec::new();
+        }
+
+        let Some(get) = self
+            .instance
+            .dispatch
+            .vkGetPhysicalDeviceCooperativeVectorPropertiesNV
+        else {
+            return Vec::new();
+        };
+        let mut count: u32 = 0;
+        // Safety: count query, output ptr is null.
+        if unsafe { get(self.handle, &mut count, std::ptr::null_mut()) } != VkResult::SUCCESS {
+            return Vec::new();
+        }
+        let mut raw: Vec<VkCooperativeVectorPropertiesNV> = (0..count as usize)
+            .map(|_| VkCooperativeVectorPropertiesNV {
+                sType: VkStructureType::STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV,
+                ..Default::default()
+            })
+            .collect();
+        // Safety: raw has space for `count` elements.
+        if unsafe { get(self.handle, &mut count, raw.as_mut_ptr()) } != VkResult::SUCCESS {
+            return Vec::new();
+        }
+        raw.into_iter()
+            .map(|r| CooperativeVectorProperties { raw: r })
+            .collect()
+    }
+
     /// Query per-heap memory budget via `VK_EXT_memory_budget`.
     ///
     /// `VK_EXT_memory_budget` lets the driver report a soft per-heap
@@ -1389,6 +1441,77 @@ impl std::fmt::Debug for PhysicalDeviceGroup {
             .field("count", &self.count())
             .field("subset_allocation", &self.subset_allocation)
             .finish()
+    }
+}
+
+/// One supported cooperative-*vector* combination, as returned by
+/// [`PhysicalDevice::cooperative_vector_properties`].
+///
+/// Cooperative vector is a different capability from cooperative matrix, not a
+/// variation of it: there are no `M`/`N`/`K` dimensions, and the five component
+/// types describe an input, three *interpretations*, and a result. The
+/// interpretation fields are where the packed types
+/// (`VK_COMPONENT_TYPE_SINT8_PACKED_NV`, `..._UINT8_PACKED_NV`) actually appear
+/// — they are defined by `VK_NV_cooperative_vector` and are not gated on
+/// `VK_KHR_cooperative_matrix`, which is why the cooperative-matrix query
+/// cannot observe them.
+///
+/// Every component accessor returns `Option`, for the same reason the
+/// cooperative-matrix ones do: the driver writes these fields and may report a
+/// value this build's `vk.xml` does not define. Reading such a value as a Rust
+/// enum would be undefined behaviour, so the generated struct types them as
+/// `i32` and conversion happens here where `None` is representable.
+#[derive(Clone)]
+pub struct CooperativeVectorProperties {
+    raw: VkCooperativeVectorPropertiesNV,
+}
+
+impl CooperativeVectorProperties {
+    /// Component type of the input vector, or `None` if the implementation
+    /// reported a value this spec revision does not define.
+    pub fn input_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.inputType)
+    }
+    /// Raw `VkComponentTypeKHR` for the input, exactly as reported.
+    pub fn input_type_raw(&self) -> i32 {
+        self.raw.inputType
+    }
+    /// How the input is interpreted — one of the positions a *packed* component
+    /// type can legitimately appear in.
+    pub fn input_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.inputInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn input_interpretation_raw(&self) -> i32 {
+        self.raw.inputInterpretation
+    }
+    /// How the matrix operand is interpreted.
+    pub fn matrix_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.matrixInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn matrix_interpretation_raw(&self) -> i32 {
+        self.raw.matrixInterpretation
+    }
+    /// How the bias operand is interpreted.
+    pub fn bias_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.biasInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn bias_interpretation_raw(&self) -> i32 {
+        self.raw.biasInterpretation
+    }
+    /// Component type of the result.
+    pub fn result_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.resultType)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn result_type_raw(&self) -> i32 {
+        self.raw.resultType
+    }
+    /// Whether this combination transposes the matrix operand.
+    pub fn transpose(&self) -> bool {
+        self.raw.transpose != 0
     }
 }
 
