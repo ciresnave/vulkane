@@ -2299,7 +2299,9 @@ fn test_cooperative_matrix_properties_safe_without_extension() {
     // a device that does not advertise VK_KHR_cooperative_matrix this must
     // return empty rather than crash. On a device that does advertise it,
     // every reported shape must be non-degenerate.
-    let shapes = physical.cooperative_matrix_properties();
+    let shapes = physical
+        .cooperative_matrix_properties()
+        .expect("a device must answer its own cooperative-matrix query, or say it has none");
     let advertises = physical
         .enumerate_extension_properties()
         .map(|e| e.iter().any(|x| x.name() == "VK_KHR_cooperative_matrix"))
@@ -2315,7 +2317,7 @@ fn test_cooperative_matrix_properties_safe_without_extension() {
         // device without the extension — that the query returns an honest
         // empty Vec rather than fabricating shapes. The return is because
         // there is nothing further to check, not because nothing was checked.
-        eprintln!("cooperative matrix: not advertised — asserted the empty Vec");
+        eprintln!("cooperative matrix: not advertised — asserted the empty Ok");
         return;
     }
     for s in &shapes {

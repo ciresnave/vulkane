@@ -36,17 +36,25 @@ fn cooperative_vector_properties_are_well_formed_and_nameable() {
             Err(cause) => return common::skip(cause),
         };
 
-    let Some((physical, combos)) = devices
-        .into_iter()
-        .map(|pd| {
-            let combos = pd.cooperative_vector_properties();
-            (pd, combos)
-        })
-        .find(|(_, combos)| !combos.is_empty())
-    else {
+    // A query *error* is not "no support" and must not be swallowed as one —
+    // that conflation is what this API was changed to prevent, so the test must
+    // not re-introduce it locally.
+    let mut combos = Vec::new();
+    for pd in &devices {
+        match pd.cooperative_vector_properties() {
+            Ok(c) if !c.is_empty() => {
+                combos = c;
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => panic!(
+                "a device advertising VK_NV_cooperative_vector failed its own                  properties query: {e:?}"
+            ),
+        }
+    }
+    if combos.is_empty() {
         return common::skipped_unsupported("VK_NV_cooperative_vector on any physical device");
-    };
-    let _ = &physical;
+    }
 
     for c in &combos {
         // Every component position must round-trip through the raw value. This
@@ -106,10 +114,10 @@ fn packed_component_types_never_appear_in_cooperative_matrix_properties() {
             Err(cause) => return common::skip(cause),
         };
 
-    for m in devices
-        .iter()
-        .flat_map(|pd| pd.cooperative_matrix_properties())
-    {
+    for m in devices.iter().flat_map(|pd| {
+        pd.cooperative_matrix_properties()
+            .expect("a device that advertises cooperative matrix must answer its own query")
+    }) {
         for raw in [
             m.a_type_raw(),
             m.b_type_raw(),
