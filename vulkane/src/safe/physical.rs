@@ -257,11 +257,28 @@ impl PhysicalDevice {
     /// `VK_EXT_pci_bus_info`, and it makes the extension check an
     /// invariant of the call rather than an obligation on the caller.
     ///
-    /// An empty `Vec` is thus unambiguous: this device has no
-    /// cooperative-matrix support to report. Callers that previously
-    /// wrapped this in `unsafe { .. }` after checking the extension list
-    /// themselves can delete both the check and the block.
-    pub fn cooperative_matrix_properties(&self) -> Vec<CooperativeMatrixProperties> {
+    /// `Ok(empty)` is thus unambiguous: this device was asked and reports no
+    /// cooperative-matrix support. Callers that previously wrapped this in
+    /// `unsafe { .. }` after checking the extension list themselves can delete
+    /// both the check and the block.
+    ///
+    /// # Why this returns `Result` rather than a `Vec`
+    ///
+    /// It used to return `Vec` and say an empty one was unambiguous. It was
+    /// not: an absent entry point and a non-`SUCCESS` result also produced an
+    /// empty `Vec`, so "the device has none" and "we could not tell" shared a
+    /// spelling — a doc claiming a guarantee the code did not make.
+    ///
+    /// That is not only a documentation defect. `vulkane::kiss` derives the
+    /// `cm-` field of a `vulkan:` token from this list, and an empty list
+    /// spells `cm-none`. A transient query failure on a device with eleven
+    /// shapes would therefore have derived a token asserting it has no
+    /// cooperative-matrix support at all — and under KISS-CLASSIFY §6.8-0002
+    /// byte-exact matching, a wrong token is not a degraded answer, it is a
+    /// different cell. `Err` makes that unrepresentable.
+    pub fn cooperative_matrix_properties(
+        &self,
+    ) -> crate::safe::Result<Vec<CooperativeMatrixProperties>> {
         // Gate on the device's own advertisement, not on the loader
         // handing us a function pointer — see the doc comment above.
         let advertised = self
@@ -269,7 +286,10 @@ impl PhysicalDevice {
             .map(|exts| exts.iter().any(|e| e.name() == "VK_KHR_cooperative_matrix"))
             .unwrap_or(false);
         if !advertised {
-            return Vec::new();
+            // The one case that is genuinely "no support": the device was asked
+            // and said no. Everything below is "we could not tell", which is a
+            // different answer and must not share this one's spelling.
+            return Ok(Vec::new());
         }
 
         let Some(get) = self
@@ -277,12 +297,15 @@ impl PhysicalDevice {
             .dispatch
             .vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR
         else {
-            return Vec::new();
+            return Err(crate::safe::Error::MissingFunction(
+                "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR",
+            ));
         };
         let mut count: u32 = 0;
         // Safety: count query, output ptr is null.
-        if unsafe { get(self.handle, &mut count, std::ptr::null_mut()) } != VkResult::SUCCESS {
-            return Vec::new();
+        let r = unsafe { get(self.handle, &mut count, std::ptr::null_mut()) };
+        if r != VkResult::SUCCESS {
+            return Err(crate::safe::Error::Vk(r));
         }
         // Note: cannot use `mem::zeroed()` here because `VkScopeKHR` has
         // no zero variant and the generated `Default` produces
@@ -295,12 +318,77 @@ impl PhysicalDevice {
             })
             .collect();
         // Safety: raw has space for `count` elements.
-        if unsafe { get(self.handle, &mut count, raw.as_mut_ptr()) } != VkResult::SUCCESS {
-            return Vec::new();
+        let r = unsafe { get(self.handle, &mut count, raw.as_mut_ptr()) };
+        if r != VkResult::SUCCESS {
+            return Err(crate::safe::Error::Vk(r));
         }
-        raw.into_iter()
+        Ok(raw
+            .into_iter()
             .map(|r| CooperativeMatrixProperties { raw: r })
-            .collect()
+            .collect())
+    }
+
+    /// Supported cooperative-*vector* combinations via
+    /// `VK_NV_cooperative_vector`.
+    ///
+    /// Gated on the device's own advertisement rather than on a non-null
+    /// dispatch entry, for the reason spelled out on
+    /// [`cooperative_matrix_properties`](Self::cooperative_matrix_properties):
+    /// a loader may hand back a stub for a call the device does not implement,
+    /// and invoking it can crash.
+    ///
+    /// `Ok(empty)` means "this device was asked and reports no
+    /// cooperative-vector support". A missing entry point or a non-`SUCCESS`
+    /// result is `Err` — "we could not tell" is a different answer from "there
+    /// is none" and does not share its spelling.
+    ///
+    /// This is a **separate capability** from cooperative matrix and is queried
+    /// separately because the two report different things. It is also the only
+    /// place the packed component types can appear: they are defined by
+    /// `VK_NV_cooperative_vector` with no dependency on
+    /// `VK_KHR_cooperative_matrix`, so no amount of reading cooperative-matrix
+    /// properties will ever observe one.
+    pub fn cooperative_vector_properties(
+        &self,
+    ) -> crate::safe::Result<Vec<CooperativeVectorProperties>> {
+        let advertised = self
+            .enumerate_extension_properties()
+            .map(|exts| exts.iter().any(|e| e.name() == "VK_NV_cooperative_vector"))
+            .unwrap_or(false);
+        if !advertised {
+            return Ok(Vec::new());
+        }
+
+        let Some(get) = self
+            .instance
+            .dispatch
+            .vkGetPhysicalDeviceCooperativeVectorPropertiesNV
+        else {
+            return Err(crate::safe::Error::MissingFunction(
+                "vkGetPhysicalDeviceCooperativeVectorPropertiesNV",
+            ));
+        };
+        let mut count: u32 = 0;
+        // Safety: count query, output ptr is null.
+        let r = unsafe { get(self.handle, &mut count, std::ptr::null_mut()) };
+        if r != VkResult::SUCCESS {
+            return Err(crate::safe::Error::Vk(r));
+        }
+        let mut raw: Vec<VkCooperativeVectorPropertiesNV> = (0..count as usize)
+            .map(|_| VkCooperativeVectorPropertiesNV {
+                sType: VkStructureType::STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV,
+                ..Default::default()
+            })
+            .collect();
+        // Safety: raw has space for `count` elements.
+        let r = unsafe { get(self.handle, &mut count, raw.as_mut_ptr()) };
+        if r != VkResult::SUCCESS {
+            return Err(crate::safe::Error::Vk(r));
+        }
+        Ok(raw
+            .into_iter()
+            .map(|r| CooperativeVectorProperties { raw: r })
+            .collect())
     }
 
     /// Query per-heap memory budget via `VK_EXT_memory_budget`.
@@ -1389,6 +1477,77 @@ impl std::fmt::Debug for PhysicalDeviceGroup {
             .field("count", &self.count())
             .field("subset_allocation", &self.subset_allocation)
             .finish()
+    }
+}
+
+/// One supported cooperative-*vector* combination, as returned by
+/// [`PhysicalDevice::cooperative_vector_properties`].
+///
+/// Cooperative vector is a different capability from cooperative matrix, not a
+/// variation of it: there are no `M`/`N`/`K` dimensions, and the five component
+/// types describe an input, three *interpretations*, and a result. The
+/// interpretation fields are where the packed types
+/// (`VK_COMPONENT_TYPE_SINT8_PACKED_NV`, `..._UINT8_PACKED_NV`) actually appear
+/// — they are defined by `VK_NV_cooperative_vector` and are not gated on
+/// `VK_KHR_cooperative_matrix`, which is why the cooperative-matrix query
+/// cannot observe them.
+///
+/// Every component accessor returns `Option`, for the same reason the
+/// cooperative-matrix ones do: the driver writes these fields and may report a
+/// value this build's `vk.xml` does not define. Reading such a value as a Rust
+/// enum would be undefined behaviour, so the generated struct types them as
+/// `i32` and conversion happens here where `None` is representable.
+#[derive(Clone)]
+pub struct CooperativeVectorProperties {
+    raw: VkCooperativeVectorPropertiesNV,
+}
+
+impl CooperativeVectorProperties {
+    /// Component type of the input vector, or `None` if the implementation
+    /// reported a value this spec revision does not define.
+    pub fn input_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.inputType)
+    }
+    /// Raw `VkComponentTypeKHR` for the input, exactly as reported.
+    pub fn input_type_raw(&self) -> i32 {
+        self.raw.inputType
+    }
+    /// How the input is interpreted — one of the positions a *packed* component
+    /// type can legitimately appear in.
+    pub fn input_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.inputInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn input_interpretation_raw(&self) -> i32 {
+        self.raw.inputInterpretation
+    }
+    /// How the matrix operand is interpreted.
+    pub fn matrix_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.matrixInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn matrix_interpretation_raw(&self) -> i32 {
+        self.raw.matrixInterpretation
+    }
+    /// How the bias operand is interpreted.
+    pub fn bias_interpretation(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.biasInterpretation)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn bias_interpretation_raw(&self) -> i32 {
+        self.raw.biasInterpretation
+    }
+    /// Component type of the result.
+    pub fn result_type(&self) -> Option<VkComponentTypeKHR> {
+        VkComponentTypeKHR::from_raw(self.raw.resultType)
+    }
+    /// See [`input_type_raw`](Self::input_type_raw).
+    pub fn result_type_raw(&self) -> i32 {
+        self.raw.resultType
+    }
+    /// Whether this combination transposes the matrix operand.
+    pub fn transpose(&self) -> bool {
+        self.raw.transpose != 0
     }
 }
 

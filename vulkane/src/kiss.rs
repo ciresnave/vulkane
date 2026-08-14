@@ -143,8 +143,15 @@ impl DeviceCapabilities {
             arith |= Arith::DOT8;
         }
 
+        // `?` on the error, not `unwrap_or_default()`. An empty shape list
+        // spells `cm-none`, so treating a failed query as "no shapes" would
+        // derive a token asserting this device has no cooperative-matrix
+        // support — wrong bytes for a real device, and under §6.8-0002 a
+        // different cell rather than a degraded one. Declining to derive is the
+        // honest outcome; the caller already handles `None`.
         let mut coop: Vec<CoopShape> = physical
             .cooperative_matrix_properties()
+            .ok()?
             .iter()
             .map(|p| CoopShape {
                 m: p.m_size(),
