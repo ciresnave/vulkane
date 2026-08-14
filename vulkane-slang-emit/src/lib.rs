@@ -512,11 +512,11 @@ mod tests {
     #[cfg(feature = "convert")]
     #[test]
     fn slang_emit_round_trips_through_the_lifter() {
-        use crate::convert::lift_elementwise_slang;
+        use crate::convert::{SLANG, lift_elementwise};
         use crate::ir::ScalarExpr;
         let op = OpDef::elementwise("mul", 2, &[ElementKind::F32], input(0) * input(1));
         let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
-        let lifted = lift_elementwise_slang(&k.source, "mul", &[ElementKind::F32])
+        let lifted = lift_elementwise(&SLANG, &k.source, "mul", &[ElementKind::F32])
             .expect("emitted Slang must re-lift");
         assert_eq!(
             lifted.op.body,
