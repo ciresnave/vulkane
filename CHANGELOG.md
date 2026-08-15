@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-15
+
+**First release since 0.10.1.** Versions 0.10.2, 0.11.0 and 0.12.0 were prepared and their entries
+are recorded below, but they were **never published to crates.io** — the `vulkan:` vocabulary work
+they carried was deliberately held until the token set could be cross-verified against a published
+KISS artifact rather than against our own tests. 0.13.0 therefore rolls all of it up, and everything
+under 0.10.2 and older in this file is included here.
+
+**Cross-verified against KISS `origin/main` commit `b27e858` (2026-08-15).** At that commit
+`spec/namespaces/vulkan.md` is *Vocabulary version 4* with clause V-1 requiring exactly five
+`.`-separated fields, and `conformance/corpus/structure_key_vectors.json` carries
+`namespace_vocabulary_versions = {"cuda": 1, "vulkan": 4}` together with the token
+`vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none`. `kiss-vulkan-vocab`'s
+`the_pinned_vector_matches_the_kiss_artifact_when_reachable` parses and re-spells that token
+byte-exactly, reading it via `git show origin/main:…` — the *published* ref, never a local working
+tree, which could otherwise pass against an edit nobody pushed.
+
+That commit is named here because a registry version is immutable and the question a reader asks
+later is not "was this correct" but **"correct against what?"**. A provenance field that names the
+wrong thing is unfalsifiable by anything that reads it, so this one names a commit that can be
+checked. It is the only vector in the crate whose expected value has an author other than us;
+every other test compares the crate to itself.
+
+### Changed (breaking) — `vulkan:` vocabulary version 4 adds a fifth field and names the packed types
+
+The token grows a fifth field, `<coopvec>`, spelled `cv-…`:
+
+```
+vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none
+```
+
+**Every four-field token is now invalid.** This is not a widening — `VulkanTarget::parse` requires
+exactly five fields, and a version-3 token fails to parse rather than defaulting its new field.
+Under §6.8-0002 byte-exact matching there is no degraded answer available: a token with the wrong
+arity names nothing, so rejecting it is the honest outcome and a silently-defaulted `cv-none` would
+have been a wrong cell rather than a partial one. Caches keyed on four-field tokens are stale and
+must be **invalidated, not migrated**.
+
+The new field enumerates the device's cooperative-*vector* combinations — five component types plus
+a transpose flag per combination — canonically ordered, with the same length-triggered
+`fnv1a64-<hex16>` digest escape the `<coop>` field uses above 512 bytes. `PhysicalDevice` gains
+`cooperative_vector_properties()`, and `DeviceCapabilities` gains `coopvec`.
+
+`VK_COMPONENT_TYPE_SINT8_PACKED_NV` and `..._UINT8_PACKED_NV` are named `i8packed` and `u8packed`.
+`ComponentType` gains `S8Packed` and `U8Packed`, and `kiss::component()` maps both — a device
+reporting them previously derived `x1000491000` / `x1000491001`.
+
+Both changes ride one version bump deliberately. The packed enumerants are assigned at
+`VK_HEADER_VERSION` 348, the registry baseline recorded for version 3, so under the namespace's §4
+additive test naming them requires a bump on its own; folding them in with the fifth field costs one
+version instead of two. **Version 4's own baseline is 348** — that is the number the next bump diffs
+against.
+
+These types are reachable *only* through the cooperative-vector query. Cooperative-matrix properties
+never report them, which is why the query had to exist before the names could be derived at all,
+and why this was verified against hardware rather than argued: an RTX 4070 reports both values in
+`inputInterpretation` while its cooperative-matrix properties contain neither.
+
 ### Changed (breaking) — `vulkan:` vocabulary version 3 names FP8
 
 `VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT` and `VK_COMPONENT_TYPE_FLOAT8_E5M2_EXT` now derive
@@ -76,12 +134,18 @@ reclassification hazard as the `bf16` fix below, made permanent as a property of
 
 ### Changed — versions
 
-`kiss-vulkan-vocab` 0.1.0 → **0.2.0** and `vulkane` 0.11.0 → **0.12.0**, both breaking.
+`kiss-vulkan-vocab` 0.1.0 → **0.3.0**, `vulkan_gen` 0.3.0 → **0.5.0**, and `vulkane` 0.10.1 →
+**0.13.0**. All breaking, and all published together: the intermediate bumps recorded during this
+work (`kiss-vulkan-vocab` 0.2.0, `vulkane` 0.11.0 / 0.12.0) were never released, so the
+crates.io jump is straight from the last published versions.
 
-Still outstanding from vulkane's `sk4` leg: the FP8 variants (`f8e4m3fn`, `f8e5m2`) and their
-`component()` arms, which are gated on the authored §6.1 landing the layout⇒variant table. Adding
-them is now *additive* rather than breaking, thanks to `#[non_exhaustive]` above — which is the
-payoff that change was made for.
+The FP8 variants noted as outstanding here during development are **shipped** — see the version-3
+entry above. They were **resolved by exclusion**, not by the authored §6.1 layout⇒variant table
+that was originally expected to unblock them: KISS reserves the `fnuz` spellings with no
+computation semantics, which leaves `fn` as the only spelling either Vulkan enumerant can denote.
+Adding them was *additive* to the Rust type rather than breaking, thanks to `#[non_exhaustive]`
+above — which is the payoff that change was made for. The *token* bytes still changed, which is
+what drove the vocabulary version bump.
 
 ### Fixed (soundness) — driver-written enum fields could hold an invalid discriminant
 
@@ -137,18 +201,25 @@ a wildcard arm compiles unchanged and behaves differently: a bfloat16 cooperativ
 that previously fell into a catch-all now matches `BF16`. Tokens derived from such a device change
 accordingly — which is the point, but it does mean a cache keyed on the old token is stale.
 
-The other four unmapped values are deliberate, and are now documented as such on `component()`
-with a test pinning the choice:
+When that fix landed, four further values were left unmapped deliberately. **All four are now
+named**, by the version-3 and version-4 entries above — this paragraph records why they were held,
+because the reasoning is what the two bumps had to answer:
 
-- `SINT8_PACKED_NV` / `UINT8_PACKED_NV` stay `Other`. They carry `s8`/`u8` data in a packed
-  cooperative-matrix layout — a different shader-side contract from the unpacked types. Folding
-  them onto `S8`/`U8` would collapse two distinct Vulkan values onto one token and let a
-  packed-only device satisfy a target asking for plain `s8`.
-- `FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT` are blocked on the KISS `sk4` schema event. `ComponentType`
-  has no FP8 variant and is published without `#[non_exhaustive]`, so adding one is breaking and
-  must ride the coordinated `sk4` major. Independently, the arm cannot be written correctly today:
-  these names denote a *layout*, KISS §3.1.5 makes the `fn`/`fnuz` suffix mandatory, and the Vulkan
-  registry never says which variant is meant.
+- `FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT` were blocked on the KISS `sk4` schema event: the names
+  denote a *layout*, KISS §3.1.5 makes the `fn`/`fnuz` suffix mandatory, and the Vulkan registry
+  never says which variant is meant. **Resolved by exclusion in version 3** — KISS reserves the
+  `fnuz` spellings with no computation semantics, so `fn` is the only spelling either enumerant
+  can denote.
+- `SINT8_PACKED_NV` / `UINT8_PACKED_NV` were held because they carry `s8`/`u8` data in a packed
+  layout — a different shader-side contract from the unpacked types — and folding them onto
+  `S8`/`U8` would have collapsed two distinct Vulkan values onto one token, letting a packed-only
+  device satisfy a target asking for plain `s8`. **Resolved in version 4 by giving them their own
+  spellings** (`i8packed` / `u8packed`) rather than an alias, which keeps the two contracts
+  distinct while making the values derivable.
+
+`ComponentType` is now `#[non_exhaustive]` (see above), so naming a value no longer requires a
+coordinated major on its own account — the version bump is driven by the token bytes changing, not
+by the Rust type.
 
 ## [0.10.2] — 2026-08-07
 
