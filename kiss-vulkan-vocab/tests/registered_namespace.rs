@@ -77,6 +77,56 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::U8Packed, "u8packed"),
 ];
 
+/// The two tables must describe the same set, or one of them is stale.
+///
+/// A count comparison rather than a spelling comparison would pass a
+/// *permutation*; the per-entry membership check below is what makes a swap
+/// visible. Both are needed: the length catches an omission, the membership
+/// catches a substitution.
+#[test]
+fn the_named_table_is_complete_and_matches_the_registered_set() {
+    assert_eq!(
+        NAMED_COMPONENT_TYPES.len(),
+        REGISTERED_COMPONENT_TYPES.len(),
+        concat!(
+            "NAMED_COMPONENT_TYPES has {} entries but REGISTERED_COMPONENT_TYPES ",
+            "has {}. One of them was updated without the other, which means either ",
+            "a variant exists that no test in this file exercises, or the ",
+            "namespace document names a spelling this crate cannot emit. Both ",
+            "are silent failures — every test here iterates NAMED_COMPONENT_TYPES, ",
+            "so a variant absent from it is not tested and not reported."
+        ),
+        NAMED_COMPONENT_TYPES.len(),
+        REGISTERED_COMPONENT_TYPES.len()
+    );
+
+    for &(component, spelling) in NAMED_COMPONENT_TYPES {
+        assert!(
+            REGISTERED_COMPONENT_TYPES.contains(&spelling),
+            concat!(
+                "{:?} is paired with spelling {:?}, which the namespace document ",
+                "does not register. The pairing table and the document have ",
+                "diverged; the document wins."
+            ),
+            component,
+            spelling
+        );
+    }
+
+    for spelling in REGISTERED_COMPONENT_TYPES {
+        assert!(
+            NAMED_COMPONENT_TYPES.iter().any(|(_, s)| s == spelling),
+            concat!(
+                "the namespace document registers spelling {:?}, but no ",
+                "ComponentType variant is paired with it. Either the variant is ",
+                "missing from this crate — in which case the document names ",
+                "something underivable — or the pairing table is stale."
+            ),
+            spelling
+        );
+    }
+}
+
 /// Spellings KISS **reserves** and this vocabulary must therefore never emit.
 ///
 /// `f8e4m3fnuz` / `f8e5m2fnuz` are members of KISS's closed dtype set but carry

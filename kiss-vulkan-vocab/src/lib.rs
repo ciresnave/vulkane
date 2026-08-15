@@ -1043,3 +1043,72 @@ impl fmt::Display for VulkanTarget {
         f.write_str(&self.to_token())
     }
 }
+
+#[cfg(test)]
+mod variant_accounting {
+    use super::*;
+
+    /// Makes the spelling tables in `tests/registered_namespace.rs` **complete**,
+    /// not merely correct.
+    ///
+    /// Every test in that file iterates its hand-maintained
+    /// `NAMED_COMPONENT_TYPES`, so a newly-added [`ComponentType`] variant is
+    /// exercised by *nothing*: a variant missing from the table is not a failing
+    /// assertion, it is an absent one. Pinning each mapping by identity — which
+    /// that file already does — catches a *wrong* mapping and is structurally
+    /// blind to a *missing* one.
+    ///
+    /// This `match` is the mechanism, and it lives **here rather than in the
+    /// integration test on purpose**. [`ComponentType`] is `#[non_exhaustive]`,
+    /// so a `match` in any other crate is *required* to carry a `_` arm and
+    /// therefore cannot break when a variant is added — which is precisely what
+    /// `#[non_exhaustive]` is for. The enforcement has to sit inside the
+    /// defining crate or it does not exist.
+    ///
+    /// It is never called. Adding a variant to [`ComponentType`] stops this
+    /// compiling, and the build stays broken until the author updates:
+    ///
+    /// 1. `REGISTERED_COMPONENT_TYPES` — transcribed from
+    ///    `spec/namespaces/vulkan.md`; add a spelling only if the namespace
+    ///    document names it.
+    /// 2. `NAMED_COMPONENT_TYPES` — the variant/spelling pairing.
+    /// 3. this match.
+    ///
+    /// The complementary length and membership assertions live with the tables,
+    /// in `the_named_table_is_complete_and_matches_the_registered_set`.
+    ///
+    /// Credit: this gap was raised by MLMF via the portfolio PM, whose own case
+    /// is sharper. ggml dense types cluster by width — `{BF16, F16, I16}` at two
+    /// bytes, `{F32, I32}` at four — so mapping `I32 -> f32` changes no byte
+    /// count anywhere and every size-based test stays green. That blindness is a
+    /// property of the arithmetic, not of how the tests were written, so more
+    /// test data cannot fix it. Component types have the same shape: `SINT8`,
+    /// `UINT8` and both packed variants are one byte; `FLOAT16`, `SINT16`,
+    /// `UINT16` are two.
+    #[allow(dead_code)]
+    fn every_variant_is_accounted_for(c: ComponentType) {
+        match c {
+            ComponentType::F16
+            | ComponentType::F32
+            | ComponentType::F64
+            | ComponentType::BF16
+            | ComponentType::S8
+            | ComponentType::S16
+            | ComponentType::S32
+            | ComponentType::S64
+            | ComponentType::U8
+            | ComponentType::U16
+            | ComponentType::U32
+            | ComponentType::U64
+            | ComponentType::F8E4M3FN
+            | ComponentType::F8E5M2
+            | ComponentType::S8Packed
+            | ComponentType::U8Packed => {}
+            // Deliberately unnamed: a `VkComponentTypeKHR` this vocabulary
+            // version does not spell, carried as `x<n>` so the token stays
+            // honest about what the device reported. Adding a new variant to
+            // this arm instead of the list above is the wrong fix.
+            ComponentType::Other(_) => {}
+        }
+    }
+}
