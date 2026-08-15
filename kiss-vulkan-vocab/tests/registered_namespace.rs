@@ -511,23 +511,25 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
         return;
     };
 
-    let corpus = read_published_corpus(&path);
+    let (corpus, source) = read_published_corpus(&path);
 
     let quoted = format!("\"{PUBLISHED_VECTOR}\"");
     assert!(
         corpus.contains(&quoted),
         concat!(
             "PUBLISHED_VECTOR is {:?}, which does not appear as a complete JSON ",
-            "string value in the published corpus.\n\n",
+            "string value in the corpus.\n\n",
             "Two causes, and they need different fixes. Either the artifact was ",
             "regenerated with a different `vulkan:` token — update the constant ",
             "to match it, since they generate and we follow — or this comparison ",
             "read a stale tree. Do not weaken this to an unquoted substring ",
             "search, and do not delete it: it is the only assertion in this ",
             "crate whose expected value has an author other than us.\n",
+            "Compared against {}\n",
             "Path consulted: {}"
         ),
         PUBLISHED_VECTOR,
+        source.describe(),
         path.display()
     );
 }
@@ -541,12 +543,56 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
 /// artifact was regenerated with a different token" when the artifact was fine
 /// and the clone was old. Comparing against the ref removes a whole class of
 /// false red, and never disturbs a checkout someone else may be using.
-fn read_published_corpus(path: &std::path::Path) -> String {
+/// Where the corpus actually came from — reported rather than assumed, because
+/// the two sources support very different claims.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CorpusSource {
+    /// `git show origin/main:…` — the *published* artifact. A pass here means
+    /// our spelling matches what KISS has actually pushed.
+    PublishedRef,
+    /// The local working tree. A pass here means our spelling matches whatever
+    /// is on this disk, which may include edits nobody has pushed, or a stale
+    /// checkout that has never been fetched. Strictly weaker, and the whole
+    /// point of the assertion is the strong form.
+    WorkingTree,
+}
+
+impl CorpusSource {
+    fn describe(self) -> &'static str {
+        match self {
+            Self::PublishedRef => "the PUBLISHED ref (git show origin/main:…)",
+            Self::WorkingTree => "the LOCAL WORKING TREE (degraded — see the note printed above)",
+        }
+    }
+}
+
+/// Set to any value to make the working-tree fallback a **failure** rather than
+/// a degraded pass.
+///
+/// Used when cutting a release: a published registry version is immutable, and
+/// its changelog names the KISS commit the token set was verified against. That
+/// claim must not be satisfiable by a local edit, so the release run asserts the
+/// strong form. Ordinary runs stay tolerant, because a contributor with a KISS
+/// checkout that has no remote is not doing anything wrong.
+const REQUIRE_PUBLISHED_REF: &str = "KISS_REQUIRE_PUBLISHED_REF";
+
+/// Read the KISS corpus, **preferring** the published ref and saying plainly
+/// when it could not.
+///
+/// The previous version fell back to the working tree *silently*, which made
+/// "verified against the published artifact" and "verified against whatever is
+/// on this disk" indistinguishable in a green run — the exact conflation this
+/// file exists to prevent, sitting in the helper that backs the only assertion
+/// here whose expected value has an author other than us. Caught in review of
+/// the 0.13.0 release notes, which claimed the fallback did not exist.
+fn read_published_corpus(path: &std::path::Path) -> (String, CorpusSource) {
     let repo = path
         .ancestors()
         .nth(3)
         .expect("<repo>/conformance/corpus/<file> always has three ancestors");
     let relative = "conformance/corpus/structure_key_vectors.json";
+
+    let mut why = String::from("git could not be run at all");
     if let Ok(out) = std::process::Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -555,12 +601,48 @@ fn read_published_corpus(path: &std::path::Path) -> String {
         .output()
     {
         if out.status.success() {
-            return String::from_utf8_lossy(&out.stdout).into_owned();
+            return (
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                CorpusSource::PublishedRef,
+            );
         }
+        why = String::from_utf8_lossy(&out.stderr).trim().to_owned();
     }
-    // No git, no such ref, or a non-repository copy: the working tree is the
-    // only thing left to read, and reading it is still better than skipping.
-    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+
+    // The caller already skipped when no KISS checkout is reachable, so this is
+    // not the packaged-crate case. Reaching here means a checkout exists but the
+    // published ref could not be read: no remote, never fetched, an unpacked
+    // tarball, or no git. Reading the working tree is still worth doing — it
+    // catches a spelling divergence — but it cannot support the claim the
+    // published ref supports, so it is announced rather than substituted.
+    assert!(
+        std::env::var_os(REQUIRE_PUBLISHED_REF).is_none(),
+        concat!(
+            "{} is set, so the working-tree fallback is a failure rather than a ",
+            "degraded pass.\n\nCould not read origin/main from the KISS checkout ",
+            "at {}:\n  {}\n\nFetch it (`git -C <kiss> fetch origin`) and re-run. ",
+            "This variable is set when cutting a release, because the changelog ",
+            "names the KISS commit the token set was verified against and that ",
+            "claim must not be satisfiable by an unpushed local edit."
+        ),
+        REQUIRE_PUBLISHED_REF,
+        repo.display(),
+        why
+    );
+
+    eprintln!(
+        concat!(
+            "DEGRADED: comparing against the KISS working tree, not the published ",
+            "ref.\n  reason: {}\n  This still catches a spelling divergence, but ",
+            "it does NOT establish that our token matches what KISS has pushed — ",
+            "an unpushed local edit would pass. Set {} to make this a failure."
+        ),
+        why, REQUIRE_PUBLISHED_REF
+    );
+
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    (text, CorpusSource::WorkingTree)
 }
 
 /// The KISS `structure_key_vectors.json`, if a checkout is reachable.
