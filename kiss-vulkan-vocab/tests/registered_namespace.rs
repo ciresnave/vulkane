@@ -396,16 +396,28 @@ const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none";
 fn the_published_external_vector_round_trips_byte_exactly() {
     let parsed = VulkanTarget::parse(PUBLISHED_VECTOR).unwrap_or_else(|e| {
         panic!(
-            "the published `vulkan:` reference vector failed to parse:              {PUBLISHED_VECTOR}
-  {e:?}
-
-This token is in KISS's committed              corpus and other implementations byte-match against it. If this              crate cannot read it, the vocabulary has diverged from what is              published — fix the crate, not this constant.{ON_FAILURE}"
+            concat!(
+                "the published `vulkan:` reference vector failed to parse: {}\n",
+                "  {:?}\n\n",
+                "This token is in KISS's committed corpus and other ",
+                "implementations byte-match against it. If this crate cannot ",
+                "read it, the vocabulary has diverged from what is published ",
+                "-- fix the crate, not this constant.{}"
+            ),
+            PUBLISHED_VECTOR, e, ON_FAILURE
         )
     });
     assert_eq!(
         parsed.to_token(),
         PUBLISHED_VECTOR,
-        "re-spelling the published reference vector did not reproduce it          byte-for-byte. §6.8-0002 matching is byte-exact with no subset or          implication logic, so this is a silent non-match for every consumer          keying on that token — not a cosmetic difference.{ON_FAILURE}"
+        concat!(
+            "re-spelling the published reference vector did not reproduce it ",
+            "byte-for-byte. Section 6.8-0002 matching is byte-exact with no ",
+            "subset or implication logic, so this is a silent non-match for ",
+            "every consumer keying on that token -- not a cosmetic ",
+            "difference.{}"
+        ),
+        ON_FAILURE
     );
 }
 

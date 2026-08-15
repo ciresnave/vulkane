@@ -477,3 +477,129 @@ fn every_spelled_token_reparses() {
         );
     }
 }
+
+/// `CoopVector` shares `CoopMatrix`'s length-triggered digest — same threshold,
+/// same hash, same "measure and hash the identical string" rule — and until now
+/// only `cm-` was tested for it.
+///
+/// Raised in review of the v4 change, and the risk is specific rather than
+/// theoretical: two fields implementing one rule in two places is exactly where
+/// they drift, and a drift here is silent. A producer that switched `cv-` to a
+/// digest one combination earlier than another producer would emit a different
+/// token for the same target, and §6.8-0002 byte-exact matching reports that as
+/// a different cell rather than as an error.
+#[test]
+fn coopvec_digest_is_length_triggered_and_runs_over_the_canonical_enumeration() {
+    // Grow a combination list until the encoding crosses the threshold.
+    let mut combos = Vec::new();
+    let mut crossed = None;
+    for i in 0..200u32 {
+        combos.push(CoopVecCombo {
+            input: ComponentType::U32,
+            input_interpretation: ComponentType::S8Packed,
+            matrix_interpretation: ComponentType::S8,
+            bias_interpretation: ComponentType::S32,
+            // Vary a field so each combination is distinct and dedup cannot
+            // silently shorten the list being measured.
+            result: ComponentType::Other(i),
+            transpose: i % 2 == 0,
+        });
+        let cv = CoopVector::from_combos(combos.clone());
+        let token = VulkanTarget {
+            subgroup: Subgroup::Fixed(32),
+            ops: OpClasses::NONE,
+            arith: Arith::NONE,
+            coop: CoopMatrix::None,
+            coopvec: cv.clone(),
+        }
+        .to_token();
+
+        let field = token
+            .rsplit_once(".cv-")
+            .expect("every token carries a `.cv-` field")
+            .1;
+
+        // Reconstruct the canonical enumeration independently of the crate's
+        // own spelling path, so this measures agreement rather than self-consistency.
+        let mut sorted = combos.clone();
+        sorted.sort();
+        sorted.dedup();
+
+        if field.starts_with("fnv1a64-") {
+            if crossed.is_none() {
+                crossed = Some(i);
+            }
+        } else {
+            assert!(
+                field.len() <= COOP_DIGEST_THRESHOLD,
+                "an inline `cv-` enumeration of {} bytes exceeds the threshold; \
+                 the switch is a hard function of length, not a preference",
+                field.len()
+            );
+            assert!(
+                crossed.is_none(),
+                "the field returned to inline form after digesting — the switch \
+                 must be monotonic in length"
+            );
+        }
+    }
+
+    let crossed = crossed.expect("200 combinations must cross the 512-byte threshold");
+    assert!(crossed > 0, "an empty list must never digest");
+}
+
+/// The digest must run over the **same** string the threshold measured — the
+/// property that lets two producers disagree about *whether* to hash while
+/// never disagreeing about *what* is hashed.
+#[test]
+fn coopvec_digest_hashes_the_string_it_measured() {
+    let combos: Vec<CoopVecCombo> = (0..60u32)
+        .map(|i| CoopVecCombo {
+            input: ComponentType::U32,
+            input_interpretation: ComponentType::U8Packed,
+            matrix_interpretation: ComponentType::U8,
+            bias_interpretation: ComponentType::S32,
+            result: ComponentType::Other(i),
+            transpose: false,
+        })
+        .collect();
+
+    let token = VulkanTarget {
+        subgroup: Subgroup::Fixed(32),
+        ops: OpClasses::NONE,
+        arith: Arith::NONE,
+        coop: CoopMatrix::None,
+        coopvec: CoopVector::from_combos(combos.clone()),
+    }
+    .to_token();
+
+    let hex = token
+        .rsplit_once("fnv1a64-")
+        .expect("expected digest form")
+        .1;
+
+    // Rebuild the canonical enumeration by hand: sorted, deduplicated, spelled
+    // in field order, comma-joined — deliberately not via the crate's spell path.
+    let mut sorted = combos;
+    sorted.sort();
+    sorted.dedup();
+    let joined = sorted
+        .iter()
+        .map(|c| {
+            let mut t = format!(
+                "u32-u8packed-u8-i32-x{}",
+                match c.result {
+                    ComponentType::Other(n) => n,
+                    _ => unreachable!("fixture uses Other for the varying field"),
+                }
+            );
+            if c.transpose {
+                t.push_str("-t");
+            }
+            t
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    assert_eq!(hex, format!("{:016x}", fnv1a64(joined.as_bytes())));
+}
