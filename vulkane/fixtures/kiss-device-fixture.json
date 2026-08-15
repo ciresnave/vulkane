@@ -1,0 +1,178 @@
+{
+  "schema": "vulkane-device-fixture-v1",
+  "note": "Raw device properties as reported by the driver. Contains no token, no vocabulary spelling, no canonical ordering, and no derived predicate — deriving a KISS vulkan-namespace capability set from this file is the consumer's work, which is the entire point. Arrays are in driver report order, deliberately unsorted and un-deduplicated. Note this sentence avoids writing the namespace prefix in its token form on purpose: tests/kiss_fixture_is_underived.rs scans the whole file, prose included, and an exemption for prose would be a hole a real leak could hide in.",
+  "instance_api_version": "1.4",
+  "vulkane_version": "0.13.0",
+  "devices": [
+    {
+      "index": 0,
+      "device_name": "AMD Radeon(TM) 610M",
+      "vendor_id": 4098,
+      "device_id": 5710,
+      "driver_version": 8388961,
+      "device_type_raw": 1,
+      "device_api_version": "1.4.315",
+      "subgroup_properties": {
+        "present": true,
+        "subgroup_size": 64,
+        "supported_operations_bits": 1791,
+        "supported_stages_bits": 16191,
+        "quad_operations_in_all_stages": true,
+        "size_control": {
+          "min_subgroup_size": 32,
+          "max_subgroup_size": 64,
+          "max_compute_workgroup_subgroups": 4294967295,
+          "required_subgroup_size_stages_bits": 32
+        }
+      },
+      "core_features": {
+        "shader_int16": true,
+        "shader_int64": true,
+        "shader_float64": true
+      },
+      "shader_arithmetic_features": {
+        "present": true,
+        "shader_float16": true,
+        "shader_int8": true,
+        "storage_buffer_16bit": true,
+        "storage_buffer_8bit": true
+      },
+      "shader_integer_dot_product": {
+        "present": true,
+        "dot_product_8bit_unsigned": true,
+        "dot_product_8bit_signed": true,
+        "dot_product_8bit_mixed": false,
+        "dot_product_4x8bit_packed_unsigned": true,
+        "dot_product_4x8bit_packed_signed": true,
+        "dot_product_4x8bit_packed_mixed": false,
+        "dot_product_16bit_unsigned": true,
+        "dot_product_16bit_signed": true,
+        "dot_product_32bit_unsigned": false,
+        "dot_product_32bit_signed": false,
+        "dot_product_64bit_unsigned": false,
+        "dot_product_64bit_signed": false,
+        "dot_product_accumulating_sat_8bit_signed": true,
+        "dot_product_accumulating_sat_8bit_unsigned": true,
+        "dot_product_accumulating_sat_4x8bit_packed_signed": true,
+        "dot_product_accumulating_sat_4x8bit_packed_unsigned": true,
+        "_all_sixteen_emitted": true
+      },
+      "cooperative_matrix": {
+        "status": "ok",
+        "driver_order": [
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": true, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 7, "b_type_raw": 7, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 7, "b_type_raw": 7, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": true, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 7, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 7, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": true, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 3, "b_type_raw": 7, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 3, "b_type_raw": 7, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": true, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 3, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 3, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": true, "scope_raw": 3 }
+        ]
+      },
+      "cooperative_vector": {
+        "status": "ok",
+        "driver_order": [
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "device_name": "NVIDIA GeForce RTX 4070 Laptop GPU",
+      "vendor_id": 4318,
+      "device_id": 10336,
+      "driver_version": 2559967232,
+      "device_type_raw": 2,
+      "device_api_version": "1.4.341",
+      "subgroup_properties": {
+        "present": true,
+        "subgroup_size": 32,
+        "supported_operations_bits": 2047,
+        "supported_stages_bits": 16383,
+        "quad_operations_in_all_stages": true,
+        "size_control": {
+          "min_subgroup_size": 32,
+          "max_subgroup_size": 32,
+          "max_compute_workgroup_subgroups": 32,
+          "required_subgroup_size_stages_bits": 16383
+        }
+      },
+      "core_features": {
+        "shader_int16": true,
+        "shader_int64": true,
+        "shader_float64": true
+      },
+      "shader_arithmetic_features": {
+        "present": true,
+        "shader_float16": true,
+        "shader_int8": true,
+        "storage_buffer_16bit": true,
+        "storage_buffer_8bit": true
+      },
+      "shader_integer_dot_product": {
+        "present": true,
+        "dot_product_8bit_unsigned": false,
+        "dot_product_8bit_signed": false,
+        "dot_product_8bit_mixed": false,
+        "dot_product_4x8bit_packed_unsigned": true,
+        "dot_product_4x8bit_packed_signed": true,
+        "dot_product_4x8bit_packed_mixed": true,
+        "dot_product_16bit_unsigned": false,
+        "dot_product_16bit_signed": false,
+        "dot_product_32bit_unsigned": false,
+        "dot_product_32bit_signed": false,
+        "dot_product_64bit_unsigned": false,
+        "dot_product_64bit_signed": false,
+        "dot_product_accumulating_sat_8bit_signed": false,
+        "dot_product_accumulating_sat_8bit_unsigned": false,
+        "dot_product_accumulating_sat_4x8bit_packed_signed": true,
+        "dot_product_accumulating_sat_4x8bit_packed_unsigned": true,
+        "_all_sixteen_emitted": true
+      },
+      "cooperative_matrix": {
+        "status": "ok",
+        "driver_order": [
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 8, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 16, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 8, "a_type_raw": 0, "b_type_raw": 0, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 7, "b_type_raw": 7, "c_type_raw": 9, "result_type_raw": 9, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 3, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 32, "a_type_raw": 7, "b_type_raw": 7, "c_type_raw": 9, "result_type_raw": 9, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 8, "k": 32, "a_type_raw": 3, "b_type_raw": 3, "c_type_raw": 5, "result_type_raw": 5, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 16, "a_type_raw": 1000141000, "b_type_raw": 1000141000, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 1000491003, "b_type_raw": 1000491003, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 1000491003, "b_type_raw": 1000491003, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 1000491002, "b_type_raw": 1000491002, "c_type_raw": 0, "result_type_raw": 0, "saturating_accumulation": false, "scope_raw": 3 },
+          { "m": 16, "n": 16, "k": 32, "a_type_raw": 1000491002, "b_type_raw": 1000491002, "c_type_raw": 1, "result_type_raw": 1, "saturating_accumulation": false, "scope_raw": 3 }
+        ]
+      },
+      "cooperative_vector": {
+        "status": "ok",
+        "driver_order": [
+          { "input_type_raw": 0, "input_interpretation_raw": 0, "matrix_interpretation_raw": 0, "bias_interpretation_raw": 0, "result_type_raw": 0, "transpose": true },
+          { "input_type_raw": 3, "input_interpretation_raw": 3, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 5, "input_interpretation_raw": 3, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 1, "input_interpretation_raw": 3, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 9, "input_interpretation_raw": 1000491000, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 7, "input_interpretation_raw": 7, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 5, "input_interpretation_raw": 7, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 9, "input_interpretation_raw": 1000491001, "matrix_interpretation_raw": 3, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 7, "input_interpretation_raw": 7, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 5, "input_interpretation_raw": 7, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 9, "input_interpretation_raw": 1000491001, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 3, "input_interpretation_raw": 3, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 5, "input_interpretation_raw": 3, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 9, "input_interpretation_raw": 1000491000, "matrix_interpretation_raw": 7, "bias_interpretation_raw": 5, "result_type_raw": 5, "transpose": false },
+          { "input_type_raw": 0, "input_interpretation_raw": 1000491002, "matrix_interpretation_raw": 1000491002, "bias_interpretation_raw": 0, "result_type_raw": 0, "transpose": false },
+          { "input_type_raw": 0, "input_interpretation_raw": 1000491003, "matrix_interpretation_raw": 1000491003, "bias_interpretation_raw": 0, "result_type_raw": 0, "transpose": false }
+        ]
+      }
+    }
+  ]
+}

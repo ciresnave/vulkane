@@ -144,6 +144,7 @@ jobs:
           cargo build -p vulkane --features fetch-spec --example fill_buffer
           cargo build -p vulkane --features fetch-spec --example headless_triangle
           cargo build -p vulkane --features fetch-spec --example instanced_mesh
+          cargo build -p vulkane --features fetch-spec --example kiss_device_fixture
           cargo build -p vulkane --features fetch-spec --example raw_interop
           cargo build -p vulkane --features fetch-spec --example ray_tracing_as_build
           cargo build -p vulkane --features fetch-spec --example shadow_map
@@ -160,6 +161,13 @@ jobs:
           cargo run -p vulkane --features fetch-spec --example compute_square
           cargo run -p vulkane --features fetch-spec --example compute_image_invert
           cargo run -p vulkane --features fetch-spec --example headless_triangle
+          # A third ICD profile for the fixture generator. Lavapipe reports no
+          # cooperative support at all, so this is the leg that exercises the
+          # "supports none, honestly" path end to end on a device that is not
+          # the one the committed fixture was captured on. Output is discarded:
+          # the committed fixture must come from real hardware, and CI proving
+          # it can be *regenerated* here would be proving the wrong thing.
+          cargo run -p vulkane --features fetch-spec --example kiss_device_fixture > /dev/null
 
   # `shaderc` and `slang` gate whole test files behind `#![cfg(feature = "…")]`,
   # and until these jobs existed neither feature was switched on anywhere in
