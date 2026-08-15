@@ -21,8 +21,20 @@ under 0.10.2 and older in this file is included here.
 `namespace_vocabulary_versions = {"cuda": 1, "vulkan": 4}` together with the token
 `vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none`. `kiss-vulkan-vocab`'s
 `the_pinned_vector_matches_the_kiss_artifact_when_reachable` parses and re-spells that token
-byte-exactly, reading it via `git show origin/main:…` — the *published* ref, never a local working
-tree, which could otherwise pass against an edit nobody pushed.
+byte-exactly, reading it via `git show origin/main:…` — the *published* ref rather than a local
+working tree, which could otherwise pass against an edit nobody pushed.
+
+**This release run set `KISS_REQUIRE_PUBLISHED_REF=1`**, which turns the working-tree fallback into
+a failure. The helper does still fall back when the published ref cannot be read — a contributor
+whose KISS checkout has no remote is not doing anything wrong — but it now announces the degraded
+mode and reports which source it compared against, and the release path refuses it outright.
+
+That distinction is not hypothetical, and it was live while this release was being cut: the KISS
+checkout on this machine sat at `b82b50b` with a working tree still carrying the **four-field
+version-3 token**, while `origin/main` had moved to the five-field version-4 one. A silent fallback
+would have verified this release against a stale tree. The corpus's own `coverage_note` records the
+same failure in the other direction — a `vulkan:` suffix that "once byte-matched green while it was
+MALFORMED against vulkan v4".
 
 That commit is named here because a registry version is immutable and the question a reader asks
 later is not "was this correct" but **"correct against what?"**. A provenance field that names the
@@ -50,7 +62,8 @@ a transpose flag per combination — canonically ordered, with the same length-t
 `fnv1a64-<hex16>` digest escape the `<coop>` field uses above 512 bytes. `PhysicalDevice` gains
 `cooperative_vector_properties()`, and `DeviceCapabilities` gains `coopvec`.
 
-`VK_COMPONENT_TYPE_SINT8_PACKED_NV` and `..._UINT8_PACKED_NV` are named `i8packed` and `u8packed`.
+`VK_COMPONENT_TYPE_SINT8_PACKED_NV` and `VK_COMPONENT_TYPE_UINT8_PACKED_NV` are named `i8packed`
+and `u8packed`.
 `ComponentType` gains `S8Packed` and `U8Packed`, and `kiss::component()` maps both — a device
 reporting them previously derived `x1000491000` / `x1000491001`.
 
