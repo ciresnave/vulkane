@@ -48,7 +48,11 @@ fn cooperative_vector_properties_are_well_formed_and_nameable() {
             }
             Ok(_) => {}
             Err(e) => panic!(
-                "a device advertising VK_NV_cooperative_vector failed its own                  properties query: {e:?}"
+                concat!(
+                    "a device advertising VK_NV_cooperative_vector failed its ",
+                    "own properties query: {:?}"
+                ),
+                e
             ),
         }
     }

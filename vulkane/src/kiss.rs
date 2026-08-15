@@ -447,7 +447,13 @@ mod component_tests {
             assert_eq!(
                 component(raw),
                 want,
-                "VkComponentTypeKHR {raw} must derive {want:?}, not Other — an                  RTX 4070 reports this value in its cooperative-vector                  combinations, so `Other` here is a wrong token on real hardware"
+                concat!(
+                    "VkComponentTypeKHR {} must derive {:?}, not Other — ",
+                    "an RTX 4070 reports this value in its cooperative-vector ",
+                    "combinations, so `Other` here is a wrong token on real hardware"
+                ),
+                raw,
+                want
             );
             // The spelling is what a consumer byte-matches, so assert it too
             // rather than trusting the variant alone.

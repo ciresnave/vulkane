@@ -466,9 +466,18 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
     let quoted = format!("\"{PUBLISHED_VECTOR}\"");
     assert!(
         corpus.contains(&quoted),
-        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a          complete JSON string value in the published corpus.
-
-         Two causes, and they need different fixes. Either the artifact was          regenerated with a different `vulkan:` token — update the constant to          match it, since they generate and we follow — or this comparison read          a stale tree. Do not weaken this to an unquoted substring search, and          do not delete it: it is the only assertion in this crate whose expected          value has an author other than us. Path consulted: {}",
+        concat!(
+            "PUBLISHED_VECTOR is {:?}, which does not appear as a complete JSON ",
+            "string value in the published corpus.\n\n",
+            "Two causes, and they need different fixes. Either the artifact was ",
+            "regenerated with a different `vulkan:` token — update the constant ",
+            "to match it, since they generate and we follow — or this comparison ",
+            "read a stale tree. Do not weaken this to an unquoted substring ",
+            "search, and do not delete it: it is the only assertion in this ",
+            "crate whose expected value has an author other than us.\n",
+            "Path consulted: {}"
+        ),
+        PUBLISHED_VECTOR,
         path.display()
     );
 }
