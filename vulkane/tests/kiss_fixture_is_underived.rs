@@ -44,53 +44,137 @@ fn fixture() -> String {
     })
 }
 
-/// Nothing in the file may be spelled the way a token is spelled.
+/// The keys whose values are legitimately strings. **Everything else in the
+/// fixture must be a number or a bool.**
 ///
-/// The needles are the vocabulary's own surface: a namespace prefix, the field
-/// tags, the digest marker, and the component spellings. A hit means some part
-/// of the derivation leaked into its own input.
+/// This is the allowlist that makes
+/// [`no_unexpected_field_carries_a_string_value`] a statement about the
+/// *property* rather than about a list of forbidden spellings. Adding a key
+/// here is a deliberate act; forgetting to add a forbidden spelling to a
+/// denylist is an omission, and the two fail in opposite directions.
+const STRING_VALUED_KEYS: &[&str] = &[
+    "schema",
+    "note",
+    "instance_api_version",
+    "vulkane_version",
+    "device_name",
+    "device_api_version",
+    "status",
+    "error",
+];
+
+/// Every vocabulary value is a **number**, so any unexpected string is suspect.
+///
+/// This is the guard that actually pins "nothing token-shaped", and it replaces
+/// a denylist that could only ever be as complete as its author remembered to
+/// make it. The previous version enumerated `sg32`/`sg64` and a subset of the
+/// component spellings — so `sgdyn`, `sg128`, and every one of `i16`/`i32`/
+/// `i64`/`u16`/`u32`/`u64` would have leaked through a guard that reported
+/// clean. Both gaps were found in review.
+///
+/// **That is this file's own finding turned on itself.** `kiss-vulkan-vocab`'s
+/// `the_named_table_is_complete_and_matches_the_registered_set` exists because
+/// identity-pinning catches a *wrong* entry and is structurally blind to a
+/// *missing* one; a denylist has exactly that shape, and this one already had
+/// eight holes. Enumerating what is *permitted* is bounded and reviewable;
+/// enumerating what is *forbidden* is unbounded and silently incomplete.
+///
+/// It matters most precisely here. The fixture's entire value is that a second
+/// party can derive `target` from it **without receiving any step of our
+/// derivation**, and this guard is the only thing between "an independent
+/// derivation" and "a derivation that quietly reused ours". A leak it cannot
+/// see would let the fixture satisfy KISS umbrella §5.3 condition 1 while
+/// failing it in fact — which is the case #221 was written to catch.
 #[test]
-fn fixture_contains_nothing_token_shaped() {
+fn no_unexpected_field_carries_a_string_value() {
     let text = fixture();
 
-    // Field tags and the namespace prefix. `cm-`/`cv-`/`ops-`/`arith-` are the
-    // assembled forms; `vulkan:` is the token itself; `fnv1a64` is the digest
-    // escape hatch, which is a derivation over a canonical enumeration.
-    for needle in [
-        "vulkan:", "ops-", "arith-", "cm-", "cv-", "sg32", "sg64", "fnv1a64",
-    ] {
+    for (i, _) in text.match_indices("\": ") {
+        // Walk back over the key to its opening quote.
+        let before = &text[..i];
+        let Some(start) = before.rfind('"') else {
+            continue;
+        };
+        let key = &before[start + 1..];
+        let value_starts_at = i + "\": ".len();
+        let is_string = text[value_starts_at..].starts_with('"');
+
+        if is_string && !STRING_VALUED_KEYS.contains(&key) {
+            let preview: String = text[value_starts_at..]
+                .chars()
+                .take(60)
+                .collect::<String>()
+                .replace('\n', " ");
+            panic!(
+                concat!(
+                    "the device fixture has key {:?} carrying a STRING value: {}\n\n",
+                    "Every value the vocabulary would spell must appear as the raw ",
+                    "number the driver reported. A string here is either a ",
+                    "vocabulary spelling (`f16`, `i8packed`, `sgdyn`, …), an ",
+                    "assembled token fragment, or a new field nobody vetted — and ",
+                    "the spelling IS the derivation.\n\n",
+                    "If this key genuinely holds prose, add it to ",
+                    "STRING_VALUED_KEYS deliberately. Do not delete this check: a ",
+                    "denylist of forbidden spellings is what this replaced, and it ",
+                    "had eight holes in it."
+                ),
+                key, preview
+            );
+        }
+    }
+}
+
+/// Assembled token fragments, which can hide inside the free-text fields the
+/// allowlist above permits.
+///
+/// Scoped deliberately: this catches what
+/// [`no_unexpected_field_carries_a_string_value`] cannot see, namely a fragment
+/// embedded in `note` or a device name, rather than standing in as the general
+/// guard. The claim in the doc comment is exactly what the code tests — the
+/// earlier version of this file claimed "nothing token-shaped" while testing
+/// two subgroup widths and a partial spelling list, and a claim wider than its
+/// evidence is worse than no claim, because the next reader trusts it and never
+/// audits the list.
+#[test]
+fn no_assembled_token_fragment_appears_anywhere() {
+    let text = fixture();
+
+    for needle in ["vulkan:", "ops-", "arith-", "cm-", "cv-", "fnv1a64"] {
         assert!(
             !text.contains(needle),
             concat!(
-                "the device fixture contains {:?}, which is token-shaped. The ",
-                "fixture is the INPUT to a derivation and must carry no part of ",
-                "its output: a second party consuming it would be performing ",
-                "passthrough on this fragment, and KISS umbrella §5.3 condition ",
-                "1 counts that as zero independent derivers for the field. Emit ",
-                "the raw driver value instead."
+                "the device fixture contains {:?}, which is an assembled token ",
+                "fragment. The fixture is the INPUT to a derivation and must ",
+                "carry no part of its output: a second party consuming it would ",
+                "be performing passthrough on this fragment, and KISS umbrella ",
+                "§5.3 condition 1 counts that as zero independent derivers for ",
+                "the field."
             ),
             needle
         );
     }
 
-    // Component spellings, matched as whole JSON string values so a substring
-    // inside prose (the `note` field explains the rule, and says these words)
-    // does not trip the check.
-    for spelling in [
-        "f16", "f32", "f64", "i8", "u8", "i8packed", "u8packed", "f8e4m3fn", "f8e5m2", "bf16",
-        "st16", "st8", "dot8",
-    ] {
-        let quoted = format!("\"{spelling}\"");
+    // `sg` followed by a width or `dyn` — the whole family, not two examples.
+    // `sgdyn` is the width-agnostic spelling and `sg128` is a width no device
+    // reports today; both are as much a leak as `sg64`, and the previous
+    // hard-coded pair would have passed either.
+    for (i, _) in text.match_indices("sg") {
+        let rest = &text[i + 2..];
+        let leak = rest.starts_with("dyn")
+            || rest
+                .chars()
+                .next()
+                .is_some_and(|c: char| c.is_ascii_digit());
         assert!(
-            !text.contains(&quoted),
+            !leak,
             concat!(
-                "the device fixture contains the JSON string value {:?} — a ",
-                "vocabulary SPELLING. Component types must appear as the raw ",
-                "integer the driver reported (`*_type_raw`), never as the name ",
-                "this vocabulary version happens to give them. The spelling is ",
-                "the derivation."
+                "the device fixture contains a subgroup token spelling at byte ",
+                "{}: {:?}. The subgroup field is derived from ",
+                "`subgroup_size` and the size-control range; the fixture carries ",
+                "those as numbers and must not carry the spelling they produce."
             ),
-            quoted
+            i,
+            rest.chars().take(12).collect::<String>()
         );
     }
 }
