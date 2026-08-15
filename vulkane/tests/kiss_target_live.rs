@@ -195,6 +195,7 @@ fn a_narrower_kernel_target_is_admitted_but_spells_differently() {
         ops: kiss_vulkan_vocab::OpClasses::NONE,
         arith: kiss_vulkan_vocab::Arith::NONE,
         coop: CoopMatrix::None,
+        coopvec: kiss_vulkan_vocab::CoopVector::None,
     };
     assert!(
         caps.admits(&minimal),
@@ -221,6 +222,7 @@ fn rejects_a_target_the_device_cannot_run() {
         ops: kiss_vulkan_vocab::OpClasses::NONE,
         arith: kiss_vulkan_vocab::Arith::NONE,
         coop: CoopMatrix::None,
+        coopvec: kiss_vulkan_vocab::CoopVector::None,
     };
     assert!(!caps.admits(&impossible));
 }

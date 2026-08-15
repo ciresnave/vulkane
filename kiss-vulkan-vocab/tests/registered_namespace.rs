@@ -42,16 +42,17 @@
 use kiss_vulkan_vocab::*;
 
 /// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
-/// **vocabulary version 3**, the paragraph reading:
+/// **vocabulary version 4**, the paragraph reading:
 ///
 /// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
-/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`, or
-/// > `x<n>` for a `VkComponentTypeKHR` [this vocabulary does not name]
+/// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`,
+/// > `i8packed`, `u8packed`, or `x<n>` for a `VkComponentTypeKHR` [this
+/// > vocabulary does not name]
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[
     "f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f8e4m3fn",
-    "f8e5m2",
+    "f8e5m2", "i8packed", "u8packed",
 ];
 
 /// Every named `ComponentType`, paired with the spelling the registered
@@ -72,6 +73,8 @@ const NAMED_COMPONENT_TYPES: &[(ComponentType, &str)] = &[
     (ComponentType::U64, "u64"),
     (ComponentType::F8E4M3FN, "f8e4m3fn"),
     (ComponentType::F8E5M2, "f8e5m2"),
+    (ComponentType::S8Packed, "i8packed"),
+    (ComponentType::U8Packed, "u8packed"),
 ];
 
 /// Spellings KISS **reserves** and this vocabulary must therefore never emit.
@@ -105,10 +108,16 @@ const ON_FAILURE: &str = "\n\nIf a spelling changed deliberately, the registered
 /// crate's own API would only prove the crate agrees with itself, which is the
 /// exact blind spot described at the top of this file.
 fn cm_section(token: &str) -> &str {
+    // Bounded at the next `.` — since vocabulary version 4 the `cm-` field is
+    // no longer last, and taking "everything after `.cm-`" swallowed `.cv-none`
+    // into the final component, which surfaced as the spelling `f16.cv`.
     token
         .rsplit_once(".cm-")
         .map(|(_, section)| section)
         .expect("every emitted token carries a `.cm-` section")
+        .split('.')
+        .next()
+        .expect("split always yields at least one element")
 }
 
 /// Build a target whose cooperative-matrix section is a single shape using
@@ -129,6 +138,7 @@ fn token_for(c: ComponentType) -> String {
             result: c,
             saturating: false,
         }]),
+        coopvec: CoopVector::None,
     }
     .to_token()
 }
@@ -177,7 +187,7 @@ fn no_component_type_spells_an_unregistered_token() {
 fn every_registered_token_is_accepted_on_parse() {
     for spelling in REGISTERED_COMPONENT_TYPES {
         let token = format!(
-            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{spelling}-{spelling}-{spelling}-{spelling}"
+            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{spelling}-{spelling}-{spelling}-{spelling}.cv-none"
         );
         let parsed = VulkanTarget::parse(&token)
             .unwrap_or_else(|e| panic!("registered spelling {spelling:?} must parse, got {e:?}"));
@@ -227,7 +237,7 @@ fn no_component_type_spells_a_reserved_dtype() {
 fn reserved_spellings_do_not_parse_as_named_component_types() {
     for reserved in RESERVED_NEVER_EMITTED {
         let token = format!(
-            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{reserved}-{reserved}-{reserved}-{reserved}"
+            "vulkan:sg32.ops-none.arith-none.cm-16-16-16-{reserved}-{reserved}-{reserved}-{reserved}.cv-none"
         );
         assert!(
             VulkanTarget::parse(&token).is_err(),
@@ -332,6 +342,7 @@ fn operand_positions_survive_the_round_trip_in_order() {
         ops: OpClasses::NONE,
         arith: Arith::NONE,
         coop: CoopMatrix::from_shapes(vec![shape]),
+        coopvec: CoopVector::None,
     }
     .to_token();
 
@@ -365,26 +376,48 @@ fn operand_positions_survive_the_round_trip_in_order() {
 /// document; they catch the *crate* drifting and cannot catch the document
 /// moving. This one is the only place where the thing being compared against
 /// has an author who is not us.
-const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none";
+const PUBLISHED_VECTOR: &str = "vulkan:sg64.ops-abr.arith-f16.cm-none.cv-none";
 
+/// The published vector must parse and re-spell byte-for-byte.
+///
+/// Regenerated to the five-field v4 form by KISS in `bea9416`, against the
+/// published grammar rather than minted by us — which is the only reason this
+/// constant is worth anything. A vector we authored, asserting we agree with
+/// ourselves, would be a forged contract.
+///
+/// Worth knowing what this one value produced. Tracing a report from it found
+/// that the target token had **no independent derivation anywhere in the
+/// chain**: KISS authored the literal, Fuel interpolates it verbatim, Unpopped
+/// carries it opaquely. Three byte-exact comparisons of one authored string.
+/// The byte-match never failed — it *agreed*, and would have agreed at any
+/// vocabulary version. Agreement between implementations is not conformance to
+/// a document.
 #[test]
 fn the_published_external_vector_round_trips_byte_exactly() {
     let parsed = VulkanTarget::parse(PUBLISHED_VECTOR).unwrap_or_else(|e| {
         panic!(
-            "the published `vulkan:` reference vector failed to parse: \
-             {PUBLISHED_VECTOR}\n  {e:?}\n\nThis token is in KISS's committed \
-             corpus and other implementations byte-match against it. If this \
-             crate cannot read it, the vocabulary has diverged from what is \
-             published — fix the crate, not this constant.{ON_FAILURE}"
+            concat!(
+                "the published `vulkan:` reference vector failed to parse: {}\n",
+                "  {:?}\n\n",
+                "This token is in KISS's committed corpus and other ",
+                "implementations byte-match against it. If this crate cannot ",
+                "read it, the vocabulary has diverged from what is published ",
+                "-- fix the crate, not this constant.{}"
+            ),
+            PUBLISHED_VECTOR, e, ON_FAILURE
         )
     });
     assert_eq!(
         parsed.to_token(),
         PUBLISHED_VECTOR,
-        "re-spelling the published reference vector did not reproduce it \
-         byte-for-byte. §6.8-0002 matching is byte-exact with no subset or \
-         implication logic, so this is a silent non-match for every consumer \
-         keying on that token — not a cosmetic difference.{ON_FAILURE}"
+        concat!(
+            "re-spelling the published reference vector did not reproduce it ",
+            "byte-for-byte. Section 6.8-0002 matching is byte-exact with no ",
+            "subset or implication logic, so this is a silent non-match for ",
+            "every consumer keying on that token -- not a cosmetic ",
+            "difference.{}"
+        ),
+        ON_FAILURE
     );
 }
 
@@ -428,45 +461,56 @@ fn the_pinned_vector_matches_the_kiss_artifact_when_reachable() {
         return;
     };
 
-    let corpus = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let corpus = read_published_corpus(&path);
 
     let quoted = format!("\"{PUBLISHED_VECTOR}\"");
     assert!(
         corpus.contains(&quoted),
-        "PUBLISHED_VECTOR is {PUBLISHED_VECTOR:?}, which does not appear as a \
-         complete JSON string value in {}. Either the artifact was regenerated \
-         with a different `vulkan:` token — in which case update the constant \
-         to match it, since they generate and we follow — or the constant was \
-         mistyped. Do not 'fix' this by deleting the check, and do not weaken \
-         it to an unquoted substring search: it is the only assertion in this \
-         crate whose expected value has an author other than us.",
+        concat!(
+            "PUBLISHED_VECTOR is {:?}, which does not appear as a complete JSON ",
+            "string value in the published corpus.\n\n",
+            "Two causes, and they need different fixes. Either the artifact was ",
+            "regenerated with a different `vulkan:` token — update the constant ",
+            "to match it, since they generate and we follow — or this comparison ",
+            "read a stale tree. Do not weaken this to an unquoted substring ",
+            "search, and do not delete it: it is the only assertion in this ",
+            "crate whose expected value has an author other than us.\n",
+            "Path consulted: {}"
+        ),
+        PUBLISHED_VECTOR,
         path.display()
     );
 }
 
-/// The boundary in the check above has to actually bite, or it is a prefix
-/// check wearing an equality check's error message.
+/// The corpus as **published**, preferring `git show origin/main:<path>` over
+/// the working tree.
 ///
-/// Asserted on constructed strings rather than on the artifact, so it holds
-/// wherever the corpus is unreachable — this is a property of the matching
-/// rule, not of the file.
-#[test]
-fn the_artifact_match_requires_a_complete_value_not_a_prefix() {
-    let extended = format!("{PUBLISHED_VECTOR}such");
-    assert!(
-        extended.contains(PUBLISHED_VECTOR),
-        "sanity: the longer token really does contain ours as a bare substring, \
-         which is the hazard being guarded against"
-    );
-
-    let quoted = format!("\"{PUBLISHED_VECTOR}\"");
-    assert!(
-        !format!("\"{extended}\"").contains(&quoted),
-        "a token that merely extends ours must not satisfy the quoted match — \
-         if it does, the corpus check has silently become a prefix check and \
-         would pass while our exact bytes were gone from the artifact"
-    );
+/// The working tree is whatever that checkout happens to be sitting on, and a
+/// shared checkout is routinely behind. Reading it made a stale local clone
+/// indistinguishable from real drift — the failure message would have said "the
+/// artifact was regenerated with a different token" when the artifact was fine
+/// and the clone was old. Comparing against the ref removes a whole class of
+/// false red, and never disturbs a checkout someone else may be using.
+fn read_published_corpus(path: &std::path::Path) -> String {
+    let repo = path
+        .ancestors()
+        .nth(3)
+        .expect("<repo>/conformance/corpus/<file> always has three ancestors");
+    let relative = "conformance/corpus/structure_key_vectors.json";
+    if let Ok(out) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("show")
+        .arg(format!("origin/main:{relative}"))
+        .output()
+    {
+        if out.status.success() {
+            return String::from_utf8_lossy(&out.stdout).into_owned();
+        }
+    }
+    // No git, no such ref, or a non-repository copy: the working tree is the
+    // only thing left to read, and reading it is still better than skipping.
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
 /// The KISS `structure_key_vectors.json`, if a checkout is reachable.

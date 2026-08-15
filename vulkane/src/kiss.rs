@@ -55,7 +55,8 @@
 use crate::raw::bindings::VkComponentTypeKHR;
 use crate::safe::{PhysicalDevice, SubgroupFeatureFlags};
 use kiss_vulkan_vocab::{
-    Arith, ComponentType, CoopMatrix, CoopShape, OpClasses, Subgroup, VulkanTarget,
+    Arith, ComponentType, CoopMatrix, CoopShape, CoopVecCombo, CoopVector, OpClasses, Subgroup,
+    VulkanTarget,
 };
 
 /// What a physical device offers, in `vulkan:` vocabulary terms.
@@ -77,6 +78,11 @@ pub struct DeviceCapabilities {
     pub arith: Arith,
     /// Cooperative-matrix shapes the device supports, canonically ordered.
     pub coop: Vec<CoopShape>,
+    /// Cooperative-*vector* combinations the device supports, canonically
+    /// ordered. Empty on the overwhelming majority of devices — an AMD 610M
+    /// reports none, an RTX 4070 reports 16 — and empty is the honest answer
+    /// there, not a failure.
+    pub coopvec: Vec<CoopVecCombo>,
 }
 
 impl DeviceCapabilities {
@@ -174,6 +180,30 @@ impl DeviceCapabilities {
         coop.sort();
         coop.dedup();
 
+        // Same `.ok()?` discipline as the matrix query, for the same reason:
+        // an empty list spells `cv-none`, so treating a failed query as "no
+        // combinations" would derive a token asserting this device has no
+        // cooperative-vector support. Declining is honest; a wrong token is a
+        // different cell that matches nothing.
+        let mut coopvec: Vec<CoopVecCombo> = physical
+            .cooperative_vector_properties()
+            .ok()?
+            .iter()
+            .map(|p| CoopVecCombo {
+                // `_raw` throughout, for the reason given on the shapes above:
+                // an unnameable value must keep the number that distinguishes
+                // it rather than collapsing to `None`.
+                input: component(p.input_type_raw() as u32),
+                input_interpretation: component(p.input_interpretation_raw() as u32),
+                matrix_interpretation: component(p.matrix_interpretation_raw() as u32),
+                bias_interpretation: component(p.bias_interpretation_raw() as u32),
+                result: component(p.result_type_raw() as u32),
+                transpose: p.transpose(),
+            })
+            .collect();
+        coopvec.sort();
+        coopvec.dedup();
+
         Some(Self {
             default_subgroup: sg.subgroup_size,
             subgroup_range: sg
@@ -182,6 +212,7 @@ impl DeviceCapabilities {
             ops,
             arith,
             coop,
+            coopvec,
         })
     }
 
@@ -227,6 +258,7 @@ impl DeviceCapabilities {
             ops: self.ops,
             arith: self.arith,
             coop: CoopMatrix::from_shapes(self.coop.clone()),
+            coopvec: CoopVector::from_combos(self.coopvec.clone()),
         }
     }
 
@@ -269,12 +301,19 @@ impl DeviceCapabilities {
 /// and the device simply never matches a target naming that dtype.
 ///
 /// - **0..=10 and `BFLOAT16_KHR`** — mapped.
-/// - **`SINT8_PACKED_NV` / `UINT8_PACKED_NV`** — deliberately left `Other`.
-///   These carry `s8`/`u8` data in a *packed* cooperative-matrix layout, which
-///   is a different shader-side contract from the unpacked types. Folding them
-///   onto `S8`/`U8` would collapse two distinct Vulkan values onto one token
-///   and let a packed-only device satisfy a target asking for plain `s8`. An
-///   honest `Other` beats a token claiming something the device doesn't offer.
+/// - **`SINT8_PACKED_NV` / `UINT8_PACKED_NV`** — mapped as of vocabulary
+///   version 4, to `S8Packed` / `U8Packed` spelling `i8packed` / `u8packed`.
+///   **Not** folded onto `S8`/`U8`: the packed layout is a different
+///   shader-side contract, and collapsing two distinct Vulkan values onto one
+///   token would let a packed-only device satisfy a target asking for plain
+///   `i8`.
+///
+///   They reach this function only via `cooperative_vector_properties` — the
+///   enumerants are defined by `VK_NV_cooperative_vector` with no dependency on
+///   `VK_KHR_cooperative_matrix`, so a cooperative-matrix shape never carries
+///   one. Naming them without that query would have been the bfloat16 defect
+///   inverted: a spelling in the vocabulary that nothing could emit.
+///
 /// - **`FLOAT8_E4M3_EXT` / `FLOAT8_E5M2_EXT`** — mapped as of vocabulary
 ///   version 3. Both blockers that previously stood here are now discharged,
 ///   and the second one is worth recording because it was resolved by argument
@@ -315,6 +354,8 @@ fn component(raw: u32) -> ComponentType {
     const BFLOAT16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_BFLOAT16_KHR as u32;
     const F8E4M3: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32;
     const F8E5M2: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32;
+    const S8_PACKED: u32 = VkComponentTypeKHR::COMPONENT_TYPE_SINT8_PACKED_NV as u32;
+    const U8_PACKED: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32;
 
     match raw {
         0 => ComponentType::F16,
@@ -331,6 +372,8 @@ fn component(raw: u32) -> ComponentType {
         BFLOAT16 => ComponentType::BF16,
         F8E4M3 => ComponentType::F8E4M3FN,
         F8E5M2 => ComponentType::F8E5M2,
+        S8_PACKED => ComponentType::S8Packed,
+        U8_PACKED => ComponentType::U8Packed,
         n => ComponentType::Other(n),
     }
 }
@@ -378,22 +421,64 @@ mod component_tests {
         }
     }
 
-    /// The packed NV types remain *deliberately* unmapped, for reasons recorded
-    /// on [`component`]. This asserts the deliberate choice so that mapping them
-    /// later is a decision someone makes on purpose — a well-meant
-    /// `SINT8_PACKED_NV => S8` would otherwise be a silent widening that lets a
-    /// packed-only device answer to plain `s8`.
+    /// The packed types derive to their named variants.
+    ///
+    /// This test previously asserted the opposite — that they stayed `Other` —
+    /// which was correct until vocabulary version 4 named them, and wrong the
+    /// moment it did. The review of #15 caught that the variants and spellings
+    /// had landed while `component` was never given the arms, so a device
+    /// reporting them would have spelled `x1000491000` and matched nothing.
+    /// That is the bfloat16 defect exactly: reachable by token, underivable
+    /// from hardware, and invisible because `Other` is a *valid* token.
     #[test]
-    fn packed_types_are_deliberately_unmapped() {
-        for raw in [
-            VkComponentTypeKHR::COMPONENT_TYPE_SINT8_PACKED_NV as u32,
-            VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32,
+    fn packed_types_derive_to_their_named_variants() {
+        for (raw, want, spelling) in [
+            (
+                VkComponentTypeKHR::COMPONENT_TYPE_SINT8_PACKED_NV as u32,
+                ComponentType::S8Packed,
+                "i8packed",
+            ),
+            (
+                VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32,
+                ComponentType::U8Packed,
+                "u8packed",
+            ),
         ] {
             assert_eq!(
                 component(raw),
-                ComponentType::Other(raw),
-                "value {raw} is unmapped on purpose; see the note on `component`. \
-                 If you are mapping it, update that note and this test together."
+                want,
+                concat!(
+                    "VkComponentTypeKHR {} must derive {:?}, not Other — ",
+                    "an RTX 4070 reports this value in its cooperative-vector ",
+                    "combinations, so `Other` here is a wrong token on real hardware"
+                ),
+                raw,
+                want
+            );
+            // The spelling is what a consumer byte-matches, so assert it too
+            // rather than trusting the variant alone.
+            let token = VulkanTarget {
+                subgroup: Subgroup::Fixed(32),
+                ops: kiss_vulkan_vocab::OpClasses::NONE,
+                arith: kiss_vulkan_vocab::Arith::NONE,
+                coop: CoopMatrix::None,
+                coopvec: CoopVector::from_combos(vec![kiss_vulkan_vocab::CoopVecCombo {
+                    input: ComponentType::U32,
+                    input_interpretation: want,
+                    matrix_interpretation: ComponentType::S8,
+                    bias_interpretation: ComponentType::S32,
+                    result: ComponentType::S32,
+                    transpose: false,
+                }]),
+            }
+            .to_token();
+            assert!(
+                token.contains(spelling),
+                "the derived token must spell {spelling}: {token}"
+            );
+            assert!(
+                !token.contains("x1000491"),
+                "a named packed type must not fall through to the x<n> escape: {token}"
             );
         }
     }
@@ -446,6 +531,7 @@ mod component_tests {
                     result: want,
                     saturating: false,
                 }]),
+                coopvec: CoopVector::None,
             }
             .to_token();
             assert!(
