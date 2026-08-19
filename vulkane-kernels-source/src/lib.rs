@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # fuel-kernels-source
 //!
 //! Home for Fuel's GPU kernel source files (`.slang`, `.wgsl`, `.glsl`)
