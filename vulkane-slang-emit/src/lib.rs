@@ -50,7 +50,7 @@
 //! the emitter seam is frozen into a versioned ABI; a Slang-aware const spelling
 //! is the fix (tracked as a seam follow-up).
 
-use unpopped::backend::{Backend, GeneratedKernel, LowerError, Lowering, const_lit, lower_dag};
+use unpopped::backend::{Spelling, DeclinedOp, Decline, Backend, GeneratedKernel, LowerError, Lowering, const_lit, lower_dag};
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use unpopped::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
 use unpopped::plan::{KernelPlan, Schedule};
@@ -184,7 +184,7 @@ impl Backend for Slang {
             assert_no_int_div_or_const(plan.body, plan.dtype, false, false);
         }
         match plan.schedule {
-            Schedule::Scalar => Ok(emit_scalar_slang(plan, ctype)),
+            Schedule::Scalar => emit_scalar_slang(plan, ctype),
             other => Err(LowerError::UnsupportedSchedule {
                 detail: format!(
                     "slang backend v1: the scalar contiguous Elementwise path ONLY — got                      schedule {other:?}. Vectorized / Strided / Reduction / RowReduce /                      Contraction / Scan / Window / RowSort / Im2Col are follow-ups."
@@ -198,7 +198,7 @@ impl Backend for Slang {
 /// (CUDA) / `emit_scalar_cpu` (CpuC). Same body math ([`lower_dag`] over the
 /// shared seam), but a `StructuredBuffer`/`[numthreads]`/`SV_DispatchThreadID`
 /// compute-shader harness instead of the `extern "C" __global__` grid-stride one.
-fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
+fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> Result<GeneratedKernel, LowerError> {
     let name = format!("unpopped_slang_{}_{}", plan.op_name, dtype_tag(plan.dtype));
     let n = plan.n_inputs;
     let mut s = String::new();
@@ -217,7 +217,7 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
         "void {name}(uint3 tid : SV_DispatchThreadID) {{\n"
     ));
     s.push_str("    uint i = tid.x;\n");
-    let acc = |idx: u8| format!("input{idx}[i]");
+    let acc = |idx: u8| Ok(Spelling::Spelled(format!("input{idx}[i]")));
     let (prelude, root) = lower_dag(
         &ExprDag::from_expr(plan.body),
         ctype,
@@ -235,15 +235,15 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> GeneratedKernel {
             &|op, a, b| slang_binary(op, a, b, plan.dtype),
         )
         .select(&|c, a, b| slang_select(c, a, b, plan.dtype))
-        .constant(&const_lit)
+        .constant(&|v| Ok(Spelling::Spelled(const_lit(v))))
         .build(),
-    );
+    )?;
     for decl in &prelude {
         s.push_str(&format!("    {decl}\n"));
     }
     s.push_str(&format!("    output[i] = {root};\n"));
     s.push_str("}\n");
-    GeneratedKernel::new(name, s)
+    Ok(GeneratedKernel::new(name, s))
 }
 
 /// Does `e` read a runtime scalar [`ScalarExpr::Param`]? (v1 is parameterless.)
@@ -269,13 +269,14 @@ fn body_has_params(e: &ScalarExpr) -> bool {
 /// Lower a unary op for `dtype` in Slang. f32/f64 share ONE speller (HLSL
 /// intrinsics are overloaded — no `expf` vs `exp` split); integers have no unary
 /// math (the ir admissibility table rejects it, so the panic is the backstop).
-fn slang_unary(op: UnaryOp, x: String, dtype: ElementKind) -> String {
+fn slang_unary(op: UnaryOp, x: String, dtype: ElementKind) -> Result<Spelling, LowerError> {
     match dtype {
         ElementKind::F32 | ElementKind::F32Strict | ElementKind::F64 => slang_unary_fp(op, x),
-        other => panic!(
-            "slang backend: no unary math for dtype {other:?} — v1 unary is float/double \
-             (integer dtypes have no unary math)"
-        ),
+        other => Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
+            op: DeclinedOp::Unary(op),
+            dtype: other,
+            why: "v1 unary is float/double; integer dtypes have no unary math".to_string(),
+        })),
     }
 }
 
@@ -283,8 +284,8 @@ fn slang_unary(op: UnaryOp, x: String, dtype: ElementKind) -> String {
 /// provides directly are used as-is; the compare/select-shaped ops mirror the
 /// CUDA ternaries verbatim (Slang ternary syntax is identical) for matching NaN
 /// semantics. Ops with no base-profile Slang intrinsic are declined.
-fn slang_unary_fp(op: UnaryOp, x: String) -> String {
-    match op {
+fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
+    let spelled = match op {
         UnaryOp::Neg => format!("(-{x})"),
         UnaryOp::Abs => format!("abs({x})"),
         UnaryOp::Sqr => format!("({x}*{x})"),
@@ -327,21 +328,31 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> String {
         | UnaryOp::Cbrt
         | UnaryOp::Asinh
         | UnaryOp::Acosh
-        | UnaryOp::Atanh => panic!(
-            "slang backend v1: {op:?} has no base-profile Slang intrinsic — declined \
-             (erf/erfc/gelu/lgamma/cbrt/asinh/acosh/atanh need polyfills; a follow-up)"
-        ),
-    }
+        | UnaryOp::Atanh => return Ok(Spelling::Declined(Decline::UnsupportedOp {
+            op: DeclinedOp::Unary(op),
+            why: "no base-profile Slang intrinsic; erf/erfc/gelu/lgamma/cbrt/asinh/acosh/atanh need polyfills".to_string(),
+        })),
+    };
+    Ok(Spelling::Spelled(spelled))
 }
 
 /// Lower a non-infix binary op for `dtype` in Slang. f32/f64 share the overloaded
 /// fp speller; I32/I64 route to the raw-operator int speller.
-fn slang_binary(op: BinaryOp, a: String, b: String, dtype: ElementKind) -> String {
+fn slang_binary(
+    op: BinaryOp,
+    a: String,
+    b: String,
+    dtype: ElementKind,
+) -> Result<Spelling, LowerError> {
     match dtype {
         ElementKind::F32 | ElementKind::F32Strict => slang_binary_fp(op, a, b, "float"),
         ElementKind::F64 => slang_binary_fp(op, a, b, "double"),
         ElementKind::I32 | ElementKind::I64 => slang_binary_int(op, a, b, dtype),
-        other => panic!("slang backend: no binary math for dtype {other:?}"),
+        other => Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
+            op: DeclinedOp::Binary(op),
+            dtype: other,
+            why: "no binary math at this dtype".to_string(),
+        })),
     }
 }
 
@@ -350,8 +361,13 @@ fn slang_binary(op: BinaryOp, a: String, b: String, dtype: ElementKind) -> Strin
 /// double-promotion lesson). Non-infix intrinsics are overloaded so `ct` is unused
 /// by them. `Max`/`Min` stay the NaN-propagating compare-selects (torch semantics);
 /// `FmaxIeee`/`FminIeee` are the NaN-suppressing intrinsics.
-fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> String {
-    match op {
+fn slang_binary_fp(
+    op: BinaryOp,
+    a: String,
+    b: String,
+    ct: &str,
+) -> Result<Spelling, LowerError> {
+    let spelled = match op {
         // A ON TIES (`>=`/`<=`): the KISS-Ops `max_prop`/`min_prop` normative
         // decomposition (`cmp_ge`/`cmp_le` select a) — signed-zero-tie-visible
         // (see the CUDA `binary_f32` note).
@@ -374,9 +390,10 @@ fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> String {
         BinaryOp::CmpLe => format!("(({ct}){a} <= ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGt => format!("(({ct}){a} > ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGe => format!("(({ct}){a} >= ({ct}){b} ? 1.0 : 0.0)"),
-        BinaryOp::Copysign | BinaryOp::Nextafter => panic!(
-            "slang backend v1: {op:?} has no base-profile Slang intrinsic — declined (a follow-up)"
-        ),
+        BinaryOp::Copysign | BinaryOp::Nextafter => return Ok(Spelling::Declined(Decline::UnsupportedOp {
+            op: DeclinedOp::Binary(op),
+            why: "declined by design, or int-only with no float lowering".to_string(),
+        })),
         BinaryOp::BitAnd
         | BinaryOp::BitOr
         | BinaryOp::BitXor
@@ -385,43 +402,66 @@ fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> String {
         | BinaryOp::LogicalAnd
         | BinaryOp::LogicalOr
         | BinaryOp::LogicalXor => {
-            panic!("slang backend: {op:?} is int-only — it has no float lowering")
+            return Ok(Spelling::Declined(Decline::UnsupportedOp {
+            op: DeclinedOp::Binary(op),
+            why: "declined by design, or int-only with no float lowering".to_string(),
+        }))
         }
-    }
+    };
+    Ok(Spelling::Spelled(spelled))
 }
 
 /// Slang integer binary speller (I32/I64) — the raw operators, matching the CUDA
 /// `binary_int` speller. Logical ops are U8(Bool)-only (declined in v1), so they
 /// backstop-panic here.
-fn slang_binary_int(op: BinaryOp, a: String, b: String, dtype: ElementKind) -> String {
-    match op {
+fn slang_binary_int(
+    op: BinaryOp,
+    a: String,
+    b: String,
+    dtype: ElementKind,
+) -> Result<Spelling, LowerError> {
+    let spelled = match op {
         BinaryOp::BitAnd => format!("({a} & {b})"),
         BinaryOp::BitOr => format!("({a} | {b})"),
         BinaryOp::BitXor => format!("({a} ^ {b})"),
         BinaryOp::Shl => format!("({a} << {b})"),
         BinaryOp::Shr => format!("({a} >> {b})"),
-        other => panic!(
-            "slang backend: {other:?} has no integer lowering at dtype {dtype:?} — v1 int binary \
-             is bitwise/shift only (logical ops are U8-only, which v1 declines)"
-        ),
-    }
+        // Carries the dtype, because "no integer lowering for this op" is a claim
+        // about the PAIR: the logical ops are the Bool surface and decline here at
+        // every integer dtype, which is a different fact from an op nothing spells.
+        _ => {
+            return Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
+                op: DeclinedOp::Binary(op),
+                dtype,
+                why: "no integer lowering for this op; the logical ops are the bespoke                       Bool surface".to_string(),
+            }));
+        }
+    };
+    Ok(Spelling::Spelled(spelled))
 }
 
 /// Ternary select for `dtype` in Slang — the identity-cast-pinned ternary (the
 /// CUDA `select_f32` contract: `(ct)` casts pin the compare + arms in the compute
 /// dtype against a suffix-less `Const` literal, and no arithmetic touches an arm).
-fn slang_select(c: String, a: String, b: String, dtype: ElementKind) -> String {
-    match dtype {
-        ElementKind::F32 | ElementKind::F32Strict => {
-            format!("(((float)({c})) != 0.0 ? (float)({a}) : (float)({b}))")
-        }
-        ElementKind::F64 => {
-            format!("(((double)({c})) != 0.0 ? (double)({a}) : (double)({b}))")
-        }
-        other => panic!(
-            "slang backend: Select has no {other:?} lowering — v1 select is float-only (f32/f64)"
-        ),
-    }
+fn slang_select(
+    c: String,
+    a: String,
+    b: String,
+    dtype: ElementKind,
+) -> Result<Spelling, LowerError> {
+    Ok(match dtype {
+        ElementKind::F32 | ElementKind::F32Strict => Spelling::Spelled(format!(
+            "(((float)({c})) != 0.0 ? (float)({a}) : (float)({b}))"
+        )),
+        ElementKind::F64 => Spelling::Spelled(format!(
+            "(((double)({c})) != 0.0 ? (double)({a}) : (double)({b}))"
+        )),
+        other => Spelling::Declined(Decline::UnsupportedDtypeForOp {
+            op: DeclinedOp::Select,
+            dtype: other,
+            why: "v1 select is float-only (f32/f64)".to_string(),
+        }),
+    })
 }
 
 #[cfg(test)]
