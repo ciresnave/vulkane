@@ -56,16 +56,27 @@ fn committed_manifest_is_byte_identical_to_a_fresh_emission() {
         // Report the first divergence rather than dumping 23KB of JSON at
         // someone — a diff nobody reads is a failure message that only says
         // "something changed".
+        // Byte offset of the first difference, then windows clamped OUTWARD to
+        // char boundaries. This manifest is full of em-dashes, so a raw
+        // `at ± 60` lands mid-character often, and the old version fell back to
+        // the literal string "<boundary>" when it did — a diagnostic that
+        // silently degrades exactly when it is needed.
         let at = fresh
-            .char_indices()
-            .zip(on_disk.chars())
-            .find(|((_, a), b)| a != b)
-            .map(|((i, _), _)| i)
+            .as_bytes()
+            .iter()
+            .zip(on_disk.as_bytes())
+            .position(|(a, b)| a != b)
             .unwrap_or_else(|| fresh.len().min(on_disk.len()));
         let window = |s: &str| {
-            let start = at.saturating_sub(60);
-            let end = (at + 60).min(s.len());
-            s.get(start..end).unwrap_or("<boundary>").replace('\n', "⏎")
+            let mut start = at.saturating_sub(60).min(s.len());
+            while start > 0 && !s.is_char_boundary(start) {
+                start -= 1;
+            }
+            let mut end = (at + 60).min(s.len());
+            while end < s.len() && !s.is_char_boundary(end) {
+                end += 1;
+            }
+            s[start..end].replace('\n', "⏎")
         };
         panic!(
             "the committed vocabulary manifest is stale.\n\n\

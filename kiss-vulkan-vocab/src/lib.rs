@@ -437,8 +437,10 @@ impl Arith {
         ("st8", 1 << 3),
     ];
 
-    /// Whether every bit of `other` is present.
-    /// Every arithmetic name, in canonical order. Declarative half, §6.8-0012.
+    /// Every arithmetic name, in canonical order.
+    ///
+    /// Part of the manifest's **declarative half** (§6.8-0012), which must be
+    /// sufficient for a consumer that only parses.
     pub fn alphabet() -> Vec<&'static str> {
         Self::NAMES.iter().map(|(n, _)| *n).collect()
     }
