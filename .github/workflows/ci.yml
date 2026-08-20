@@ -79,11 +79,15 @@ jobs:
         # test will actually exercise the loader against a software Vulkan
         # implementation. On Windows/macOS the test gracefully skips if no
         # driver is found.
+        env:
+          GPU_RUN_UNGUARDED: "CI runner: ephemeral and single-tenant, no shared GPU to serialize against"
         run: cargo test --workspace --features fetch-spec
 
       - name: Run unit tests (with naga)
         # Re-run with the naga feature on so the GLSL compilation tests
         # actually execute. They don't require a Vulkan driver.
+        env:
+          GPU_RUN_UNGUARDED: "CI runner: ephemeral and single-tenant, no shared GPU to serialize against"
         run: cargo test --workspace --features fetch-spec,naga
 
       # `derive` and `kiss-target` gate whole test files behind
@@ -121,9 +125,25 @@ jobs:
       # Lavapipe does not satisfy a precondition these tests assume. Fix the
       # environment or the precondition — do not unset the variable, which
       # would restore a green that means nothing.
+
+      # The GPU serialization guard (`common::require_serialization_lock`)
+      # refuses to touch a device unless `gpu-run.ps1` holds the machine-wide
+      # `Global\gpu-run` mutex. That mutex exists to stop two runs sharing ONE
+      # developer machine's GPU; a CI runner is ephemeral and single-tenant, so
+      # there is no concurrent run to serialize against and no wrapper to hold
+      # it.
+      #
+      # So CI takes the escape hatch — with a reason, which is the whole point
+      # of it being reason-bearing. `PROCEEDING UNGUARDED: <why>` appears in the
+      # log of every job that touches a device, so a CI bypass stays visible
+      # rather than becoming the silent default it is guarding against.
+      #
+      # If this variable is ever removed, the device tests fail loudly here
+      # rather than quietly skipping, which is the correct direction.
       - name: Run unit tests (derive + kiss-target)
         env:
           VULKANE_REQUIRE_DEVICE: ${{ runner.os == 'Linux' && '1' || '' }}
+          GPU_RUN_UNGUARDED: "CI runner: ephemeral and single-tenant, no shared GPU to serialize against"
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
       # All eighteen, not a subset. An example that does not compile is a
