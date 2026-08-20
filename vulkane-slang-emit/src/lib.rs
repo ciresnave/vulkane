@@ -180,7 +180,7 @@ impl Backend for Slang {
         // literal). Mirrors CpuC::lower / Cuda::lower.
         //
         // Still an assert rather than an Err: this is a PLAN-gate invariant
-        // (`assert_int_op_admissibility` rejects these upstream in `build_plan`),
+        // (`check_int_op_admissibility` rejects these upstream in `build_plan`),
         // so reaching it means the plan gate was bypassed — a caller bug, not an
         // unsupported request. `try_build_plan` is where that becomes a typed
         // refusal; here it stays a backstop that should be unreachable.
