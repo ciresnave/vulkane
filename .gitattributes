@@ -1,1 +1,10 @@
 LICENSE-* text eol=lf
+
+# Generated artifacts that are byte-compared against a generator whose output is
+# LF. Without this, a Windows checkout stores LF and checks out CRLF, so the
+# committed file is NOT byte-identical to what the emitter produces — and the
+# emit-and-`git diff --exit-code` freshness gate KISS-CLASSIFY-6.8-0011 asks for
+# cannot be armed here at all. Verified before adding: on a Windows checkout the
+# committed manifest differed from a fresh emission on every line.
+kiss-vulkan-vocab/manifest/*.json text eol=lf
+vulkane/fixtures/*.json text eol=lf
