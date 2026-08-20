@@ -398,50 +398,6 @@ fn lockfile_names_pid(meta: &str, pid: &str) -> bool {
     false
 }
 
-#[cfg(test)]
-mod lock_witness_tests {
-    use super::lockfile_names_pid;
-
-    /// The defect Copilot found: a prefix must not match.
-    #[test]
-    fn a_prefix_pid_does_not_match() {
-        let meta = r#"{"v":1,"pid":123,"project":"vulkane"}"#;
-        assert!(lockfile_names_pid(meta, "123"));
-        assert!(
-            !lockfile_names_pid(meta, "12"),
-            "pid 12 matched a lockfile written by pid 123 — the substring form \
-             of this check reported the lock held when it was not"
-        );
-        assert!(!lockfile_names_pid(meta, "1"));
-        assert!(!lockfile_names_pid(meta, "1234"));
-    }
-
-    /// The digit run must end at a delimiter, whichever one the writer used.
-    #[test]
-    fn the_pid_field_may_end_at_a_comma_or_a_brace() {
-        assert!(lockfile_names_pid(r#"{"pid":77,"x":1}"#, "77"));
-        assert!(lockfile_names_pid(r#"{"x":1,"pid":77}"#, "77"));
-    }
-
-    /// A pid that is not a number cannot match anything, rather than being
-    /// pasted into a search and matching by accident.
-    #[test]
-    fn a_non_numeric_pid_never_matches() {
-        let meta = r#"{"pid":123}"#;
-        assert!(!lockfile_names_pid(meta, ""));
-        assert!(!lockfile_names_pid(meta, "12a"));
-        assert!(!lockfile_names_pid(meta, "\"123\""));
-    }
-
-    /// A lockfile with no pid field at all is not a match.
-    #[test]
-    fn absent_or_malformed_metadata_does_not_match() {
-        assert!(!lockfile_names_pid("", "123"));
-        assert!(!lockfile_names_pid(r#"{"project":"vulkane"}"#, "123"));
-        assert!(!lockfile_names_pid(r#"{"pid":}"#, "123"));
-    }
-}
-
 /// An instance at `api_version`, plus its physical devices.
 ///
 /// The first two steps of every bootstrap in the suite, extracted so the boot
@@ -548,4 +504,48 @@ pub fn create_device_on(
             Some((_, label)) => Missing::capability(label),
             None => Missing::device("a compute-capable device was found but vkCreateDevice failed"),
         })
+}
+
+#[cfg(test)]
+mod lock_witness_tests {
+    use super::lockfile_names_pid;
+
+    /// The defect Copilot found: a prefix must not match.
+    #[test]
+    fn a_prefix_pid_does_not_match() {
+        let meta = r#"{"v":1,"pid":123,"project":"vulkane"}"#;
+        assert!(lockfile_names_pid(meta, "123"));
+        assert!(
+            !lockfile_names_pid(meta, "12"),
+            "pid 12 matched a lockfile written by pid 123 — the substring form \
+             of this check reported the lock held when it was not"
+        );
+        assert!(!lockfile_names_pid(meta, "1"));
+        assert!(!lockfile_names_pid(meta, "1234"));
+    }
+
+    /// The digit run must end at a delimiter, whichever one the writer used.
+    #[test]
+    fn the_pid_field_may_end_at_a_comma_or_a_brace() {
+        assert!(lockfile_names_pid(r#"{"pid":77,"x":1}"#, "77"));
+        assert!(lockfile_names_pid(r#"{"x":1,"pid":77}"#, "77"));
+    }
+
+    /// A pid that is not a number cannot match anything, rather than being
+    /// pasted into a search and matching by accident.
+    #[test]
+    fn a_non_numeric_pid_never_matches() {
+        let meta = r#"{"pid":123}"#;
+        assert!(!lockfile_names_pid(meta, ""));
+        assert!(!lockfile_names_pid(meta, "12a"));
+        assert!(!lockfile_names_pid(meta, "\"123\""));
+    }
+
+    /// A lockfile with no pid field at all is not a match.
+    #[test]
+    fn absent_or_malformed_metadata_does_not_match() {
+        assert!(!lockfile_names_pid("", "123"));
+        assert!(!lockfile_names_pid(r#"{"project":"vulkane"}"#, "123"));
+        assert!(!lockfile_names_pid(r#"{"pid":}"#, "123"));
+    }
 }
