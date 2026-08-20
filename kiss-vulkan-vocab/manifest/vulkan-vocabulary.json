@@ -1,7 +1,7 @@
 {
   "schema": "kiss-namespace-vocabulary-v1",
   "namespace": "vulkan",
-  "vocabulary_version": 4,
+  "vocabulary_version": 5,
   "generated_from": "kiss-vulkan-vocab 0.3.1 (examples/emit_vocabulary_manifest.rs)",
   "kind": "generated",
   "grammar": "vulkan:<subgroup>.<ops>.<arith>.<coop>.<coopvec>",
@@ -12,7 +12,7 @@
     "tuple_separator": "-",
     "tuple_list_separator": ",",
     "ops_alphabet": "abclpqrstvw",
-    "arith_names": ["dot8", "f16", "i8", "st16", "st8"],
+    "arith_names": ["dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8"],
     "component_types": ["f16", "f32", "f64", "bf16", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f8e4m3fn", "f8e5m2", "i8packed", "u8packed"],
     "unnamed_component_escape": "x<n>",
     "empty_set_spelling": "<prefix>-none",

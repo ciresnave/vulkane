@@ -35,19 +35,70 @@
 //! ratchet, not a proof.
 //!
 //! So this file pins the vocabulary itself. If the registered namespace is
-//! amended, update `REGISTERED_COMPONENT_TYPES` **in the same change** as the
-//! `ComponentType` arms — and if these tests fail, the question to answer is
-//! "was the namespace document amended?", not "how do I make this pass?".
+//! amended, update `REGISTERED_COMPONENT_TYPES` and `REGISTERED_ARITH_NAMES`
+//! **in the same change** as the `ComponentType` arms and the `Arith` names —
+//! and if these tests fail, the question to answer is "was the namespace
+//! document amended?", not "how do I make this pass?".
+//!
+//! `REGISTERED_ARITH_NAMES` arrived late, at vocabulary version 5. Component
+//! spellings were bound to the document from the start and `<arith>` names were
+//! not, so for four versions the two fields had different guarantees while
+//! looking equally covered from the outside.
 
 use kiss_vulkan_vocab::*;
 
 /// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
-/// **vocabulary version 4**, the paragraph reading:
+/// **vocabulary version 5**, §2.3's table:
+///
+/// > `dot8` · `f16` · `f64` · `i16` · `i64` · `i8` · `st16` · `st8`
+///
+/// Transcribed in the document's own order, which is the canonical ascending
+/// lexicographic one the field is emitted in.
+///
+/// **This pin did not exist until vocabulary version 5**, and its absence was
+/// the same gap `REGISTERED_COMPONENT_TYPES` closes for the other field:
+/// component spellings were bound to the document and arith names were not, so
+/// the crate and the annex could have disagreed about `<arith>` with nothing
+/// failing. Version 5 adds three names to that field, which made the hole worth
+/// closing in the change that would otherwise have widened it.
+const REGISTERED_ARITH_NAMES: &[&str] = &["dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8"];
+
+/// Both directions plus completeness — the shape `#16` established for the
+/// component tables, applied to `<arith>`.
+///
+/// Membership alone passes a permutation; length alone passes a substitution;
+/// and comparing the crate's canonical **order** is what makes this bind to the
+/// document rather than merely overlap with it, since §2.3 requires ascending
+/// lexicographic emission and the order is therefore normative rather than
+/// incidental.
+#[test]
+fn arith_names_match_the_registered_namespace_document() {
+    let crate_names = Arith::alphabet();
+
+    assert_eq!(
+        crate_names, REGISTERED_ARITH_NAMES,
+        concat!(
+            "the crate's `<arith>` names are {:?} but the registered namespace ",
+            "document lists {:?}.\n\nThis compares ORDER as well as membership, ",
+            "because §2.3 requires names to be emitted in ascending ",
+            "lexicographic order — so a reordering changes the bytes of every ",
+            "token carrying more than one name, and under §6.8-0002 byte-exact ",
+            "matching that is a different cell rather than a cosmetic ",
+            "difference.{}"
+        ),
+        crate_names, REGISTERED_ARITH_NAMES, ON_FAILURE
+    );
+}
+
+/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`), the
+/// paragraph reading:
 ///
 /// > and each component type is one of `f16`, `f32`, `f64`, `bf16`, `i8`,
 /// > `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f8e4m3fn`, `f8e5m2`,
 /// > `i8packed`, `u8packed`, or `x<n>` for a `VkComponentTypeKHR` [this
 /// > vocabulary does not name]
+///
+/// Unchanged by vocabulary version 5, which adds `<arith>` names only.
 ///
 /// `x<n>` is exercised separately, since it is a pattern rather than a literal.
 const REGISTERED_COMPONENT_TYPES: &[&str] = &[

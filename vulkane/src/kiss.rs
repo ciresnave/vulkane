@@ -149,6 +149,26 @@ impl DeviceCapabilities {
             arith |= Arith::DOT8;
         }
 
+        // Vocabulary version 5. These three are core `VkPhysicalDeviceFeatures`
+        // bits rather than extension features, so they come from
+        // `supported_features()` and not from the optional structs above —
+        // which is why they need no `if let Some(..)` guard and cannot decline.
+        //
+        // Derived here in the same change that names them. Naming a capability
+        // the deriver cannot emit is exactly the defect v4 shipped with for the
+        // packed component types: spellable, underivable, and invisible because
+        // the absent value has a perfectly valid spelling.
+        let f = physical.supported_features();
+        if f.shaderInt16 != 0 {
+            arith |= Arith::INT16;
+        }
+        if f.shaderInt64 != 0 {
+            arith |= Arith::INT64;
+        }
+        if f.shaderFloat64 != 0 {
+            arith |= Arith::FLOAT64;
+        }
+
         // `?` on the error, not `unwrap_or_default()`. An empty shape list
         // spells `cm-none`, so treating a failed query as "no shapes" would
         // derive a token asserting this device has no cooperative-matrix

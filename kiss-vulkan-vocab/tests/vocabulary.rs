@@ -461,7 +461,11 @@ fn every_spelled_token_reparses() {
         let tok = t.to_token();
         assert_eq!(VulkanTarget::parse(&tok).unwrap(), t, "ops {ops_bits:#b}");
     }
-    for arith_bits in 0u8..(1 << 5) {
+    // All EIGHT bits, not the five this swept before vocabulary version 5.
+    // Widening the type without widening the range would have left `i16`,
+    // `i64` and `f64` compiled but never round-tripped — the sweep would still
+    // report 32 passing cases and cover none of the new names.
+    for arith_bits in 0u16..(1 << 8) {
         let t = VulkanTarget {
             subgroup: Subgroup::Dynamic,
             ops: OpClasses::NONE,

@@ -99,7 +99,7 @@ pub const NAMESPACE: &str = "vulkan";
 /// A `u32` rather than anything wider or fractional, because §6.8-0008 says so
 /// and says why: *"an integer — a gate that truncates a fractional value is not
 /// a gate."*
-pub const VOCABULARY_VERSION: u32 = 4;
+pub const VOCABULARY_VERSION: u32 = 5;
 
 /// Byte length at which the cooperative-matrix field switches from a full
 /// canonical enumeration to a digest.
@@ -407,7 +407,7 @@ flag_set! {
 /// nothing here and a reader can tell what a token requires without a lookup
 /// table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Arith(pub u8);
+pub struct Arith(pub u16);
 
 impl Arith {
     /// The empty set.
@@ -424,14 +424,30 @@ impl Arith {
     pub const STORAGE8: Self = Self(1 << 3);
     /// `storageBuffer16BitAccess` — 16-bit types in storage buffers.
     pub const STORAGE16: Self = Self(1 << 4);
+    /// `shaderInt16` — 16-bit integer arithmetic in shaders.
+    ///
+    /// **Not implied by [`STORAGE16`](Self::STORAGE16), and the distinction is
+    /// load-bearing.** `storageBuffer16BitAccess` is a *storage* capability: a
+    /// conformant device may accept 16-bit data in a buffer and perform the
+    /// arithmetic in f32. Inferring compute precision from storage precision is
+    /// a silently wrong lowering on hardware that is behaving correctly, which
+    /// is why this name exists rather than being read off `st16`.
+    pub const INT16: Self = Self(1 << 5);
+    /// `shaderInt64` — 64-bit integer arithmetic in shaders.
+    pub const INT64: Self = Self(1 << 6);
+    /// `shaderFloat64` — double-precision arithmetic in shaders.
+    pub const FLOAT64: Self = Self(1 << 7);
 
     /// Every name this set can spell, held in **lexicographic** order so the
     /// canonical spelling is "the selected names, sorted, joined by `-`" — a
     /// rule that can be stated normatively in one line and reproduced by any
     /// implementation without consulting a bit layout.
-    const NAMES: &'static [(&'static str, u8)] = &[
+    const NAMES: &'static [(&'static str, u16)] = &[
         ("dot8", 1 << 1),
         ("f16", 1 << 2),
+        ("f64", 1 << 7),
+        ("i16", 1 << 5),
+        ("i64", 1 << 6),
         ("i8", 1 << 0),
         ("st16", 1 << 4),
         ("st8", 1 << 3),
@@ -481,7 +497,7 @@ impl Arith {
         if body == "none" {
             return Ok(Self::NONE);
         }
-        let mut acc = 0u8;
+        let mut acc = 0u16;
         let mut last: Option<&str> = None;
         for part in body.split('-') {
             let bit = Self::NAMES
