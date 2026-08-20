@@ -226,3 +226,74 @@ fn rejects_a_target_the_device_cannot_run() {
     };
     assert!(!caps.admits(&impossible));
 }
+
+/// Vocabulary version 5's three names must be **derivable**, not merely
+/// spellable.
+///
+/// This is the v4 lesson turned into a standing check. `i8packed`/`u8packed`
+/// were named in the vocabulary, given variants, given spellings, and asserted
+/// in the vocab crate's tests — while `component()` had no arm for them, so a
+/// device reporting the values derived `x1000491000` and matched nothing.
+/// Invisible, because the wrong answer had a perfectly valid spelling.
+///
+/// So the assertion runs in the direction that can actually fail: read the
+/// **device feature bit** directly, then require the derived token to spell the
+/// name — rather than reading the token and believing it.
+#[test]
+fn v5_arith_names_are_derivable_from_the_device_not_merely_spellable() {
+    let (_i, physical, caps) = match caps() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(why),
+    };
+
+    let f = physical.supported_features();
+    let token = caps
+        .target_for(
+            *caps
+                .admissible_subgroups()
+                .first()
+                .expect("a device always admits at least one subgroup choice"),
+        )
+        .to_token();
+
+    let arith = token
+        .split(".arith-")
+        .nth(1)
+        .and_then(|t| t.split('.').next())
+        .expect("every token carries an arith field");
+
+    for (bit, name) in [
+        (f.shaderInt16, "i16"),
+        (f.shaderInt64, "i64"),
+        (f.shaderFloat64, "f64"),
+    ] {
+        let spelled = arith == name
+            || arith.starts_with(&format!("{name}-"))
+            || arith.ends_with(&format!("-{name}"))
+            || arith.contains(&format!("-{name}-"));
+        assert_eq!(
+            bit != 0,
+            spelled,
+            "the device reports this feature bit as {}, but the derived arith \
+             field {arith:?} {} {name:?}. A vocabulary version 5 name that the \
+             deriver cannot emit is spellable but underivable — the defect v4 \
+             shipped with for the packed component types, and it is invisible \
+             because the absent value still spells a valid token.",
+            bit != 0,
+            if spelled { "spells" } else { "does not spell" }
+        );
+    }
+
+    // Whole-name matching, not substring: `i16` must not be satisfied by the
+    // `st16` that sits beside it in the same field. That collision is real —
+    // both names end in `16` — and a `contains` check would pass on a device
+    // with storage-16 and no shader-int16, which is precisely the pair §2.3
+    // keeps separate.
+    if f.shaderInt16 == 0 && arith.contains("st16") {
+        assert!(
+            !arith.split('-').any(|p| p == "i16"),
+            "arith {arith:?} spells i16 on a device that does not report \
+             shaderInt16; storage precision was read as compute precision"
+        );
+    }
+}
