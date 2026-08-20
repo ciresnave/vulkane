@@ -390,7 +390,11 @@ fn assert_enumeration_matches_spelled_field(shapes: &[CoopShape]) {
         .expect("token always carries a cm- field");
     assert_eq!(
         e, spelled,
-        "the canonical enumeration and the spelled field disagree below the          threshold; the manifest would pin a digest_input the emitter never uses"
+        concat!(
+            "the canonical enumeration and the spelled field disagree below the ",
+            "threshold; the manifest would pin a digest_input the emitter never ",
+            "uses"
+        )
     );
 }
 
