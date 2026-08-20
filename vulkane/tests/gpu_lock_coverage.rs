@@ -44,14 +44,39 @@ use std::path::PathBuf;
 
 /// Direct device-acquisition sites still outside a guarded helper.
 ///
-/// **May only decrease.** Measured 2026-08-20. Each one is a live test that can
-/// touch the GPU without the machine-wide lock; the guarded helpers in
-/// `common::` are the destination.
-const UNGUARDED_BUDGET: usize = 20;
+/// **May only decrease.** Each one is a live test that can touch the GPU
+/// without the machine-wide lock; the guarded helpers in `common::` are the
+/// destination.
+///
+/// 20 at 2026-08-20, then 8 in the same day: `safe_wrapper_test.rs` held twelve
+/// of them, seven routed through `instance_and_devices` and five kept a direct
+/// call because **instance creation is what they test** — an unknown layer
+/// failing cleanly, empty option lists being accepted, the `validation()`
+/// constructor. Those five call the guard themselves and carry
+/// [`DELIBERATE_MARKER`] with a reason.
+///
+/// The remaining eight are in `extension_pnext_test`, `generator_live_device_test`,
+/// `kiss_target_live`, `raytracing_test` and `tier2_extensions_test`.
+const UNGUARDED_BUDGET: usize = 8;
 
 /// Spellings that acquire a device. Extend when a new route appears — see the
 /// lower-bound note in the module docs.
 const ACQUIRES_A_DEVICE: &[&str] = &["Instance::new("];
+
+/// Marks a direct acquisition that is deliberate and guarded in place.
+///
+/// A few tests have instance creation as their SUBJECT — an unknown layer
+/// failing cleanly, empty option lists being accepted, the `validation()`
+/// constructor — and routing those through a helper would test the helper's
+/// arguments instead of the thing under test. They call
+/// `require_serialization_lock()` themselves and carry this marker with a
+/// reason.
+///
+/// This is an exemption WITH A STATED REASON, the same shape as
+/// `GPU_RUN_UNGUARDED`. Without it the budget could never reach a true floor:
+/// legitimate direct sites would sit in the count forever, the number would
+/// stop falling, and a ratchet that cannot reach zero stops being read.
+const DELIBERATE_MARKER: &str = "GPU-LOCK-DIRECT:";
 
 /// The helpers that call `require_serialization_lock` before acquiring.
 ///
@@ -82,6 +107,20 @@ fn rust_test_files() -> Vec<PathBuf> {
     }
     out.sort();
     out
+}
+
+/// Do the few lines above `at` carry [`DELIBERATE_MARKER`]?
+///
+/// Four lines, because the marker sits above the call with its reason and
+/// `require_serialization_lock()` in between. Deliberately narrow: a marker far
+/// from the call it excuses would drift away from it during an edit and start
+/// exempting something it was never written for.
+fn marked_above(src: &str, at: usize) -> bool {
+    let start = src[..at].rfind('\n').unwrap_or(0);
+    src[..start]
+        .rsplit('\n')
+        .take(4)
+        .any(|l| l.contains(DELIBERATE_MARKER))
 }
 
 /// Count of unguarded acquisition sites, with the files they live in.
@@ -120,10 +159,15 @@ fn unguarded_sites() -> (usize, Vec<(String, usize)>) {
         // reported 1 unguarded site out of 20 and passed. The scanner had
         // exactly the defect it was written to catch, one level up: covered in
         // name, covering almost nothing, and green either way.
-        let n: usize = ACQUIRES_A_DEVICE
+        // A site is debt unless the lines just above it carry the marker.
+        // Counted by position rather than by totals, so a file cannot offset a
+        // genuinely unguarded site with a marked one elsewhere — the whole-file
+        // arithmetic that made the first version of this scan report 1-of-20.
+        let n = ACQUIRES_A_DEVICE
             .iter()
-            .map(|s| src.matches(s).count())
-            .sum();
+            .flat_map(|needle| src.match_indices(needle))
+            .filter(|(at, _)| !marked_above(&src, *at))
+            .count();
         if n > 0 {
             total += n;
             per_file.push((
