@@ -153,6 +153,22 @@ jobs:
           cargo build -p vulkane --features fetch-spec,derive --example derive_vertex
           cargo build -p vulkane --features fetch-spec,naga --example compile_shader
 
+      # The vocabulary manifest emitter lives in kiss-vulkan-vocab, which the
+      # example list above does not cover (it is scoped to -p vulkane). Built
+      # here so a change that breaks it is caught, and RUN so the threshold
+      # search is exercised: it panics rather than emitting a weakened vector
+      # set if it cannot land exactly on the boundary, which is a failure worth
+      # surfacing in CI rather than at the next regeneration.
+      # `shell: bash` is required, not cosmetic. The Windows runner defaults to
+      # PowerShell, which reads `/dev/null` as a literal Windows path under
+      # the D: drive and fails the step with "Could not find a part of the path".
+      # The Lavapipe step below gets away with the same redirect only because it is
+      # gated to Linux; this one runs on all three platforms.
+      - name: Build and run the vocabulary manifest emitter
+        shell: bash
+        run: |
+          cargo run -p kiss-vulkan-vocab --example emit_vocabulary_manifest > /dev/null
+
       - name: Run examples on Linux (with Lavapipe)
         if: runner.os == 'Linux'
         run: |
