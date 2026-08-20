@@ -63,15 +63,23 @@ fn committed_manifest_is_byte_identical_to_a_fresh_emission() {
     // would send the reader hunting for a content change that does not exist,
     // and the fix is completely different from the fix for real staleness.
     if fresh != on_disk && fresh == on_disk.replace("\r\n", "\n") {
+        // The claim is exactly what the condition above tested: the two agree
+        // once CRLF is folded to LF. That admits a mixed-ending file as well as
+        // a uniformly-CRLF one, so the message says "contains CRLF" rather than
+        // "is CRLF" — the wider claim would be true in the common case and
+        // wrong in the one that is harder to diagnose.
+        let crlf = on_disk.matches("\r\n").count();
         panic!(
             "the committed manifest differs from a fresh emission ONLY in line \
-             endings — it is CRLF on disk and the emitter produces LF.\n\n\
+             endings — it contains {crlf} CRLF line ending(s) and the emitter \
+             produces LF.\n\n\
              The content is fine. `.gitattributes` should be pinning\n  \
              kiss-vulkan-vocab/manifest/*.json text eol=lf\n\
              and this checkout is not honouring it. Re-materialize the file:\n  \
              rm {} && git checkout -- {}\n\n\
-             This is not cosmetic: the artifact is byte-compared, and a CRLF \
-             copy cannot satisfy an emit-and-`git diff --exit-code` gate.",
+             This is not cosmetic: the artifact is byte-compared, and a copy \
+             carrying CRLF cannot satisfy an emit-and-`git diff --exit-code` \
+             gate.",
             committed_path().display(),
             committed_path().display()
         );
