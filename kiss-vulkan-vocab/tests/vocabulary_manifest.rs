@@ -36,14 +36,21 @@ fn committed_path() -> PathBuf {
         .join("vulkan-vocabulary.json")
 }
 
+/// The committed manifest, **exactly as it sits on disk**.
+///
+/// This used to normalize `\r\n` before comparing, and that normalization was
+/// hiding a real defect rather than tolerating a cosmetic one. `.gitattributes`
+/// did not pin this path, so a Windows checkout stored LF and checked out CRLF
+/// — the committed artifact was **not** byte-identical to a fresh emission, and
+/// the emit-and-`git diff --exit-code` gate KISS-CLASSIFY-6.8-0011 asks for
+/// could not have been armed here at all. The test passed the whole time,
+/// because it was comparing something neither party actually had.
+///
+/// The path is pinned `text eol=lf` now, so the comparison can be exact.
 fn committed() -> String {
     let p = committed_path();
     std::fs::read_to_string(&p)
         .unwrap_or_else(|e| panic!("cannot read the committed manifest at {}: {e}", p.display()))
-        // The file is committed with LF; a Windows checkout without the
-        // .gitattributes rule would otherwise fail this on line endings alone
-        // and send the reader hunting for a content change that isn't there.
-        .replace("\r\n", "\n")
 }
 
 /// The emit-and-compare freshness gate.
@@ -51,6 +58,24 @@ fn committed() -> String {
 fn committed_manifest_is_byte_identical_to_a_fresh_emission() {
     let fresh = emitter::manifest();
     let on_disk = committed();
+
+    // Line endings get their own message. Reporting "stale" for a CRLF checkout
+    // would send the reader hunting for a content change that does not exist,
+    // and the fix is completely different from the fix for real staleness.
+    if fresh != on_disk && fresh == on_disk.replace("\r\n", "\n") {
+        panic!(
+            "the committed manifest differs from a fresh emission ONLY in line \
+             endings — it is CRLF on disk and the emitter produces LF.\n\n\
+             The content is fine. `.gitattributes` should be pinning\n  \
+             kiss-vulkan-vocab/manifest/*.json text eol=lf\n\
+             and this checkout is not honouring it. Re-materialize the file:\n  \
+             rm {} && git checkout -- {}\n\n\
+             This is not cosmetic: the artifact is byte-compared, and a CRLF \
+             copy cannot satisfy an emit-and-`git diff --exit-code` gate.",
+            committed_path().display(),
+            committed_path().display()
+        );
+    }
 
     if fresh != on_disk {
         // Report the first divergence rather than dumping 23KB of JSON at
