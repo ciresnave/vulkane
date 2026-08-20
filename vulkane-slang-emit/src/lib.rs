@@ -21,7 +21,8 @@
 //! ## Naming — round-trips through the Slang lifter
 //!
 //! Buffers are `output` / `input{K}` (not `out`/`in`, which are HLSL keywords),
-//! matching [`unpopped::convert::lift_elementwise_slang`]'s convention — so emitted
+//! matching `unpopped::convert::SLANG`'s convention — the `Frontend` that
+//! `lift_elementwise` is given — so emitted
 //! Slang re-lifts to the same IR (the residue-round-trip contract the "one IR, N
 //! languages" hub rests on; proven by `slang_emit_round_trips_through_the_lifter`).
 //!
@@ -50,7 +51,10 @@
 //! the emitter seam is frozen into a versioned ABI; a Slang-aware const spelling
 //! is the fix (tracked as a seam follow-up).
 
-use unpopped::backend::{Spelling, DeclinedOp, Decline, Backend, GeneratedKernel, LowerError, Lowering, const_lit, lower_dag};
+use unpopped::backend::{
+    Backend, Decline, DeclinedOp, GeneratedKernel, LowerError, Lowering, Spelling, const_lit,
+    lower_dag,
+};
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use unpopped::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
 use unpopped::plan::{KernelPlan, Schedule};
@@ -361,12 +365,7 @@ fn slang_binary(
 /// double-promotion lesson). Non-infix intrinsics are overloaded so `ct` is unused
 /// by them. `Max`/`Min` stay the NaN-propagating compare-selects (torch semantics);
 /// `FmaxIeee`/`FminIeee` are the NaN-suppressing intrinsics.
-fn slang_binary_fp(
-    op: BinaryOp,
-    a: String,
-    b: String,
-    ct: &str,
-) -> Result<Spelling, LowerError> {
+fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> Result<Spelling, LowerError> {
     let spelled = match op {
         // A ON TIES (`>=`/`<=`): the KISS-Ops `max_prop`/`min_prop` normative
         // decomposition (`cmp_ge`/`cmp_le` select a) — signed-zero-tie-visible
@@ -390,10 +389,12 @@ fn slang_binary_fp(
         BinaryOp::CmpLe => format!("(({ct}){a} <= ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGt => format!("(({ct}){a} > ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGe => format!("(({ct}){a} >= ({ct}){b} ? 1.0 : 0.0)"),
-        BinaryOp::Copysign | BinaryOp::Nextafter => return Ok(Spelling::Declined(Decline::UnsupportedOp {
-            op: DeclinedOp::Binary(op),
-            why: "declined by design, or int-only with no float lowering".to_string(),
-        })),
+        BinaryOp::Copysign | BinaryOp::Nextafter => {
+            return Ok(Spelling::Declined(Decline::UnsupportedOp {
+                op: DeclinedOp::Binary(op),
+                why: "declined by design, or int-only with no float lowering".to_string(),
+            }));
+        }
         BinaryOp::BitAnd
         | BinaryOp::BitOr
         | BinaryOp::BitXor
@@ -403,9 +404,9 @@ fn slang_binary_fp(
         | BinaryOp::LogicalOr
         | BinaryOp::LogicalXor => {
             return Ok(Spelling::Declined(Decline::UnsupportedOp {
-            op: DeclinedOp::Binary(op),
-            why: "declined by design, or int-only with no float lowering".to_string(),
-        }))
+                op: DeclinedOp::Binary(op),
+                why: "declined by design, or int-only with no float lowering".to_string(),
+            }));
         }
     };
     Ok(Spelling::Spelled(spelled))
