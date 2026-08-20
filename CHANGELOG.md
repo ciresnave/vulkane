@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking) — `vulkan:` vocabulary version 5 names three arithmetic capabilities
+
+`<arith>` gains `i16`, `i64` and `f64`, naming the core `VkPhysicalDeviceFeatures` bits
+`shaderInt16`, `shaderInt64` and `shaderFloat64`. `Arith` gains `INT16`, `INT64` and `FLOAT64`,
+and `vulkane::kiss` derives all three from `supported_features()`.
+
+**This changes the bytes of almost every token in the wild.** Unlike FP8 or the packed types, these
+are not exotic — an RTX 4070 and an AMD Radeon 610M both report all three, so a token derived from
+either changes. §6.8-0002 matching is byte-exact, so a version-4 token and its version-5 equivalent
+**do not match**: caches keyed on version-4 tokens are stale and must be **invalidated, not
+migrated**. A device reporting none of the three is unaffected.
+
+That this bumps rather than adds is the §4 additive test run mechanically: all three are core
+feature bits assigned long before the registry baseline `VK_HEADER_VERSION` 348, so a conformant
+device could always have reported them. Version 5's own baseline is 348. They land together because
+each would otherwise force a version of its own.
+
+**Do not infer `i16` from `st16`.** `st16` is `storageBuffer16BitAccess`, a *storage* capability;
+a conformant device may accept 16-bit data in a buffer and perform the arithmetic in f32. Rule V-15
+in the namespace document forbids the inference, and the live test matches whole names for the same
+reason — `contains("i16")` would be satisfied by the `st16` beside it in the same field.
+
+Namespace document: `spec/namespaces/vulkan.md` at vocabulary version 5, rule V-15
+([KISS#262](https://github.com/ThinkersJournal/KISS/pull/262)).
+
+### Changed (breaking) — `Arith` widens to `u16`
+
+`Arith(pub u8)` becomes `Arith(pub u16)`. Five bits were in use and the three new names fill a `u8`
+exactly, so the next arithmetic name would have forced a breaking representation change on its own
+account. Riding a break already being taken, for the same reason `ComponentType` became
+`#[non_exhaustive]` during the version-2 cut.
+
+### Added — the `vulkan:` namespace publishes a machine-readable vocabulary manifest
+
+`kiss-vulkan-vocab/manifest/vulkan-vocabulary.json`, the KISS-CLASSIFY §6.8-0008 form of
+`spec/namespaces/vulkan.md`, so a consumer binds against an artifact instead of hand-transcribing an
+annex or hand-parsing its prose. `kind: "generated"`, emitted by
+`examples/emit_vocabulary_manifest.rs` and byte-compared against the committed copy by
+`tests/vocabulary_manifest.rs`.
+
+The `vectors` array is the normative part, not `grammar`: two of the five fields choose their
+encoding by a length-conditional switch, which no alphabet or regex expresses, so a consumer binding
+only against the grammar can recognise every token and still produce the wrong one. Threshold
+vectors sit at exactly 512 and 513 bytes for **both** length-conditional fields, which pins the
+switch as `>` rather than `>=`.
+
+New public API on `kiss-vulkan-vocab`: `VOCABULARY_VERSION`, `ComponentType::spelling`,
+`OpClasses::alphabet`, `Arith::alphabet`, and `CoopMatrix`/`CoopVector::canonical_enumeration`.
+
+### Fixed — `LICENSE-APACHE` was not the Apache License 2.0
+
+All five copies diverged from the canonical text in two substantive places: §6 dropped "reasonable
+and customary use in" from the trademark carve-out, and §9 substituted "Support" for "Additional
+Liability" in both the section title and its operative clause — stating a narrower scope than the
+licence it named. Replaced from `apache.org` and verified per-file against
+`sha256 cfc7749b96f63bd3…`, including the blobs git stores rather than only the working tree.
+
+**vulkane 0.13.0, kiss-vulkan-vocab 0.3.0 and vulkan_gen 0.5.0 shipped the wrong text and cannot be
+corrected** — registry versions are immutable.
+
+### Fixed — generated artifacts are pinned to LF
+
+`.gitattributes` covered `LICENSE-*` only, so on a Windows checkout the vocabulary manifest and the
+device fixture were stored as LF and checked out as CRLF. The committed manifest was therefore **not
+byte-identical to a fresh emission**, and the emit-and-`git diff --exit-code` freshness gate
+§6.8-0011 asks for could not be armed at all. The freshness test had been normalizing CRLF before
+comparing, so it passed against a string neither party had on disk.
+
+### Changed — versions
+
+`kiss-vulkan-vocab` 0.3.0 → **0.4.0** and `vulkane` 0.13.0 → **0.14.0**, both breaking.
+
+**0.4.0 rather than 0.3.x is the load-bearing part.** Vocabulary version 5 changes token bytes, and
+under Cargo's 0.x rules `0.3.1` is *compatible* with the published `0.3.0` — so a consumer
+requesting `kiss-vulkan-vocab = "0.3"` would have received version-5 tokens from what looks like a
+patch upgrade. A breaking change wearing a compatible version number is exactly the silent kind:
+nothing fails, the tokens simply stop matching the ones already in a cache.
+
 ## [0.13.0] — 2026-08-15
 
 **First release since 0.10.1.** Versions 0.10.2, 0.11.0 and 0.12.0 were prepared and their entries
