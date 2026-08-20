@@ -9,6 +9,23 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # The GPU serialization guard (`common::require_serialization_lock`) refuses
+  # to touch a device unless `gpu-run.ps1` holds the machine-wide `Global\gpu-run`
+  # mutex. That mutex stops two runs sharing ONE developer machine's GPU; a CI
+  # runner is ephemeral and single-tenant, so there is nothing to serialize
+  # against and no wrapper to hold it. CI takes the escape hatch WITH A REASON,
+  # which is the point of it being reason-bearing: `PROCEEDING UNGUARDED: <why>`
+  # lands in the log of every job that touches a device, so the bypass stays
+  # visible instead of becoming the silent default the guard exists to prevent.
+  #
+  # Declared at WORKFLOW level, not per step, and that placement is the fix for
+  # a real failure rather than tidiness. Set on three steps by name, it missed
+  # `Test (no default features)` — which also runs the device tests — and that
+  # leg failed alone for a reason the other two did not share. A per-step
+  # allowlist of "steps that can reach a device" is a list someone must keep
+  # complete, and the cost of an omission is a confusing red rather than a loud
+  # one.
+  GPU_RUN_UNGUARDED: "CI runner: ephemeral and single-tenant, no shared GPU to serialize against"
 
 jobs:
   build:

@@ -222,6 +222,182 @@ pub fn compute_device(
     Ok((device, physical, qf))
 }
 
+/// Set by `gpu-run.ps1` in the child environment while it holds the
+/// machine-wide `Global\gpu-run` mutex.
+///
+/// The token already existed for nested-invocation passthrough. Nothing read it
+/// from Rust until this, so a test could touch the GPU outside the lock and
+/// nothing anywhere would say so.
+const GPU_RUN_HELD: &str = "GPU_RUN_HELD";
+
+/// The pid the wrapper exported. Checked against the lockfile, never alone.
+const GPU_RUN_HELD_PID: &str = "GPU_RUN_HELD_PID";
+
+/// A deliberate, *stated* bypass. Must carry a reason.
+///
+/// Not the same variable as [`GPU_RUN_HELD`], and that separation is the whole
+/// design. If the escape hatch were "set `GPU_RUN_HELD` yourself", a hand-set
+/// value would be indistinguishable from the wrapper's — rebuilding the defect
+/// inside its own fix. A reason-bearing variable makes a bypass possible,
+/// costly to normalize, and **greppable in logs**, so one that quietly became
+/// habitual is discoverable afterwards.
+const GPU_RUN_UNGUARDED: &str = "GPU_RUN_UNGUARDED";
+
+/// Refuse to touch a device outside the machine-wide GPU serialization lock.
+///
+/// # Why this is a hard failure and not a skip
+///
+/// Everything else absent in this file degrades into [`Missing`], and that
+/// taxonomy is deliberate: `Device` is fatal under [`REQUIRE_DEVICE`],
+/// `Capability` never is. **An unguarded run must not join it.** Skipping would
+/// make "you forgot the wrapper" indistinguishable from "this machine has no
+/// GPU" — the exact conflation the two-class split exists to prevent. This is a
+/// misconfiguration of the *runner*, not a property of the *machine*, so it
+/// fails at the point of use, where the person who forgot is standing.
+///
+/// # Why it exists at all
+///
+/// Written after I bypassed the wrapper myself: `cargo test --workspace
+/// --features …,kiss-target` chained behind a `cargo fmt`, with
+/// *"`cargo test --workspace` IS a GPU run"* already in my durable notes. It
+/// enumerated physical devices outside the lock, nothing went wrong, and
+/// **nothing could have told me** — the guard's absence is indistinguishable
+/// from its success. The run completes, the tests pass, and the only difference
+/// is a mutex nobody observes.
+///
+/// The lock is the only thing standing between a concurrent run and the
+/// 2026-07-31 host-aperture bugcheck, so the failure being silent is the part
+/// that matters rather than the failure being rare.
+///
+/// # Known gap, stated rather than hidden
+///
+/// This checks the variable, not the lock. A `GPU_RUN_HELD=1` exported by hand
+/// into a long-lived shell satisfies it forever after — and that shell is
+/// exactly where someone would set it while debugging. Verifying
+/// `GPU_RUN_HELD_PID` is still alive would close it, but costs a subprocess
+/// spawn per run from Rust without adding a dependency. Raised with Fuel's
+/// architect, who owns the wrapper; a lockfile the wrapper creates and removes
+/// would make the check a cheap `Path::exists` instead.
+#[allow(dead_code)]
+pub fn require_serialization_lock() {
+    if lock_is_held() {
+        return;
+    }
+
+    // A bypass is allowed, but never silently — silence is the defect.
+    if let Some(why) = std::env::var_os(GPU_RUN_UNGUARDED).filter(|v| !v.is_empty()) {
+        eprintln!(
+            concat!(
+                "PROCEEDING UNGUARDED: {} — this run touches the GPU outside ",
+                "the machine-wide Global\\gpu-run mutex, so a concurrent run ",
+                "on this machine is not prevented."
+            ),
+            why.to_string_lossy()
+        );
+        return;
+    }
+
+    panic!(
+        concat!(
+            "this test touches a physical device, but the machine-wide GPU ",
+            "serialization lock is not held.\n\n",
+            "The contract, so this stays true wherever the wrapper lives:\n",
+            "  {}=1 and {}=<pid>, plus a `gpu-run.lock` in TEMP whose `pid`\n",
+            "  field is that same pid. All three are set by `gpu-run.ps1` while\n",
+            "  it holds the lock, and the lockfile is removed when it releases.\n\n",
+            "Run through `gpu-run.ps1 -Project vulkane -- <cmd>` from wherever ",
+            "you have it. Invoke it with `pwsh`, not `powershell`: some copies ",
+            "do not parse under Windows PowerShell 5.1 (Fuel GAP-223), and a ",
+            "stale checkout is the likely one to hand.\n\n",
+            "If this run genuinely must bypass the lock, say why:\n",
+            "  {}=\"<reason>\"\n",
+            "which proceeds and prints the reason, so a bypass that became ",
+            "habitual is greppable rather than invisible.\n\n",
+            "This is a hard failure rather than a skip on purpose. A skip would ",
+            "be indistinguishable from \"this machine has no GPU\", and that ",
+            "conflation is what the Device/Capability split in this file exists ",
+            "to prevent."
+        ),
+        GPU_RUN_HELD, GPU_RUN_HELD_PID, GPU_RUN_UNGUARDED
+    );
+}
+
+/// Is the lock held *right now*, by the process that exported our environment?
+///
+/// Two witnesses, and both are needed:
+///
+/// - `GPU_RUN_HELD_PID` — who claims to hold it. Exported into our environment
+///   by the wrapper, and **survives the wrapper's death**, which is the problem.
+/// - `gpu-run.lock` in `TEMP` — written when the lock is taken and **deleted in
+///   the wrapper's `finally`**. Its `pid` field is the live answer.
+///
+/// Checking only the variable is defeated by a shell that outlives one run: a
+/// `GPU_RUN_HELD=1` exported by hand while debugging satisfies it forever after,
+/// and that shell is exactly where someone would set it. Requiring the lockfile
+/// to exist *and* name the same pid answers **"is the lock held now, by the
+/// process that exported this"** rather than "did something once say so".
+///
+/// Process-liveness would have been the obvious alternative and is strictly
+/// worse: it costs a subprocess spawn, and a recycled pid satisfies it.
+///
+/// Two residuals, stated rather than smoothed — Fuel's architect named both, and
+/// liveness would not have escaped either:
+///
+/// - This must resolve the **same** `TEMP` the wrapper used. A process with a
+///   different `TEMP` sees no lockfile and is refused, which is the safe
+///   direction but can confuse.
+/// - A hard-killed holder can leave the file behind. Combined with a matching
+///   exported pid in a dead shell that is a real, narrow window.
+fn lock_is_held() -> bool {
+    if !std::env::var_os(GPU_RUN_HELD).is_some_and(|v| v == "1") {
+        return false;
+    }
+    let Some(pid) = std::env::var_os(GPU_RUN_HELD_PID) else {
+        return false;
+    };
+    let Some(temp) = std::env::var_os("TEMP").or_else(|| std::env::var_os("TMPDIR")) else {
+        return false;
+    };
+    let Ok(meta) = std::fs::read_to_string(std::path::Path::new(&temp).join("gpu-run.lock")) else {
+        // Deleted in the wrapper's `finally`, so absence means released.
+        return false;
+    };
+    lockfile_names_pid(&meta, &pid.to_string_lossy())
+}
+
+/// Does this lockfile's `pid` field equal `pid` **exactly**?
+///
+/// The first version was `meta.contains(&format!("\"pid\":{pid}"))`, and that is
+/// a false positive whenever the exported pid is a *prefix* of the real one —
+/// an environment carrying `GPU_RUN_HELD_PID=12` matches a lockfile written by
+/// pid `123`, and the guard reports the lock held when it is not.
+///
+/// **A guard that says "held" when it is not held, inside the guard whose whole
+/// subject is that absence is indistinguishable from success.** Caught in review
+/// (Copilot), not by any test here, because every real pid on this machine is
+/// four or five digits and a prefix collision needs two specific values.
+///
+/// So the digit run after `"pid":` is compared as a whole token: it must end at
+/// a non-digit, which in the compact JSON the wrapper writes is `,` or `}`.
+/// Parsed by hand rather than by taking a JSON dependency into a test helper.
+fn lockfile_names_pid(meta: &str, pid: &str) -> bool {
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut rest = meta;
+    while let Some(i) = rest.find("\"pid\":") {
+        let after = &rest[i + "\"pid\":".len()..];
+        let end = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
+        if &after[..end] == pid {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
 /// An instance at `api_version`, plus its physical devices.
 ///
 /// The first two steps of every bootstrap in the suite, extracted so the boot
@@ -242,6 +418,8 @@ pub fn instance_and_devices(
     api_version: vulkane::safe::ApiVersion,
 ) -> Result<(vulkane::safe::Instance, Vec<vulkane::safe::PhysicalDevice>), Missing> {
     use vulkane::safe::{Instance, InstanceCreateInfo};
+
+    require_serialization_lock();
 
     let instance = Instance::new(InstanceCreateInfo {
         application_name: Some(app_name),
@@ -308,6 +486,12 @@ pub fn create_device_on(
     qf: u32,
     features: Option<(&vulkane::safe::DeviceFeatures, &str)>,
 ) -> Result<vulkane::safe::Device, Missing> {
+    // Creating a logical device touches the GPU, so this is an acquisition even
+    // though it takes an already-obtained physical device. Every current caller
+    // reaches it through a guarded helper, which is exactly why it needs its own
+    // call: "all current callers are guarded" is a fact about today.
+    require_serialization_lock();
+
     use vulkane::safe::{DeviceCreateInfo, QueueCreateInfo};
 
     physical
@@ -320,4 +504,48 @@ pub fn create_device_on(
             Some((_, label)) => Missing::capability(label),
             None => Missing::device("a compute-capable device was found but vkCreateDevice failed"),
         })
+}
+
+#[cfg(test)]
+mod lock_witness_tests {
+    use super::lockfile_names_pid;
+
+    /// The defect Copilot found: a prefix must not match.
+    #[test]
+    fn a_prefix_pid_does_not_match() {
+        let meta = r#"{"v":1,"pid":123,"project":"vulkane"}"#;
+        assert!(lockfile_names_pid(meta, "123"));
+        assert!(
+            !lockfile_names_pid(meta, "12"),
+            "pid 12 matched a lockfile written by pid 123 — the substring form \
+             of this check reported the lock held when it was not"
+        );
+        assert!(!lockfile_names_pid(meta, "1"));
+        assert!(!lockfile_names_pid(meta, "1234"));
+    }
+
+    /// The digit run must end at a delimiter, whichever one the writer used.
+    #[test]
+    fn the_pid_field_may_end_at_a_comma_or_a_brace() {
+        assert!(lockfile_names_pid(r#"{"pid":77,"x":1}"#, "77"));
+        assert!(lockfile_names_pid(r#"{"x":1,"pid":77}"#, "77"));
+    }
+
+    /// A pid that is not a number cannot match anything, rather than being
+    /// pasted into a search and matching by accident.
+    #[test]
+    fn a_non_numeric_pid_never_matches() {
+        let meta = r#"{"pid":123}"#;
+        assert!(!lockfile_names_pid(meta, ""));
+        assert!(!lockfile_names_pid(meta, "12a"));
+        assert!(!lockfile_names_pid(meta, "\"123\""));
+    }
+
+    /// A lockfile with no pid field at all is not a match.
+    #[test]
+    fn absent_or_malformed_metadata_does_not_match() {
+        assert!(!lockfile_names_pid("", "123"));
+        assert!(!lockfile_names_pid(r#"{"project":"vulkane"}"#, "123"));
+        assert!(!lockfile_names_pid(r#"{"pid":}"#, "123"));
+    }
 }
