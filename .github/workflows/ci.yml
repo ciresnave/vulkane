@@ -159,7 +159,14 @@ jobs:
       # search is exercised: it panics rather than emitting a weakened vector
       # set if it cannot land exactly on the boundary, which is a failure worth
       # surfacing in CI rather than at the next regeneration.
+      # `shell: bash` is required, not cosmetic. The Windows runner defaults to
+      # PowerShell, which reads `/dev/null` as the literal path `D:\dev
+ull`
+      # and fails the step with "Could not find a part of the path". The
+      # Lavapipe step below gets away with the same redirect only because it is
+      # gated to Linux; this one runs on all three platforms.
       - name: Build and run the vocabulary manifest emitter
+        shell: bash
         run: |
           cargo run -p kiss-vulkan-vocab --example emit_vocabulary_manifest > /dev/null
 
