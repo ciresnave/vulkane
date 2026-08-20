@@ -2365,10 +2365,16 @@ fn try_init_at(
             // "Cannot create a 1.2 instance" has two causes with opposite
             // verdicts: no ICD (fatal), or an ICD older than the caller wants
             // (conformant). Asking for a default instance tells them apart.
-            // GPU-LOCK-DIRECT: a disambiguation probe, reached only from the
-            // error path of `instance_and_devices` — so the lock is already
-            // held by the call that just failed, and the question being asked
-            // is precisely whether a DEFAULT instance can be created.
+            // Re-asserted below rather than inherited. Reaching here does
+            // imply the lock was held, because `instance_and_devices` calls the
+            // guard before it can fail — but that is an inference from another
+            // function's body, and an exemption justified by a claim about
+            // control flow stops being true the moment that flow changes.
+            //
+            // GPU-LOCK-DIRECT: a disambiguation probe — the question being
+            // asked is precisely whether a DEFAULT instance can be created, so
+            // no helper can ask it.
+            common::require_serialization_lock();
             return Err(if Instance::new(InstanceCreateInfo::default()).is_ok() {
                 common::Missing::capability(format!("a Vulkan {version_label} instance"))
             } else {
