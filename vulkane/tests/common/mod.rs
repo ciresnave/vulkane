@@ -301,10 +301,14 @@ pub fn require_serialization_lock() {
         concat!(
             "this test touches a physical device, but the machine-wide GPU ",
             "serialization lock is not held.\n\n",
-            "Run it through the wrapper:\n",
-            "  pwsh C:\\Projects\\fuel\\scripts\\gpu-run.ps1 -Project vulkane -- <cmd>\n\n",
-            "Use `pwsh`, not `powershell`: the shared copy of that script does ",
-            "not parse under Windows PowerShell 5.1 (Fuel GAP-223).\n\n",
+            "The contract, so this stays true wherever the wrapper lives:\n",
+            "  {}=1 and {}=<pid>, plus a `gpu-run.lock` in TEMP whose `pid`\n",
+            "  field is that same pid. All three are set by `gpu-run.ps1` while\n",
+            "  it holds the lock, and the lockfile is removed when it releases.\n\n",
+            "Run through `gpu-run.ps1 -Project vulkane -- <cmd>` from wherever ",
+            "you have it. Invoke it with `pwsh`, not `powershell`: some copies ",
+            "do not parse under Windows PowerShell 5.1 (Fuel GAP-223), and a ",
+            "stale checkout is the likely one to hand.\n\n",
             "If this run genuinely must bypass the lock, say why:\n",
             "  {}=\"<reason>\"\n",
             "which proceeds and prints the reason, so a bypass that became ",
@@ -314,7 +318,7 @@ pub fn require_serialization_lock() {
             "conflation is what the Device/Capability split in this file exists ",
             "to prevent."
         ),
-        GPU_RUN_UNGUARDED
+        GPU_RUN_HELD, GPU_RUN_HELD_PID, GPU_RUN_UNGUARDED
     );
 }
 
@@ -358,9 +362,84 @@ fn lock_is_held() -> bool {
         // Deleted in the wrapper's `finally`, so absence means released.
         return false;
     };
-    // Compact JSON from `ConvertTo-Json -Compress`: match the pid field without
-    // taking a JSON dependency into a test helper.
-    meta.contains(&format!("\"pid\":{}", pid.to_string_lossy()))
+    lockfile_names_pid(&meta, &pid.to_string_lossy())
+}
+
+/// Does this lockfile's `pid` field equal `pid` **exactly**?
+///
+/// The first version was `meta.contains(&format!("\"pid\":{pid}"))`, and that is
+/// a false positive whenever the exported pid is a *prefix* of the real one —
+/// an environment carrying `GPU_RUN_HELD_PID=12` matches a lockfile written by
+/// pid `123`, and the guard reports the lock held when it is not.
+///
+/// **A guard that says "held" when it is not held, inside the guard whose whole
+/// subject is that absence is indistinguishable from success.** Caught in review
+/// (Copilot), not by any test here, because every real pid on this machine is
+/// four or five digits and a prefix collision needs two specific values.
+///
+/// So the digit run after `"pid":` is compared as a whole token: it must end at
+/// a non-digit, which in the compact JSON the wrapper writes is `,` or `}`.
+/// Parsed by hand rather than by taking a JSON dependency into a test helper.
+fn lockfile_names_pid(meta: &str, pid: &str) -> bool {
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut rest = meta;
+    while let Some(i) = rest.find("\"pid\":") {
+        let after = &rest[i + "\"pid\":".len()..];
+        let end = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
+        if &after[..end] == pid {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+#[cfg(test)]
+mod lock_witness_tests {
+    use super::lockfile_names_pid;
+
+    /// The defect Copilot found: a prefix must not match.
+    #[test]
+    fn a_prefix_pid_does_not_match() {
+        let meta = r#"{"v":1,"pid":123,"project":"vulkane"}"#;
+        assert!(lockfile_names_pid(meta, "123"));
+        assert!(
+            !lockfile_names_pid(meta, "12"),
+            "pid 12 matched a lockfile written by pid 123 — the substring form \
+             of this check reported the lock held when it was not"
+        );
+        assert!(!lockfile_names_pid(meta, "1"));
+        assert!(!lockfile_names_pid(meta, "1234"));
+    }
+
+    /// The digit run must end at a delimiter, whichever one the writer used.
+    #[test]
+    fn the_pid_field_may_end_at_a_comma_or_a_brace() {
+        assert!(lockfile_names_pid(r#"{"pid":77,"x":1}"#, "77"));
+        assert!(lockfile_names_pid(r#"{"x":1,"pid":77}"#, "77"));
+    }
+
+    /// A pid that is not a number cannot match anything, rather than being
+    /// pasted into a search and matching by accident.
+    #[test]
+    fn a_non_numeric_pid_never_matches() {
+        let meta = r#"{"pid":123}"#;
+        assert!(!lockfile_names_pid(meta, ""));
+        assert!(!lockfile_names_pid(meta, "12a"));
+        assert!(!lockfile_names_pid(meta, "\"123\""));
+    }
+
+    /// A lockfile with no pid field at all is not a match.
+    #[test]
+    fn absent_or_malformed_metadata_does_not_match() {
+        assert!(!lockfile_names_pid("", "123"));
+        assert!(!lockfile_names_pid(r#"{"project":"vulkane"}"#, "123"));
+        assert!(!lockfile_names_pid(r#"{"pid":}"#, "123"));
+    }
 }
 
 /// An instance at `api_version`, plus its physical devices.
@@ -451,6 +530,12 @@ pub fn create_device_on(
     qf: u32,
     features: Option<(&vulkane::safe::DeviceFeatures, &str)>,
 ) -> Result<vulkane::safe::Device, Missing> {
+    // Creating a logical device touches the GPU, so this is an acquisition even
+    // though it takes an already-obtained physical device. Every current caller
+    // reaches it through a guarded helper, which is exactly why it needs its own
+    // call: "all current callers are guarded" is a fact about today.
+    require_serialization_lock();
+
     use vulkane::safe::{DeviceCreateInfo, QueueCreateInfo};
 
     physical

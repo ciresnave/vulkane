@@ -58,7 +58,12 @@ const ACQUIRES_A_DEVICE: &[&str] = &["Instance::new("];
 /// These are the DESTINATION for the sites counted below, not an exemption from
 /// counting. An earlier version used them to exempt whole files and thereby
 /// waved through twelve sites in one file; see the note in `unguarded_sites`.
-const GUARDED_HELPERS: &[&str] = &["instance_and_devices(", "compute_device(", "first_compute("];
+const GUARDED_HELPERS: &[&str] = &[
+    "instance_and_devices(",
+    "compute_device(",
+    "first_compute(",
+    "create_device_on(",
+];
 
 fn tests_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests")
@@ -93,9 +98,21 @@ fn unguarded_sites() -> (usize, Vec<(String, usize)>) {
         {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+        // An unreadable file must FAIL, not be skipped. A scan that cannot
+        // read a file reports no finding for it, and "no finding" is exactly
+        // what a clean file looks like — the null-without-a-positive-control
+        // shape, in a scanner written after the previous one exempted whole
+        // files and passed at 1-of-20.
+        let src = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                concat!(
+                    "cannot read {} — the scan cannot see this file, and an ",
+                    "unreadable file is indistinguishable from a clean one: {}"
+                ),
+                path.display(),
+                e
+            )
+        });
         // Counted per SITE, not per file. The first version of this scan
         // exempted any file that mentioned a guarded helper anywhere — which
         // waved through all twelve direct sites in `safe_wrapper_test.rs`
@@ -201,32 +218,69 @@ fn the_guarded_helpers_still_call_the_guard() {
 #[test]
 fn every_common_helper_that_acquires_a_device_is_listed() {
     let common = tests_dir().join("common").join("mod.rs");
-    let src = std::fs::read_to_string(&common).unwrap_or_default();
+    let src = std::fs::read_to_string(&common)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", common.display()));
 
-    for line in src.lines() {
-        let Some(rest) = line.trim().strip_prefix("pub fn ") else {
-            continue;
-        };
-        let Some(name) = rest.split('(').next() else {
-            continue;
-        };
-        let signature_hint = format!("{name}(");
+    let mut examined = 0usize;
+    for (name, signature) in public_signatures(&src) {
         // Only helpers that hand back a device or an instance matter here.
-        let returns_device = line.contains("PhysicalDevice")
-            || line.contains("Instance")
-            || line.contains("Device,");
-        if returns_device && !GUARDED_HELPERS.iter().any(|h| *h == signature_hint) {
-            panic!(
-                "common/mod.rs exposes `{name}`, which hands back a device or \
-                 instance, but GUARDED_HELPERS does not list it.\n\n\
-                 A caller routing through it would be counted as UNGUARDED by \
-                 this scan (a false alarm), or — if it does not call \
-                 `require_serialization_lock` — would be genuinely unguarded \
-                 while looking fine. Add it to GUARDED_HELPERS and make sure it \
-                 calls the guard."
-            );
+        let returns_device = signature.contains("PhysicalDevice")
+            || signature.contains("Instance")
+            || signature.contains("Device");
+        if !returns_device {
+            continue;
         }
+        examined += 1;
+        let hint = format!("{name}(");
+        assert!(
+            GUARDED_HELPERS.iter().any(|h| *h == hint),
+            "common/mod.rs exposes `{name}`, whose signature mentions a device \
+             or instance, but GUARDED_HELPERS does not list it.\n\n\
+             A caller routing through it would be counted as UNGUARDED by this \
+             scan (a false alarm), or — if it does not call \
+             `require_serialization_lock` — would be genuinely unguarded while \
+             looking fine. Add it to GUARDED_HELPERS and make sure it calls the \
+             guard.\n\n  signature: {signature}"
+        );
     }
+
+    // POSITIVE CONTROL. Without this the test passes when it finds NOTHING, and
+    // finding nothing is exactly what it did: every device helper in
+    // `common/mod.rs` has a multi-line signature, and the first version matched
+    // only single lines. It examined zero helpers and reported ok — the same
+    // null-without-a-control shape as the scanner it guards.
+    assert!(
+        examined >= GUARDED_HELPERS.len(),
+        "the signature scan examined only {examined} device-returning helpers, \
+         but GUARDED_HELPERS names {}. It is not seeing the file — a scan that \
+         matches nothing passes, which is how the single-line version of this \
+         check reported ok while examining zero helpers.",
+        GUARDED_HELPERS.len()
+    );
+}
+
+/// `(name, whole signature)` for each `pub fn` in a source file.
+///
+/// Joins from `pub fn` to the opening `{`, because **every device helper in
+/// `common/mod.rs` has a multi-line signature** — `compute_device`,
+/// `instance_and_devices`, `first_compute` and `create_device_on` all wrap their
+/// parameters, so a line-at-a-time match sees none of them and the caller
+/// silently examines an empty set.
+fn public_signatures(src: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("pub fn ") {
+        let after = &rest[i + "pub fn ".len()..];
+        let Some(name_end) = after.find(['(', '<', ' ']) else {
+            break;
+        };
+        let name = after[..name_end].trim().to_string();
+        // Up to the body, or the whole remainder if this is the last item.
+        let sig_end = after.find(" {").unwrap_or(after.len().min(400));
+        out.push((name, after[..sig_end].replace('\n', " ")));
+        rest = after;
+    }
+    out
 }
 
 /// Keeps the scanner's own path assumptions honest.
