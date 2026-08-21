@@ -270,8 +270,8 @@ fn test_safe_full_gpu_round_trip() {
         let mapped = memory.map().unwrap();
         let slice = mapped.as_slice();
         let expected: [u8; 4] = 0xCAFEBABEu32.to_ne_bytes();
-        for chunk in slice.chunks_exact(4) {
-            assert_eq!(chunk, expected, "GPU did not write expected pattern");
+        for chunk in slice.as_chunks::<4>().0 {
+            assert_eq!(*chunk, expected, "GPU did not write expected pattern");
         }
     }
 

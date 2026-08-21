@@ -67,11 +67,11 @@ impl EnumGenerator {
                     let mut s = String::new();
                     s.push(c);
                     chars.next();
-                    if let Some(&next) = chars.peek() {
-                        if next == c {
-                            s.push(next);
-                            chars.next();
-                        }
+                    if let Some(&next) = chars.peek()
+                        && next == c
+                    {
+                        s.push(next);
+                        chars.next();
                     }
                     out.push(Tok::Shift(s));
                     continue;
@@ -95,24 +95,24 @@ impl EnumGenerator {
                     if c == '0' {
                         buf.push(c);
                         chars.next();
-                        if let Some(&nx) = chars.peek() {
-                            if nx == 'x' || nx == 'X' {
-                                buf.push(nx);
-                                chars.next();
-                                // collect hex digits
-                                while let Some(&h) = chars.peek() {
-                                    if h.is_ascii_hexdigit() {
-                                        buf.push(h);
-                                        chars.next();
-                                    } else {
-                                        break;
-                                    }
+                        if let Some(&nx) = chars.peek()
+                            && (nx == 'x' || nx == 'X')
+                        {
+                            buf.push(nx);
+                            chars.next();
+                            // collect hex digits
+                            while let Some(&h) = chars.peek() {
+                                if h.is_ascii_hexdigit() {
+                                    buf.push(h);
+                                    chars.next();
+                                } else {
+                                    break;
                                 }
-                                // parse hex
-                                if let Ok(v) = i128::from_str_radix(&buf[2..], 16) {
-                                    out.push(Tok::Num(v));
-                                    continue;
-                                }
+                            }
+                            // parse hex
+                            if let Ok(v) = i128::from_str_radix(&buf[2..], 16) {
+                                out.push(Tok::Num(v));
+                                continue;
                             }
                         }
                         // if not hex, fallthrough to parse as decimal sequence starting with '0'
@@ -135,11 +135,11 @@ impl EnumGenerator {
                             break;
                         }
                     }
-                    if !buf.is_empty() {
-                        if let Ok(v) = buf.parse::<i128>() {
-                            out.push(Tok::Num(v));
-                            continue;
-                        }
+                    if !buf.is_empty()
+                        && let Ok(v) = buf.parse::<i128>()
+                    {
+                        out.push(Tok::Num(v));
+                        continue;
                     }
                 }
 
@@ -496,12 +496,12 @@ impl EnumGenerator {
                 } else {
                     self.format_enum_value(value_str)
                 };
-                if let Some(n) = self.parse_enum_value(&formatted) {
-                    if uv.insert(n) {
-                        let vn = self.format_enum_value_name(&value.name);
-                        value_to_variant.insert(n, vn.clone());
-                        variant_set.insert(vn);
-                    }
+                if let Some(n) = self.parse_enum_value(&formatted)
+                    && uv.insert(n)
+                {
+                    let vn = self.format_enum_value_name(&value.name);
+                    value_to_variant.insert(n, vn.clone());
+                    variant_set.insert(vn);
                 }
             }
         }
@@ -884,10 +884,10 @@ impl GeneratorModule for EnumGenerator {
                         // Fallback: parse as JSONL (one object per line)
                         let mut items = Vec::new();
                         for line in input_content.lines() {
-                            if !line.trim().is_empty() {
-                                if let Ok(e) = serde_json::from_str::<EnumDefinition>(line) {
-                                    items.push(e);
-                                }
+                            if !line.trim().is_empty()
+                                && let Ok(e) = serde_json::from_str::<EnumDefinition>(line)
+                            {
+                                items.push(e);
                             }
                         }
                         items
@@ -899,15 +899,13 @@ impl GeneratorModule for EnumGenerator {
         let mut constants_present: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         let consts_path = input_dir.join("constants.json");
-        if consts_path.exists() {
-            if let Ok(consts_content) = fs::read_to_string(&consts_path) {
-                if let Ok(consts_array) =
-                    serde_json::from_str::<Vec<ConstantDefinition>>(&consts_content)
-                {
-                    for c in consts_array {
-                        constants_present.insert(c.name);
-                    }
-                }
+        if consts_path.exists()
+            && let Ok(consts_content) = fs::read_to_string(&consts_path)
+            && let Ok(consts_array) =
+                serde_json::from_str::<Vec<ConstantDefinition>>(&consts_content)
+        {
+            for c in consts_array {
+                constants_present.insert(c.name);
             }
         }
 

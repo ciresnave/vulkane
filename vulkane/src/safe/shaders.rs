@@ -166,17 +166,17 @@ impl ShaderRegistry {
     /// Borrowed from the embedded table if possible, or owned if read
     /// from the override directory.
     pub fn load(&self, name: &str) -> std::result::Result<Cow<'_, [u8]>, ShaderLoadError> {
-        if let Some(var) = self.env_override {
-            if let Some(dir) = override_dir(var) {
-                let path = dir.join(format!("{name}.spv"));
-                if path.exists() {
-                    return std::fs::read(&path).map(Cow::Owned).map_err(|source| {
-                        ShaderLoadError::Io {
-                            name: name.to_owned(),
-                            source,
-                        }
-                    });
-                }
+        if let Some(var) = self.env_override
+            && let Some(dir) = override_dir(var)
+        {
+            let path = dir.join(format!("{name}.spv"));
+            if path.exists() {
+                return std::fs::read(&path).map(Cow::Owned).map_err(|source| {
+                    ShaderLoadError::Io {
+                        name: name.to_owned(),
+                        source,
+                    }
+                });
             }
         }
         self.embedded
@@ -197,8 +197,10 @@ impl ShaderRegistry {
             });
         }
         Ok(bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect())
     }
 

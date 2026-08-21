@@ -59,15 +59,17 @@ impl ShaderModule {
     /// Convenience: create a shader module from a slice of bytes containing
     /// little-endian SPIR-V. The byte length must be a multiple of 4.
     pub fn from_spirv_bytes(device: &Device, bytes: &[u8]) -> Result<Self> {
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return Err(Error::Vk(VkResult::ERROR_INITIALIZATION_FAILED));
         }
         // Safety: alignment of u32 is 4 and we just checked length is a
         // multiple of 4. We also do an aligned copy to be safe regardless of
         // input alignment.
         let words: Vec<u32> = bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect();
         Self::from_spirv(device, &words)
     }

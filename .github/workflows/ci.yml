@@ -337,3 +337,67 @@ jobs:
           components: clippy
       - name: Run clippy
         run: cargo clippy --workspace --features fetch-spec -- -D warnings
+
+  # A declared `rust-version` is a promise to consumers, and until this job
+  # existed vulkane's had never been run. It was wrong: the manifests said 1.85,
+  # but `vulkan_gen` uses let-chains (stable in 1.88) and `libloading 0.9`
+  # declares 1.88.0 itself, so no consumer on 1.85 could ever have compiled the
+  # crate. Two of the three other floors measured across the portfolio that day
+  # were also false. An unexercised floor is not a conservative estimate; it is
+  # an untested claim that happens to be printed on the box.
+  msrv-discover:
+    name: MSRV (read declared floors)
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - id: read
+        name: Read each crate's declared rust-version
+        shell: bash
+        # `set -e` matters here: without it a failing script yields an empty
+        # `$(...)`, the echo still succeeds, and the matrix below expands to
+        # nothing -- a job that tests zero crates and reports green.
+        run: |
+          set -euo pipefail
+          matrix="$(python3 .github/msrv_matrix.py)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  msrv:
+    name: MSRV ${{ matrix.crate.msrv }} - ${{ matrix.crate.name }}
+    needs: msrv-discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.msrv-discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      # Install and invoke MUST use the same string. rustup does not treat
+      # `1.85` as an alias for `1.85.0` -- they are separate toolchains, and a
+      # bare `1.85` installs the latest patch of that minor (1.85.1 today).
+      # Normalising one side and not the other yields "toolchain not installed"
+      # at best, and at worst a build against a compiler nobody declared.
+      - name: Install the declared toolchain
+        shell: bash
+        run: rustup toolchain install "${{ matrix.crate.msrv }}" --profile minimal
+      # If `+1.85` ever silently resolved to something else, every build below
+      # would pass while testing a compiler nobody promised. Assert the
+      # toolchain that answers is the one the manifest named.
+      - name: Confirm the toolchain that answers is the one asked for
+        shell: bash
+        run: |
+          set -euo pipefail
+          want="${{ matrix.crate.msrv }}"
+          got="$(cargo "+$want" --version | awk '{print $2}')"
+          case "$got" in
+            "$want"|"$want".*) echo "cargo $got answers to +$want" ;;
+            *) echo "error: asked for +$want but cargo reports $got"; exit 1 ;;
+          esac
+      # BUILD, not test. A consumer compiles this crate; they do not run its dev
+      # tests. Gating on dev-dependencies would eventually force the floor up
+      # for reasons that have nothing to do with the promise being made.
+      - name: Build at the declared floor
+        shell: bash
+        run: cargo "+${{ matrix.crate.msrv }}" build -p "${{ matrix.crate.name }}" --locked

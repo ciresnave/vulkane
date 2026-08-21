@@ -2,7 +2,7 @@
 name = "vulkane"
 version = "0.14.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Vulkan API bindings generated entirely from vk.xml, with a complete safe RAII wrapper covering compute and graphics: instance/device/queue, buffer, image, sampler, render pass, framebuffer, graphics + compute pipelines, swapchain, a VMA-style sub-allocator with TLSF + linear pools and defragmentation, sync primitives (fences, binary + timeline semaphores, sync2 barriers), query pools, and optional GLSL/WGSL/HLSL→SPIR-V compilation via naga or shaderc. Supports Vulkan 1.2.175 onward — swap vk.xml and rebuild."

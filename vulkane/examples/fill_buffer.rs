@@ -128,8 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let slice = mapped.as_slice_mut();
         // Each 4 bytes should be 0xDEADBEEF in little-endian (Vulkan spec).
         let expected: [u8; 4] = 0xDEADBEEFu32.to_ne_bytes();
-        for chunk in slice.chunks_exact(4) {
-            assert_eq!(chunk, expected, "GPU did not write the expected pattern");
+        for chunk in slice.as_chunks::<4>().0 {
+            assert_eq!(*chunk, expected, "GPU did not write the expected pattern");
         }
         println!("[OK] Verified all bytes match 0xDEADBEEF");
     }

@@ -347,10 +347,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(r) = self.renderer.as_mut() {
-                    if let Err(e) = r.draw_frame() {
-                        eprintln!("draw error: {e}");
-                    }
+                if let Some(r) = self.renderer.as_mut()
+                    && let Err(e) = r.draw_frame()
+                {
+                    eprintln!("draw error: {e}");
                 }
                 if let Some(w) = self.window.as_ref() {
                     w.request_redraw();

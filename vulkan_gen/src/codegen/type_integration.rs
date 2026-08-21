@@ -301,14 +301,14 @@ pub fn check_data_consistency(intermediate_dir: &Path) -> TypeIntegrationResult<
                                             );
                                         }
                                         // Ensure value is a string (some tests use numbers)
-                                        if let Some(value_field) = vobj.get("value") {
-                                            if value_field.is_number() || value_field.is_boolean() {
-                                                let s = value_field.to_string();
-                                                vobj.insert(
-                                                    "value".to_string(),
-                                                    serde_json::Value::String(s),
-                                                );
-                                            }
+                                        if let Some(value_field) = vobj.get("value")
+                                            && (value_field.is_number() || value_field.is_boolean())
+                                        {
+                                            let s = value_field.to_string();
+                                            vobj.insert(
+                                                "value".to_string(),
+                                                serde_json::Value::String(s),
+                                            );
                                         }
                                     }
                                 }
@@ -365,10 +365,10 @@ pub fn check_data_consistency(intermediate_dir: &Path) -> TypeIntegrationResult<
                                 obj.insert("is_alias".to_string(), serde_json::Value::Bool(false));
                             }
                             // Map base_type -> definition if present
-                            if let Some(base) = obj.get("base_type").cloned() {
-                                if !obj.contains_key("definition") {
-                                    obj.insert("definition".to_string(), base);
-                                }
+                            if let Some(base) = obj.get("base_type").cloned()
+                                && !obj.contains_key("definition")
+                            {
+                                obj.insert("definition".to_string(), base);
                             }
                         }
                     }
