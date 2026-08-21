@@ -54,6 +54,24 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # A pin that is present but INERT looks exactly like a pin that works:
+      # `stable` and the pinned version resolve to the same compiler today, so a
+      # version echo on its own would confirm nothing about the MECHANISM. rustup
+      # names the override SOURCE, and this asserts on that rather than printing
+      # it -- a line nobody reads changes nothing if the pin stops applying.
+      # Without the file the same command reports `(default)` instead.
+      - name: Confirm the toolchain file is what selects the toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(rustup show active-toolchain)"
+          echo "$active"
+          case "$active" in
+            *rust-toolchain.toml*) ;;
+            *) echo "error: expected the pin to select the toolchain, got: $active" >&2
+               exit 1 ;;
+          esac
+
       - name: Cache cargo
         uses: actions/cache@v5
         with:
