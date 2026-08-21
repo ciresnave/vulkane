@@ -741,6 +741,14 @@ impl PhysicalDevice {
 
         let api = self.effective_api_version();
         let core_1_2 = api.major() > 1 || api.minor() >= 2;
+        // `unwrap_or_default()` here is deliberate and the reason is narrow: a
+        // failed enumeration yields an empty list, `has(..)` is false for
+        // everything, and the guard below returns `None` — a decline, which is
+        // the honest answer when we could not establish whether the extension
+        // is present. The OUTCOME is right; note that the REASONING is
+        // accidental. Nothing distinguishes "queried, none present" from "the
+        // query failed", so anything added below that proceeds on the basis of
+        // `exts` would silently treat a failure as "no extensions".
         let exts = self.enumerate_extension_properties().unwrap_or_default();
         let has = |name: &str| exts.iter().any(|e| e.name() == name);
         if !core_1_2 && !has("VK_KHR_shader_float16_int8") && !has("VK_KHR_8bit_storage") {

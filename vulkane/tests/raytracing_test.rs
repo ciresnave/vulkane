@@ -260,7 +260,22 @@ fn ray_tracing_pipeline_properties_queryable() {
             return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
         }
     };
-    for pd in instance.enumerate_physical_devices().unwrap_or_default() {
+    // NOT `unwrap_or_default()`. That turns a FAILED enumeration into an empty
+    // Vec, the loop runs zero times, and the test passes having asserted
+    // nothing — the error and the honest-empty case become the same event, and
+    // the honest-empty case is itself a vacuous pass. Both are declared.
+    let devices = match instance.enumerate_physical_devices() {
+        Ok(d) => d,
+        Err(e) => {
+            return common::skipped(&format!(
+                "an ICD is present but enumerating physical devices failed: {e}"
+            ));
+        }
+    };
+    if devices.is_empty() {
+        return common::skipped("an ICD is present but reports no physical devices");
+    }
+    for pd in devices {
         let props = pd.ray_tracing_pipeline_properties();
         if let Some(p) = props {
             // Handle size must be at minimum 32 per the spec when the

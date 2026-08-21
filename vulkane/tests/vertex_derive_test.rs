@@ -71,7 +71,22 @@ fn mixed_fields_map_to_their_documented_formats() {
 #[test]
 fn every_derived_format_reports_a_size_matching_its_rust_field() {
     let int_sizes = [4u32, 8, 12, 16];
-    for (attr, expected) in IntVertex::attributes(0).iter().zip(int_sizes) {
+    let int_attrs = IntVertex::attributes(0);
+    // `zip` STOPS AT THE SHORTER SIDE. Without this, a derive emitting fewer
+    // attributes than expected would silently drop the trailing expectations —
+    // and emitting NONE would run the loop zero times and pass having asserted
+    // nothing. The loop cannot tell "all correct" from "none checked".
+    assert_eq!(
+        int_attrs.len(),
+        int_sizes.len(),
+        concat!(
+            "IntVertex derived {} attributes but {} sizes are expected; the ",
+            "zip below would silently compare only the shorter prefix"
+        ),
+        int_attrs.len(),
+        int_sizes.len()
+    );
+    for (attr, expected) in int_attrs.iter().zip(int_sizes) {
         assert_eq!(
             attr.format.bytes_per_pixel(),
             Some(expected),
@@ -82,7 +97,18 @@ fn every_derived_format_reports_a_size_matching_its_rust_field() {
     }
 
     let mixed_sizes = [12u32, 8, 16, 4, 2, 2];
-    for (attr, expected) in MixedVertex::attributes(0).iter().zip(mixed_sizes) {
+    let mixed_attrs = MixedVertex::attributes(0);
+    assert_eq!(
+        mixed_attrs.len(),
+        mixed_sizes.len(),
+        concat!(
+            "MixedVertex derived {} attributes but {} sizes are expected; ",
+            "see the note on the zip above"
+        ),
+        mixed_attrs.len(),
+        mixed_sizes.len()
+    );
+    for (attr, expected) in mixed_attrs.iter().zip(mixed_sizes) {
         assert_eq!(
             attr.format.bytes_per_pixel(),
             Some(expected),

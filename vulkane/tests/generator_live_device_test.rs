@@ -83,7 +83,21 @@ fn generated_physical_device_get_queue_family_properties_live() {
     };
     let _ = device;
     let instance = Instance::new(InstanceCreateInfo::default()).unwrap();
-    for pd in instance.enumerate_physical_devices().unwrap_or_default() {
+    // NOT `unwrap_or_default()` — see raytracing_test.rs. A failed enumeration
+    // becomes an empty Vec, the loop runs zero times, and the test passes
+    // having asserted nothing.
+    let devices = match instance.enumerate_physical_devices() {
+        Ok(d) => d,
+        Err(e) => {
+            return common::skipped(&format!(
+                "an ICD is present but enumerating physical devices failed: {e}"
+            ));
+        }
+    };
+    if devices.is_empty() {
+        return common::skipped("an ICD is present but reports no physical devices");
+    }
+    for pd in devices {
         let generated = <vulkane::safe::PhysicalDevice as PhysicalDeviceSafeExt>::get_physical_device_queue_family_properties(&pd);
         let handwritten = pd.queue_family_properties();
         assert_eq!(
@@ -104,7 +118,21 @@ fn generated_physical_device_get_properties_live() {
             return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
         }
     };
-    for pd in instance.enumerate_physical_devices().unwrap_or_default() {
+    // NOT `unwrap_or_default()` — see raytracing_test.rs. A failed enumeration
+    // becomes an empty Vec, the loop runs zero times, and the test passes
+    // having asserted nothing.
+    let devices = match instance.enumerate_physical_devices() {
+        Ok(d) => d,
+        Err(e) => {
+            return common::skipped(&format!(
+                "an ICD is present but enumerating physical devices failed: {e}"
+            ));
+        }
+    };
+    if devices.is_empty() {
+        return common::skipped("an ICD is present but reports no physical devices");
+    }
+    for pd in devices {
         let generated = <vulkane::safe::PhysicalDevice as PhysicalDeviceSafeExt>::get_physical_device_properties(&pd);
         // Generated struct carries the C layout — `deviceName` is
         // [c_char; 256] and non-empty for any real adapter.
