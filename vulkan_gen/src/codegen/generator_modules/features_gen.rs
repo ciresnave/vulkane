@@ -68,10 +68,10 @@ impl FeatureGenerator {
     /// Parse version number string like "1.2" into (major, minor)
     fn parse_version_number(&self, version: &str) -> Option<(u32, u32)> {
         let parts: Vec<&str> = version.split('.').collect();
-        if parts.len() >= 2 {
-            if let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                return Some((major, minor));
-            }
+        if parts.len() >= 2
+            && let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>())
+        {
+            return Some((major, minor));
         }
         None
     }

@@ -56,6 +56,31 @@ switch as `>` rather than `>=`.
 New public API on `kiss-vulkan-vocab`: `VOCABULARY_VERSION`, `ComponentType::spelling`,
 `OpClasses::alphabet`, `Arith::alphabet`, and `CoopMatrix`/`CoopVector::canonical_enumeration`.
 
+### Changed (breaking) — the declared MSRV was never true; it is now measured
+
+`vulkane` and `vulkan_gen` declared `rust-version = "1.85"` and **no consumer on 1.85 could
+ever have compiled either of them**. Both now declare **1.88**, which is the floor that was
+there all along. Two independent reasons, both predating the declaration:
+
+- `vulkan_gen` uses **let-chains** (`if let ... && let ...`), stable only in 1.88. It is a
+  *build-dependency* of `vulkane`, so this is on the consumer's compile path, not just ours.
+- **`libloading 0.9` declares `rust-version = 1.88.0`** itself, so resolution fails before a
+  single line is compiled.
+
+The second is a property of the lockfile and the first is a property of our source, so the floor
+does not move even for a consumer who resolves an older `libloading`.
+
+`kiss-vulkan-vocab` and `vulkane_derive` **stay at 1.85** — measured, not assumed. Neither pulls
+in a Vulkan loader, and a per-crate floor is worth more to a consumer than one number for the
+workspace.
+
+A new `MSRV` CI job builds every publishable crate at its own declared floor, **reading the
+version out of `cargo metadata` rather than restating it in the workflow**. A hardcoded `1.88`
+in CI would be a second copy of the promise, and the two drift the moment somebody edits the
+manifest — which is precisely how this claim survived unexamined for as long as it did. The job
+**builds and does not test**: a consumer compiles this crate, they do not run its dev-tests, and
+gating on dev-dependencies would drag the floor up for reasons unrelated to the promise.
+
 ### Fixed — `LICENSE-APACHE` was not the Apache License 2.0
 
 All five copies diverged from the canonical text in two substantive places: §6 dropped "reasonable

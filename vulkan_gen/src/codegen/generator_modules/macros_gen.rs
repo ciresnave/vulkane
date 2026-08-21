@@ -90,16 +90,16 @@ impl MacroGenerator {
         // Try to transpile the C macro body to a Rust const fn.
         // This handles version macros, extraction macros, and any other
         // function-like macros whose bodies use only bitwise ops and casts.
-        if !macro_def.parameters.is_empty() {
-            if let Some(rust_fn) = self.try_transpile_c_macro(
+        if !macro_def.parameters.is_empty()
+            && let Some(rust_fn) = self.try_transpile_c_macro(
                 &macro_def.name,
                 &macro_def.parameters,
                 cleaned_definition,
                 macro_def.deprecated.as_deref(),
-            ) {
-                code.push_str(&rust_fn);
-                return code;
-            }
+            )
+        {
+            code.push_str(&rust_fn);
+            return code;
         }
 
         // For macros with complex preprocessor conditionals, try to extract
@@ -376,13 +376,13 @@ impl MacroGenerator {
         }
 
         // Decimal integers
-        if trimmed.chars().all(|c| c.is_ascii_digit()) {
-            if let Ok(val) = trimmed.parse::<i32>() {
-                if val >= 0 {
-                    return ("u32", format!("{}", val));
-                } else {
-                    return ("i32", format!("{}", val));
-                }
+        if trimmed.chars().all(|c| c.is_ascii_digit())
+            && let Ok(val) = trimmed.parse::<i32>()
+        {
+            if val >= 0 {
+                return ("u32", format!("{}", val));
+            } else {
+                return ("i32", format!("{}", val));
             }
         }
 
@@ -492,10 +492,10 @@ impl MacroGenerator {
         if let Ok(num) = value_clean.parse::<u64>() {
             return Some(format!("pub const {}: u32 = {};\n", name, num));
         }
-        if let Ok(num) = value_clean.parse::<i64>() {
-            if num < 0 {
-                return Some(format!("pub const {}: i32 = {};\n", name, num));
-            }
+        if let Ok(num) = value_clean.parse::<i64>()
+            && num < 0
+        {
+            return Some(format!("pub const {}: i32 = {};\n", name, num));
         }
 
         None
@@ -836,11 +836,11 @@ impl MacroGenerator {
         // Common patterns
         if trimmed.contains("defined(") {
             // Extract the defined symbol
-            if let Some(start) = trimmed.find("defined(") {
-                if let Some(end) = trimmed[start..].find(')') {
-                    let symbol = &trimmed[start + 8..start + end];
-                    return format!("feature = \"{}\"", symbol.to_lowercase());
-                }
+            if let Some(start) = trimmed.find("defined(")
+                && let Some(end) = trimmed[start..].find(')')
+            {
+                let symbol = &trimmed[start + 8..start + end];
+                return format!("feature = \"{}\"", symbol.to_lowercase());
             }
         }
 

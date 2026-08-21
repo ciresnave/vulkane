@@ -770,11 +770,11 @@ impl<'a> CommandBufferRecording<'a> {
         bytes: &[u8],
     ) {
         debug_assert!(
-            offset % 4 == 0,
+            offset.is_multiple_of(4),
             "push constant offset must be a multiple of 4"
         );
         debug_assert!(
-            bytes.len() % 4 == 0,
+            bytes.len().is_multiple_of(4),
             "push constant size must be a multiple of 4"
         );
         let cmd = self

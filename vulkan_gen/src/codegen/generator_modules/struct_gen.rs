@@ -680,11 +680,11 @@ impl StructGenerator {
                 if first_non_alias.is_none() {
                     first_non_alias = Some(&v.name);
                 }
-                if let Some(val_str) = &v.value {
-                    if val_str.trim() == "0" {
-                        has_zero = true;
-                        break;
-                    }
+                if let Some(val_str) = &v.value
+                    && val_str.trim() == "0"
+                {
+                    has_zero = true;
+                    break;
                 }
             }
             if has_zero {
@@ -834,20 +834,20 @@ impl GeneratorModule for StructGenerator {
         let mut all_type_names = std::collections::HashSet::new();
         // Read types.json
         let types_path = input_dir.join("types.json");
-        if let Ok(types_content) = fs::read_to_string(types_path) {
-            if let Ok(types) = serde_json::from_str::<Vec<TypeDefinition>>(&types_content) {
-                for t in &types {
-                    all_type_names.insert(t.name.clone());
-                }
+        if let Ok(types_content) = fs::read_to_string(types_path)
+            && let Ok(types) = serde_json::from_str::<Vec<TypeDefinition>>(&types_content)
+        {
+            for t in &types {
+                all_type_names.insert(t.name.clone());
             }
         }
         // Read structs.json
         let structs_path = input_dir.join("structs.json");
-        if let Ok(structs_content) = fs::read_to_string(structs_path) {
-            if let Ok(structs) = serde_json::from_str::<Vec<StructDefinition>>(&structs_content) {
-                for s in &structs {
-                    all_type_names.insert(s.name.clone());
-                }
+        if let Ok(structs_content) = fs::read_to_string(structs_path)
+            && let Ok(structs) = serde_json::from_str::<Vec<StructDefinition>>(&structs_content)
+        {
+            for s in &structs {
+                all_type_names.insert(s.name.clone());
             }
         }
         self.generate_all_structs(input_dir, output_dir, &all_type_names)?;

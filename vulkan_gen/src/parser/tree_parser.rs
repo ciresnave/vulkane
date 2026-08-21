@@ -397,15 +397,15 @@ fn parse_define(node: roxmltree::Node, spec: &mut VulkanSpecification) {
 
 fn extract_macro_params(definition: &str) -> Vec<String> {
     // Find content between first ( and matching )
-    if let Some(start) = definition.find('(') {
-        if let Some(end) = definition[start..].find(')') {
-            let params_str = &definition[start + 1..start + end];
-            return params_str
-                .split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect();
-        }
+    if let Some(start) = definition.find('(')
+        && let Some(end) = definition[start..].find(')')
+    {
+        let params_str = &definition[start + 1..start + end];
+        return params_str
+            .split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect();
     }
     Vec::new()
 }
@@ -576,10 +576,10 @@ fn parse_commands_section(commands_node: roxmltree::Node, spec: &mut VulkanSpeci
             .find(|n| n.is_element() && n.tag_name().name() == "proto")
             .and_then(|proto| child_element_text(proto, "name"))
             .or_else(|| attr(cmd_node, "name"));
-        if let Some(ref n) = name {
-            if spec.functions.iter().any(|f| f.name == *n) {
-                continue;
-            }
+        if let Some(ref n) = name
+            && spec.functions.iter().any(|f| f.name == *n)
+        {
+            continue;
         }
         parse_command(cmd_node, spec);
     }

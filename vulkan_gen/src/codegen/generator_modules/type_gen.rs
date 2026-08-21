@@ -105,155 +105,153 @@ impl TypeGenerator {
         }
 
         // Handle alias types
-        if type_def.is_alias {
-            if let Some(alias_target) = &type_def.alias {
-                // Normalize alias targets: strip stray 'const' prefixes or
-                // other accidental tokens and extract the trailing identifier.
-                // This handles malformed inputs like "constVkSampler" or
-                // "const VkSampler" that sometimes appear in intermediate
-                // files.
-                // Helper to aggressively clean noisy type tokens. This handles
-                // joined prefixes like "constVkSampler", spaced forms like
-                // "const VkSampler", stray "struct" tokens, and removes
-                // non-identifier characters. It prefers the trailing identifier
-                // (last word) when possible.
-                fn clean_typename(raw: &str) -> String {
-                    use regex::Regex;
+        if type_def.is_alias
+            && let Some(alias_target) = &type_def.alias
+        {
+            // Normalize alias targets: strip stray 'const' prefixes or
+            // other accidental tokens and extract the trailing identifier.
+            // This handles malformed inputs like "constVkSampler" or
+            // "const VkSampler" that sometimes appear in intermediate
+            // files.
+            // Helper to aggressively clean noisy type tokens. This handles
+            // joined prefixes like "constVkSampler", spaced forms like
+            // "const VkSampler", stray "struct" tokens, and removes
+            // non-identifier characters. It prefers the trailing identifier
+            // (last word) when possible.
+            fn clean_typename(raw: &str) -> String {
+                use regex::Regex;
 
-                    if raw.trim().is_empty() {
-                        return String::new();
-                    }
-
-                    // If the token begins with a concatenated 'const' (e.g.
-                    // "constVkSampler"), strip that prefix first.
-                    let mut s = raw.to_string();
-                    if let Ok(pref_re) = Regex::new(r"^const(?P<rest>.+)") {
-                        if let Some(cap) = pref_re.captures(&s) {
-                            if let Some(rest) = cap.name("rest") {
-                                s = rest.as_str().to_string();
-                            }
-                        }
-                    }
-
-                    // Remove stray 'const' or 'struct' tokens, replace non-id
-                    // characters with spaces, collapse whitespace, then trim.
-                    s = s.replace("const", "");
-                    s = s.replace("struct", "");
-                    // Replace any non-alphanumeric/underscore with a space
-                    let non_id = Regex::new(r"[^A-Za-z0-9_]+").unwrap();
-                    s = non_id.replace_all(&s, " ").to_string();
-                    let ws = Regex::new(r"\s+").unwrap();
-                    s = ws.replace_all(&s, " ").to_string();
-                    s = s.trim().to_string();
-
-                    // Prefer trailing identifier if present
-                    if let Ok(id_re) = Regex::new(r"([A-Za-z_][A-Za-z0-9_]*)$") {
-                        if let Some(cap) = id_re.captures(&s) {
-                            return cap[1].to_string();
-                        }
-                    }
-
-                    s
+                if raw.trim().is_empty() {
+                    return String::new();
                 }
 
-                let resolved_target = clean_typename(alias_target.as_str());
-
-                // If the resolved target still isn't known, try Flags->FlagBits
-                // canonicalization on both the cleaned and original forms.
-                let mut found: Option<String> = None;
-                // Build a prioritized list of candidate names to try resolving.
-                let mut candidates = vec![resolved_target.clone(), alias_target.clone()];
-                // Also try a leading-const-stripped original if present (e.g.
-                // alias_target == "constVkSampler") to help resolution.
-                if alias_target.starts_with("const") {
-                    let lc = alias_target.trim_start_matches("const").to_string();
-                    if !lc.is_empty() {
-                        candidates.push(lc);
-                    }
+                // If the token begins with a concatenated 'const' (e.g.
+                // "constVkSampler"), strip that prefix first.
+                let mut s = raw.to_string();
+                if let Ok(pref_re) = Regex::new(r"^const(?P<rest>.+)")
+                    && let Some(cap) = pref_re.captures(&s)
+                    && let Some(rest) = cap.name("rest")
+                {
+                    s = rest.as_str().to_string();
                 }
-                // Try candidate forms
-                for cand in &candidates {
-                    if _all_type_names.contains(cand.as_str()) {
-                        found = Some(cand.clone());
+
+                // Remove stray 'const' or 'struct' tokens, replace non-id
+                // characters with spaces, collapse whitespace, then trim.
+                s = s.replace("const", "");
+                s = s.replace("struct", "");
+                // Replace any non-alphanumeric/underscore with a space
+                let non_id = Regex::new(r"[^A-Za-z0-9_]+").unwrap();
+                s = non_id.replace_all(&s, " ").to_string();
+                let ws = Regex::new(r"\s+").unwrap();
+                s = ws.replace_all(&s, " ").to_string();
+                s = s.trim().to_string();
+
+                // Prefer trailing identifier if present
+                if let Ok(id_re) = Regex::new(r"([A-Za-z_][A-Za-z0-9_]*)$")
+                    && let Some(cap) = id_re.captures(&s)
+                {
+                    return cap[1].to_string();
+                }
+
+                s
+            }
+
+            let resolved_target = clean_typename(alias_target.as_str());
+
+            // If the resolved target still isn't known, try Flags->FlagBits
+            // canonicalization on both the cleaned and original forms.
+            let mut found: Option<String> = None;
+            // Build a prioritized list of candidate names to try resolving.
+            let mut candidates = vec![resolved_target.clone(), alias_target.clone()];
+            // Also try a leading-const-stripped original if present (e.g.
+            // alias_target == "constVkSampler") to help resolution.
+            if alias_target.starts_with("const") {
+                let lc = alias_target.trim_start_matches("const").to_string();
+                if !lc.is_empty() {
+                    candidates.push(lc);
+                }
+            }
+            // Try candidate forms
+            for cand in &candidates {
+                if _all_type_names.contains(cand.as_str()) {
+                    found = Some(cand.clone());
+                    break;
+                }
+                if cand.ends_with("Flags") {
+                    let candidate = cand.replace("Flags", "FlagBits");
+                    if _all_type_names.contains(candidate.as_str()) {
+                        found = Some(candidate.clone());
                         break;
                     }
-                    if cand.ends_with("Flags") {
-                        let candidate = cand.replace("Flags", "FlagBits");
-                        if _all_type_names.contains(candidate.as_str()) {
-                            found = Some(candidate.clone());
-                            break;
-                        }
-                    }
                 }
-
-                // Fallback try: if resolved_target still looks like it begins with a
-                // lowercase run before 'Vk', strip until 'Vk' and try again.
-                if found.is_none() {
-                    if let Some(pos) = resolved_target.find("Vk") {
-                        let stripped = resolved_target[pos..].to_string();
-                        if _all_type_names.contains(stripped.as_str()) {
-                            found = Some(stripped);
-                        }
-                    }
-                }
-
-                // When a candidate is found, prefer a cleaned/canonical
-                // form without stray tokens like leading 'const' or
-                // 'struct'. This prevents emitting types such as
-                // 'constVkSampler' into the final Rust file when a
-                // canonical 'VkSampler' exists.
-                let final_target = if let Some(f) = found {
-                    // Aggressively clean common noise from the chosen
-                    // candidate, then prefer the cleaned variant if it
-                    // exists in the known type set. Fall back to the
-                    // original found value otherwise.
-                    let cleaned = clean_typename(&f);
-
-                    // Prefer the cleaned trailing identifier if present
-                    if !_all_type_names.is_empty() && _all_type_names.contains(cleaned.as_str()) {
-                        sanitize_type_name(&cleaned)
-                    } else {
-                        sanitize_type_name(&f)
-                    }
-                } else {
-                    // Use u32 as a safe default for bitmask-style aliases
-                    String::from("u32")
-                };
-                // Ensure we don't accidentally emit names with leading
-                // 'const'/'struct' noise — aggressively strip those
-                // patterns from the resolved target before emitting.
-                fn strip_leading_const_struct(s: &str) -> String {
-                    use regex::Regex;
-                    if s.trim().is_empty() {
-                        return String::new();
-                    }
-                    // Match repeated leading 'const' or 'struct' possibly joined
-                    // directly to the identifier (e.g. 'constVkFoo') or
-                    // separated by underscores/spaces.
-                    if let Ok(re) = Regex::new(r"^(?:(?:const|struct)[_ ]?)+(?P<rest>.+)$") {
-                        if let Some(cap) = re.captures(s) {
-                            if let Some(rest) = cap.name("rest") {
-                                return rest.as_str().to_string();
-                            }
-                        }
-                    }
-                    s.to_string()
-                }
-
-                let mut emitted_target = strip_leading_const_struct(&final_target);
-                // Also collapse accidental spaces/invalid chars into a safe id
-                emitted_target = sanitize_type_name(&emitted_target);
-
-                if emitted_target.is_empty() {
-                    emitted_target = "u32".to_string();
-                }
-
-                code.push_str(&format!(
-                    "pub type {} = {};\n\n",
-                    sanitized_name, emitted_target
-                ));
-                return code;
             }
+
+            // Fallback try: if resolved_target still looks like it begins with a
+            // lowercase run before 'Vk', strip until 'Vk' and try again.
+            if found.is_none()
+                && let Some(pos) = resolved_target.find("Vk")
+            {
+                let stripped = resolved_target[pos..].to_string();
+                if _all_type_names.contains(stripped.as_str()) {
+                    found = Some(stripped);
+                }
+            }
+
+            // When a candidate is found, prefer a cleaned/canonical
+            // form without stray tokens like leading 'const' or
+            // 'struct'. This prevents emitting types such as
+            // 'constVkSampler' into the final Rust file when a
+            // canonical 'VkSampler' exists.
+            let final_target = if let Some(f) = found {
+                // Aggressively clean common noise from the chosen
+                // candidate, then prefer the cleaned variant if it
+                // exists in the known type set. Fall back to the
+                // original found value otherwise.
+                let cleaned = clean_typename(&f);
+
+                // Prefer the cleaned trailing identifier if present
+                if !_all_type_names.is_empty() && _all_type_names.contains(cleaned.as_str()) {
+                    sanitize_type_name(&cleaned)
+                } else {
+                    sanitize_type_name(&f)
+                }
+            } else {
+                // Use u32 as a safe default for bitmask-style aliases
+                String::from("u32")
+            };
+            // Ensure we don't accidentally emit names with leading
+            // 'const'/'struct' noise — aggressively strip those
+            // patterns from the resolved target before emitting.
+            fn strip_leading_const_struct(s: &str) -> String {
+                use regex::Regex;
+                if s.trim().is_empty() {
+                    return String::new();
+                }
+                // Match repeated leading 'const' or 'struct' possibly joined
+                // directly to the identifier (e.g. 'constVkFoo') or
+                // separated by underscores/spaces.
+                if let Ok(re) = Regex::new(r"^(?:(?:const|struct)[_ ]?)+(?P<rest>.+)$")
+                    && let Some(cap) = re.captures(s)
+                    && let Some(rest) = cap.name("rest")
+                {
+                    return rest.as_str().to_string();
+                }
+                s.to_string()
+            }
+
+            let mut emitted_target = strip_leading_const_struct(&final_target);
+            // Also collapse accidental spaces/invalid chars into a safe id
+            emitted_target = sanitize_type_name(&emitted_target);
+
+            if emitted_target.is_empty() {
+                emitted_target = "u32".to_string();
+            }
+
+            code.push_str(&format!(
+                "pub type {} = {};\n\n",
+                sanitized_name, emitted_target
+            ));
+            return code;
         }
 
         // Handle different type categories
@@ -570,25 +568,24 @@ impl TypeGenerator {
         // with explicit enum definitions (avoid duplicate type/enum definitions).
         let mut enum_names = std::collections::HashSet::new();
         let enums_path = input_dir.join("enums.json");
-        if enums_path.exists() {
-            if let Ok(enums_content) = fs::read_to_string(&enums_path) {
-                if let Ok(enums_array) = serde_json::from_str::<
-                    Vec<crate::parser::vk_types::EnumDefinition>,
-                >(&enums_content)
-                {
-                    for e in enums_array {
+        if enums_path.exists()
+            && let Ok(enums_content) = fs::read_to_string(&enums_path)
+        {
+            if let Ok(enums_array) =
+                serde_json::from_str::<Vec<crate::parser::vk_types::EnumDefinition>>(&enums_content)
+            {
+                for e in enums_array {
+                    enum_names.insert(e.name);
+                }
+            } else {
+                // Try wrapper object { "enums": [...] }
+                #[derive(serde::Deserialize)]
+                struct EnumsFile {
+                    enums: Vec<crate::parser::vk_types::EnumDefinition>,
+                }
+                if let Ok(wrapper) = serde_json::from_str::<EnumsFile>(&enums_content) {
+                    for e in wrapper.enums {
                         enum_names.insert(e.name);
-                    }
-                } else {
-                    // Try wrapper object { "enums": [...] }
-                    #[derive(serde::Deserialize)]
-                    struct EnumsFile {
-                        enums: Vec<crate::parser::vk_types::EnumDefinition>,
-                    }
-                    if let Ok(wrapper) = serde_json::from_str::<EnumsFile>(&enums_content) {
-                        for e in wrapper.enums {
-                            enum_names.insert(e.name);
-                        }
                     }
                 }
             }
@@ -598,24 +595,24 @@ impl TypeGenerator {
         // with generated structs (avoid type alias vs struct collisions).
         let mut struct_names = std::collections::HashSet::new();
         let structs_path = input_dir.join("structs.json");
-        if structs_path.exists() {
-            if let Ok(structs_content) = fs::read_to_string(&structs_path) {
-                if let Ok(structs_array) = serde_json::from_str::<
-                    Vec<crate::parser::vk_types::StructDefinition>,
-                >(&structs_content)
-                {
-                    for s in structs_array {
+        if structs_path.exists()
+            && let Ok(structs_content) = fs::read_to_string(&structs_path)
+        {
+            if let Ok(structs_array) = serde_json::from_str::<
+                Vec<crate::parser::vk_types::StructDefinition>,
+            >(&structs_content)
+            {
+                for s in structs_array {
+                    struct_names.insert(s.name);
+                }
+            } else {
+                #[derive(serde::Deserialize)]
+                struct StructsFile {
+                    structs: Vec<crate::parser::vk_types::StructDefinition>,
+                }
+                if let Ok(wrapper) = serde_json::from_str::<StructsFile>(&structs_content) {
+                    for s in wrapper.structs {
                         struct_names.insert(s.name);
-                    }
-                } else {
-                    #[derive(serde::Deserialize)]
-                    struct StructsFile {
-                        structs: Vec<crate::parser::vk_types::StructDefinition>,
-                    }
-                    if let Ok(wrapper) = serde_json::from_str::<StructsFile>(&structs_content) {
-                        for s in wrapper.structs {
-                            struct_names.insert(s.name);
-                        }
                     }
                 }
             }

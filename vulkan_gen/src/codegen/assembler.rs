@@ -31,11 +31,11 @@ fn extract_defined_type_names(code: &str) -> Vec<String> {
                 let name = rest.trim_end_matches('{').trim().to_string();
                 names.push(name);
             }
-        } else if l.starts_with("pub type ") {
-            if let Some(rest) = l.split_whitespace().nth(2) {
-                let name = rest.trim_end_matches('=').trim().to_string();
-                names.push(name);
-            }
+        } else if l.starts_with("pub type ")
+            && let Some(rest) = l.split_whitespace().nth(2)
+        {
+            let name = rest.trim_end_matches('=').trim().to_string();
+            names.push(name);
         }
     }
     names

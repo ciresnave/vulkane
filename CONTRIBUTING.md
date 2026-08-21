@@ -5,7 +5,11 @@ Thank you for your interest in contributing to Vulkane! This document provides g
 ## Development Setup
 
 1. Install development dependencies:
-   - Rust 1.85 or later (the crate is edition 2024)
+   - Rust 1.88 or later. Building the workspace needs the highest floor any
+     member declares; the per-crate `rust-version` in each `Cargo.toml` is the
+     authority, and CI exercises every one of them. `vulkane` and `vulkan_gen`
+     need 1.88 (let-chains, and `libloading 0.9` declares 1.88 itself);
+     `kiss-vulkan-vocab` and `vulkane_derive` still build on 1.85.
    - Vulkan SDK 1.4.316 or later
    - CMake 3.20 or later and a C++ toolchain — only needed for the `shaderc`
      and `slang` features, which build their compilers from source. The

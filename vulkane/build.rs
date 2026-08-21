@@ -161,19 +161,19 @@ fn download_vk_xml(
             }
             None => {
                 // "Latest" cache expires after 24 hours
-                if let Ok(metadata) = std::fs::metadata(&cached_path) {
-                    if let Ok(modified) = metadata.modified() {
-                        let age = std::time::SystemTime::now()
-                            .duration_since(modified)
-                            .unwrap_or_default();
-                        if age.as_secs() < 86400 {
-                            println!(
-                                "Using cached vk.xml ({}h old): {}",
-                                age.as_secs() / 3600,
-                                cached_path.display()
-                            );
-                            return Ok(cached_path);
-                        }
+                if let Ok(metadata) = std::fs::metadata(&cached_path)
+                    && let Ok(modified) = metadata.modified()
+                {
+                    let age = std::time::SystemTime::now()
+                        .duration_since(modified)
+                        .unwrap_or_default();
+                    if age.as_secs() < 86400 {
+                        println!(
+                            "Using cached vk.xml ({}h old): {}",
+                            age.as_secs() / 3600,
+                            cached_path.display()
+                        );
+                        return Ok(cached_path);
                     }
                 }
             }
