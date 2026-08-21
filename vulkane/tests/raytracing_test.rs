@@ -268,7 +268,7 @@ fn ray_tracing_pipeline_properties_queryable() {
         Ok(d) => d,
         Err(e) => {
             return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e:?}"
+                "an ICD is present but enumerating physical devices failed: {e}"
             ));
         }
     };

@@ -90,7 +90,7 @@ fn generated_physical_device_get_queue_family_properties_live() {
         Ok(d) => d,
         Err(e) => {
             return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e:?}"
+                "an ICD is present but enumerating physical devices failed: {e}"
             ));
         }
     };
@@ -125,7 +125,7 @@ fn generated_physical_device_get_properties_live() {
         Ok(d) => d,
         Err(e) => {
             return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e:?}"
+                "an ICD is present but enumerating physical devices failed: {e}"
             ));
         }
     };
