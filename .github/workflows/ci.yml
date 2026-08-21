@@ -3,8 +3,19 @@ name: CI
 on:
   push:
     branches: [main]
+
+  # NO `branches:` FILTER HERE, DELIBERATELY. With `branches: [main]` a pull
+  # request based on any other branch got NO CI AT ALL -- not red, not pending,
+  # ABSENT. A stacked PR was therefore indistinguishable from a PR with nothing
+  # wrong, which is the one failure shape that leaves no artefact to misread.
+  # Found by stacking a PR on another and noticing it had only third-party
+  # checks attached. Running CI for a PR to any base costs nothing extra: the
+  # work happens once per PR either way.
+  #
+  # `push` stays scoped to main on purpose. An open PR already gets a run on
+  # every push via `synchronize`, so widening this one would double every run
+  # rather than close a gap.
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
