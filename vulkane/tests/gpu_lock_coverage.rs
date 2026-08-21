@@ -44,14 +44,39 @@ use std::path::PathBuf;
 
 /// Direct device-acquisition sites still outside a guarded helper.
 ///
-/// **May only decrease.** Measured 2026-08-20. Each one is a live test that can
-/// touch the GPU without the machine-wide lock; the guarded helpers in
-/// `common::` are the destination.
-const UNGUARDED_BUDGET: usize = 20;
+/// **May only decrease.** Each one is a live test that can touch the GPU
+/// without the machine-wide lock; the guarded helpers in `common::` are the
+/// destination.
+///
+/// 20 at 2026-08-20, then 8 in the same day: `safe_wrapper_test.rs` held twelve
+/// of them, seven routed through `instance_and_devices` and five kept a direct
+/// call because **instance creation is what they test** — an unknown layer
+/// failing cleanly, empty option lists being accepted, the `validation()`
+/// constructor. Those five call the guard themselves and carry
+/// [`DELIBERATE_MARKER`] with a reason.
+///
+/// The remaining eight are in `extension_pnext_test`, `generator_live_device_test`,
+/// `kiss_target_live`, `raytracing_test` and `tier2_extensions_test`.
+const UNGUARDED_BUDGET: usize = 8;
 
 /// Spellings that acquire a device. Extend when a new route appears — see the
 /// lower-bound note in the module docs.
 const ACQUIRES_A_DEVICE: &[&str] = &["Instance::new("];
+
+/// Marks a direct acquisition that is deliberate and guarded in place.
+///
+/// A few tests have instance creation as their SUBJECT — an unknown layer
+/// failing cleanly, empty option lists being accepted, the `validation()`
+/// constructor — and routing those through a helper would test the helper's
+/// arguments instead of the thing under test. They call
+/// `require_serialization_lock()` themselves and carry this marker with a
+/// reason.
+///
+/// This is an exemption WITH A STATED REASON, the same shape as
+/// `GPU_RUN_UNGUARDED`. Without it the budget could never reach a true floor:
+/// legitimate direct sites would sit in the count forever, the number would
+/// stop falling, and a ratchet that cannot reach zero stops being read.
+const DELIBERATE_MARKER: &str = "GPU-LOCK-DIRECT:";
 
 /// The helpers that call `require_serialization_lock` before acquiring.
 ///
@@ -82,6 +107,49 @@ fn rust_test_files() -> Vec<PathBuf> {
     }
     out.sort();
     out
+}
+
+/// How many lines above a site count as "attached to it".
+///
+/// Narrow on purpose: a marker far from the call it excuses would drift away
+/// during an edit and start exempting something it was never written for.
+///
+/// It was 4 and had to become 8, which is itself worth recording. Adding
+/// `require_serialization_lock()` to a marked site — the fix for a review
+/// finding — pushed the marker two lines further from the call and **the site
+/// silently became debt again**, count 8 → 9. The window and the thing it
+/// measures are coupled, so widening the comment moved the boundary. The
+/// ratchet caught it immediately, which is the argument for having had it.
+const MARKER_WINDOW_LINES: usize = 8;
+
+/// Do the lines just above `at` carry [`DELIBERATE_MARKER`]?
+fn marked_above(src: &str, at: usize) -> bool {
+    window_above(src, at).any(|l| l.contains(DELIBERATE_MARKER))
+}
+
+/// Does the same window carry the guard call itself?
+///
+/// **A marker alone must not suppress the scan.** An exemption that switches a
+/// check off and asserts nothing in its place is the defect this file exists to
+/// prevent, reintroduced at the granularity of one comment: the absence of a
+/// signal made indistinguishable from success.
+///
+/// Found in review, on the one marked site whose justification was a claim about
+/// *control flow* — "the lock is already held by the call that just failed" —
+/// rather than a check. The inference was true, and it was true about **another
+/// function's body**, so it would have stopped being true silently.
+///
+/// A marked site must therefore also call the guard within the same window. The
+/// marker says *why* the site is direct; the call is what makes it safe.
+/// Requiring both means the comment can never be the only thing standing there.
+fn guarded_above(src: &str, at: usize) -> bool {
+    window_above(src, at).any(|l| l.contains("require_serialization_lock()"))
+}
+
+/// The lines above `at`, nearest first.
+fn window_above(src: &str, at: usize) -> impl Iterator<Item = &str> {
+    let start = src[..at].rfind('\n').unwrap_or(0);
+    src[..start].rsplit('\n').take(MARKER_WINDOW_LINES)
 }
 
 /// Count of unguarded acquisition sites, with the files they live in.
@@ -120,10 +188,38 @@ fn unguarded_sites() -> (usize, Vec<(String, usize)>) {
         // reported 1 unguarded site out of 20 and passed. The scanner had
         // exactly the defect it was written to catch, one level up: covered in
         // name, covering almost nothing, and green either way.
-        let n: usize = ACQUIRES_A_DEVICE
+        // A site is debt unless the lines just above it carry the marker.
+        // Counted by position rather than by totals, so a file cannot offset a
+        // genuinely unguarded site with a marked one elsewhere — the whole-file
+        // arithmetic that made the first version of this scan report 1-of-20.
+        let n = ACQUIRES_A_DEVICE
             .iter()
-            .map(|s| src.matches(s).count())
-            .sum();
+            .flat_map(|needle| src.match_indices(needle))
+            .filter(|(at, _)| !marked_above(&src, *at))
+            .count();
+
+        // A marker not backed by the guard call is worse than no marker: it
+        // suppresses the scan AND records a reason, so it reads as considered
+        // rather than missing. Checked here rather than trusted.
+        for (at, _) in ACQUIRES_A_DEVICE
+            .iter()
+            .flat_map(|needle| src.match_indices(needle))
+        {
+            assert!(
+                !marked_above(&src, at) || guarded_above(&src, at),
+                "{}:{} carries {} but does not call \
+                 `require_serialization_lock()` within {} lines.\n\n\
+                 The marker exempts this site from the scan. Without the guard \
+                 call it exempts it from the RUNTIME check too — while \
+                 recording a reason, which reads as considered. An exemption \
+                 must say why AND still assert the property.",
+                path.display(),
+                src[..at].matches('\n').count() + 1,
+                DELIBERATE_MARKER,
+                MARKER_WINDOW_LINES
+            );
+        }
+
         if n > 0 {
             total += n;
             per_file.push((
@@ -300,4 +396,94 @@ fn the_scan_actually_reads_files() {
         "the scan did not find safe_wrapper_test.rs, which is the largest \
          population of direct acquisition sites in the suite"
     );
+}
+
+/// Focused tests for the marker window.
+///
+/// `marked_above` decides whether a site is debt, so an off-by-one in it either
+/// exempts something unguarded or counts something guarded — and both are
+/// silent, because the only visible effect is a number that looks plausible
+/// either way. Asked for in review, and the window had already moved once
+/// underneath the sites it measures.
+#[cfg(test)]
+mod marker_window_tests {
+    use super::{DELIBERATE_MARKER, MARKER_WINDOW_LINES, guarded_above, marked_above};
+
+    fn src_with_gap(gap: usize) -> (String, usize) {
+        let mut s = format!("// {DELIBERATE_MARKER} reason\n");
+        for i in 0..gap {
+            s.push_str(&format!("// filler {i}\n"));
+        }
+        s.push_str("    Instance::new(x);\n");
+        let at = s.find("Instance::new(").expect("target present");
+        (s, at)
+    }
+
+    #[test]
+    fn a_marker_directly_above_is_honoured() {
+        let (s, at) = src_with_gap(0);
+        assert!(marked_above(&s, at));
+    }
+
+    /// The exact boundary, both sides. A window tested only in the middle
+    /// cannot tell `take(n)` from `take(n + 1)`.
+    #[test]
+    fn the_window_ends_where_it_says_it_does() {
+        let (s, at) = src_with_gap(MARKER_WINDOW_LINES - 1);
+        assert!(
+            marked_above(&s, at),
+            "a marker exactly at the window edge must still count"
+        );
+        let (s, at) = src_with_gap(MARKER_WINDOW_LINES);
+        assert!(
+            !marked_above(&s, at),
+            "a marker one line past the window must not count — otherwise the \
+             window is wider than it claims and a distant comment can exempt a \
+             site it was never written for"
+        );
+    }
+
+    /// A marker on the same line, or below, is not "above".
+    #[test]
+    fn a_marker_at_or_below_the_site_does_not_count() {
+        let same = format!("    Instance::new(x); // {DELIBERATE_MARKER} nope\n");
+        let at = same.find("Instance::new(").unwrap();
+        assert!(!marked_above(&same, at));
+
+        let below = format!("    Instance::new(x);\n// {DELIBERATE_MARKER} nope\n");
+        let at = below.find("Instance::new(").unwrap();
+        assert!(!marked_above(&below, at));
+    }
+
+    /// Fewer than a window's worth of lines must not panic or over-read.
+    #[test]
+    fn the_start_of_a_file_is_handled() {
+        let s = "Instance::new(x);\n";
+        assert!(!marked_above(s, 0));
+
+        let s = format!("// {DELIBERATE_MARKER} r\nInstance::new(x);\n");
+        let at = s.find("Instance::new(").unwrap();
+        assert!(marked_above(&s, at));
+    }
+
+    /// The guard call is looked for in the same window, on the same terms.
+    #[test]
+    fn the_guard_call_uses_the_same_window() {
+        let s = "    require_serialization_lock();\n    Instance::new(x);\n";
+        let at = s.find("Instance::new(").unwrap();
+        assert!(guarded_above(s, at));
+
+        let mut far = String::from("    require_serialization_lock();\n");
+        for i in 0..MARKER_WINDOW_LINES {
+            far.push_str(&format!("// filler {i}\n"));
+        }
+        far.push_str("    Instance::new(x);\n");
+        let at = far.find("Instance::new(").unwrap();
+        assert!(
+            !guarded_above(&far, at),
+            "a guard call beyond the window must not vouch for this site — the \
+             two checks have to agree about what 'nearby' means, or a marker \
+             could be honoured while the call it depends on is not found"
+        );
+    }
 }

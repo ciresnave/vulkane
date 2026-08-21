@@ -28,20 +28,12 @@ use vulkane::safe::{
 
 #[test]
 fn test_safe_instance_creation_and_enumeration() {
-    let instance = match Instance::new(InstanceCreateInfo {
-        application_name: Some("vulkane test"),
-        api_version: ApiVersion::V1_0,
-        ..Default::default()
-    }) {
-        Ok(i) => i,
-        Err(e) => {
-            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-            return;
-        }
-    };
-
     // Enumeration should succeed even if there are no devices.
-    let physical_devices = instance.enumerate_physical_devices().unwrap();
+    let (_instance, physical_devices) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     println!("Found {} physical device(s)", physical_devices.len());
 
     for pd in &physical_devices {
@@ -68,13 +60,11 @@ fn test_xlib_xcb_surface_constructors_callable() {
     // a valid display, the same calls would return Ok.)
     use vulkane::safe::Surface;
 
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-            return;
-        }
-    };
+    let (instance, _physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
 
     // Synthetic, never-dereferenced pointers — only used so the call
     // makes it past the unsafe block and into the dispatch lookup.
@@ -104,15 +94,11 @@ fn test_xlib_xcb_surface_constructors_callable() {
 
 #[test]
 fn test_safe_device_creation_and_drop() {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => {
-            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            return;
-        }
-    };
-
-    let physicals = instance.enumerate_physical_devices().unwrap();
+    let (_instance, physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let physical = match physicals.first() {
         Some(p) => p.clone(),
         None => {
@@ -147,15 +133,11 @@ fn test_safe_device_creation_and_drop() {
 
 #[test]
 fn test_safe_buffer_with_host_visible_memory() {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => {
-            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            return;
-        }
-    };
-
-    let physicals = instance.enumerate_physical_devices().unwrap();
+    let (_instance, physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let Some(physical) = physicals.first().cloned() else {
         common::skipped("an ICD is present but reports no physical devices");
         return;
@@ -222,15 +204,11 @@ fn test_safe_buffer_with_host_visible_memory() {
 
 #[test]
 fn test_safe_full_gpu_round_trip() {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => {
-            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            return;
-        }
-    };
-
-    let physicals = instance.enumerate_physical_devices().unwrap();
+    let (_instance, physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let Some(physical) = physicals.first().cloned() else {
         common::skipped("an ICD is present but reports no physical devices");
         return;
@@ -1165,6 +1143,10 @@ fn test_instance_with_no_layers_or_extensions() {
         enabled_extensions: None,
         ..InstanceCreateInfo::default()
     };
+    // GPU-LOCK-DIRECT: instance creation IS the subject — this asserts that
+    // empty layer and extension lists are accepted, so routing through a helper
+    // would test the helper's arguments instead of these.
+    common::require_serialization_lock();
     if let Ok(_inst) = Instance::new(info) {
         // OK.
     } else {
@@ -1179,6 +1161,9 @@ fn test_instance_with_unknown_layer_fails_cleanly() {
         enabled_layers: &["VK_LAYER_THIS_DOES_NOT_EXIST_zzz"],
         ..InstanceCreateInfo::default()
     };
+    // GPU-LOCK-DIRECT: instance creation IS the subject — this asserts that an
+    // unknown layer fails cleanly, which no helper can produce.
+    common::require_serialization_lock();
     let result = Instance::new(info);
     // We can't be sure no Vulkan ICD is present here. If the loader is
     // present we expect ERROR_LAYER_NOT_PRESENT (or similar). If the
@@ -1238,6 +1223,9 @@ fn test_instance_with_validation_when_available() {
         ..InstanceCreateInfo::default()
     };
 
+    // GPU-LOCK-DIRECT: instance creation IS the subject — this builds an
+    // instance carrying a validation-message callback and counts what arrives.
+    common::require_serialization_lock();
     let instance = match Instance::new(info) {
         Ok(i) => i,
         Err(e) => {
@@ -1276,6 +1264,9 @@ fn test_instance_validation_constructor_when_available() {
         common::skipped_unsupported("the VK_LAYER_KHRONOS_validation layer");
         return;
     }
+    // GPU-LOCK-DIRECT: instance creation IS the subject — this exercises the
+    // `InstanceCreateInfo::validation()` constructor itself.
+    common::require_serialization_lock();
     match Instance::new(InstanceCreateInfo::validation()) {
         Ok(_inst) => {}
         Err(e) => eprintln!("validation() constructor returned err: {e}"),
@@ -2374,6 +2365,16 @@ fn try_init_at(
             // "Cannot create a 1.2 instance" has two causes with opposite
             // verdicts: no ICD (fatal), or an ICD older than the caller wants
             // (conformant). Asking for a default instance tells them apart.
+            // Re-asserted below rather than inherited. Reaching here does
+            // imply the lock was held, because `instance_and_devices` calls the
+            // guard before it can fail — but that is an inference from another
+            // function's body, and an exemption justified by a claim about
+            // control flow stops being true the moment that flow changes.
+            //
+            // GPU-LOCK-DIRECT: a disambiguation probe — the question being
+            // asked is precisely whether a DEFAULT instance can be created, so
+            // no helper can ask it.
+            common::require_serialization_lock();
             return Err(if Instance::new(InstanceCreateInfo::default()).is_ok() {
                 common::Missing::capability(format!("a Vulkan {version_label} instance"))
             } else {
@@ -3215,13 +3216,11 @@ fn test_allocator_defragmentation_compacts_fragmented_pool() {
 
 #[test]
 fn test_enumerate_physical_device_groups() {
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-            return;
-        }
-    };
+    let (instance, _physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let groups = match instance.enumerate_physical_device_groups() {
         Ok(g) => g,
         Err(e) => {
@@ -3317,13 +3316,11 @@ fn test_device_create_via_physical_device_group() {
     // Verify that PhysicalDeviceGroup::create_device works for
     // singleton groups (we can't reliably test multi-device on most CI
     // hardware) and that the resulting Device exposes the same fields.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(_) => {
-            common::skipped("no Vulkan ICD, or the loader declined to create an instance");
-            return;
-        }
-    };
+    let (instance, _physicals) =
+        match common::instance_and_devices("vulkane test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let Some(group) = instance
         .enumerate_physical_device_groups()
         .ok()
