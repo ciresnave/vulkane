@@ -66,8 +66,10 @@ impl ShaderModule {
         // multiple of 4. We also do an aligned copy to be safe regardless of
         // input alignment.
         let words: Vec<u32> = bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
             .collect();
         Self::from_spirv(device, &words)
     }
