@@ -1,0 +1,20 @@
+# The toolchain THIS REPO IS VERIFIED WITH. This is a different claim from the
+# per-crate `rust-version` in each Cargo.toml, which is the floor a CONSUMER may
+# compile with; the two are unrelated numbers and neither implies the other.
+#
+# Pinned because `stable` is a moving target that resolves on different days on
+# different machines, and two things both spelled "stable" disagreed: a local
+# `+stable` at 1.97.1 certified a branch that CI's `@stable` at 1.98.0 then
+# failed on `chunks_exact_to_as_chunks`, a lint that simply does not exist in
+# 0.1.97. A green local clippy was not evidence about CI at all.
+#
+# `components` IS NOT OPTIONAL. Components are installed per toolchain NAME, and
+# CI installs rustfmt/clippy for the name it asks for. A bare `channel` pin
+# silently gets a toolchain WITHOUT them and reds the rustfmt and clippy jobs.
+#
+# Raising this is a deliberate act: each clippy release adds MSRV-gated lints for
+# APIs that have fallen under the crates' floors, so a bump brings new `-D
+# warnings` failures that are not defects. Bump it on purpose, not on a schedule.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

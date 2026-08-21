@@ -27,6 +27,18 @@ env:
   # one.
   GPU_RUN_UNGUARDED: "CI runner: ephemeral and single-tenant, no shared GPU to serialize against"
 
+# NOTE ON `dtolnay/rust-toolchain@stable` BELOW: it does not decide what this
+# repo builds with. `rust-toolchain.toml` does. The action ends in `rustup
+# default <toolchain>`, and a default is the LOWEST-precedence selector rustup
+# has -- below the toolchain file, which is why the pin wins without the action
+# being removed. It still earns its place: it bootstraps rustup on the runner
+# and sets CARGO_INCREMENTAL/sparse-registry defaults. Read `@stable` as "get a
+# working rustup", not as "build with stable".
+#
+# The MSRV jobs are the exception and deliberately so: they pass an explicit
+# `+<version>`, which is the HIGHEST-precedence selector and beats the pin. That
+# is required -- a pin that captured them would test 1.98 under four leg names
+# saying 1.85 and 1.88. Their toolchain-confirmation step exists to catch that.
 jobs:
   build:
     name: Build & test

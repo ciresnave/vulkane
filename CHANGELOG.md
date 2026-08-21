@@ -81,6 +81,25 @@ manifest — which is precisely how this claim survived unexamined for as long a
 **builds and does not test**: a consumer compiles this crate, they do not run its dev-tests, and
 gating on dev-dependencies would drag the floor up for reasons unrelated to the promise.
 
+### Changed — the build toolchain is pinned, and it is not the same claim as the MSRV
+
+`rust-toolchain.toml` pins **1.98.0** with `rustfmt` and `clippy`. This is the toolchain the
+repo is *verified with*; the per-crate `rust-version` is the floor a *consumer* may compile
+with. Neither number implies the other and CI now exercises both.
+
+The pin exists because `stable` is a moving target resolved on different days on different
+machines. A local `+stable` at 1.97.1 certified a branch that CI's `@stable` at 1.98.0 then
+failed, on a lint that does not exist in 0.1.97 — so a green local run was not evidence about
+CI at all.
+
+`components` is not optional. Components are installed per toolchain *name*, so a bare
+`channel` pin gets a toolchain without `rustfmt` or `clippy` and reds both jobs.
+
+The MSRV jobs deliberately escape the pin: they pass an explicit `+<version>`, rustup's
+highest-precedence selector. Verified rather than assumed — a pin that captured them would
+have tested 1.98 under four leg names saying 1.85 and 1.88, which is a vacuous pass wearing
+four green ticks. The existing toolchain-confirmation step is what would catch it.
+
 ### Fixed — `LICENSE-APACHE` was not the Apache License 2.0
 
 All five copies diverged from the canonical text in two substantive places: §6 dropped "reasonable
