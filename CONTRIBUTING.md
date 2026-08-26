@@ -5,11 +5,19 @@ Thank you for your interest in contributing to Vulkane! This document provides g
 ## Development Setup
 
 1. Install development dependencies:
-   - Rust 1.88 or later. Building the workspace needs the highest floor any
-     member declares; the per-crate `rust-version` in each `Cargo.toml` is the
-     authority, and CI exercises every one of them. `vulkane` and `vulkan_gen`
-     need 1.88 (let-chains, and `libloading 0.9` declares 1.88 itself);
-     `kiss-vulkan-vocab` and `vulkane_derive` still build on 1.85.
+   - Rust **via rustup**. `rust-toolchain.toml` pins the toolchain this repo is
+     *verified with*, and rustup installs it on your first `cargo` command, so
+     there is nothing to choose. That is a different claim from the per-crate
+     `rust-version` floors below, which are what a **consumer** may compile
+     with. Neither number implies the other and CI exercises both.
+   - **A `cargo` that did not come from rustup ignores the pin entirely** — a
+     distro package, a vendored toolchain, anything without rustup's shim. The
+     file is not an error there; it is simply not read, so you silently build
+     with whatever that toolchain is. If that is you, the workspace needs 1.88 —
+     the highest floor any member declares. Each crate's `rust-version` is the
+     authority and CI exercises every one: `vulkane` and `vulkan_gen` need 1.88
+     (let-chains, and `libloading 0.9` declares 1.88 itself); `kiss-vulkan-vocab`
+     and `vulkane_derive` still build on 1.85.
    - Vulkan SDK 1.4.316 or later
    - CMake 3.20 or later and a C++ toolchain — only needed for the `shaderc`
      and `slang` features, which build their compilers from source. The
