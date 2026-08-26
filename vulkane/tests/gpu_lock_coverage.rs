@@ -40,6 +40,7 @@
 //! (60 direct `CudaDevice::new(0)` sites in `*_live.rs` alone). Both constraints
 //! in this file are theirs.
 
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 /// Direct device-acquisition sites still outside a guarded helper.
@@ -48,16 +49,25 @@ use std::path::PathBuf;
 /// without the machine-wide lock; the guarded helpers in `common::` are the
 /// destination.
 ///
-/// 20 at 2026-08-20, then 8 in the same day: `safe_wrapper_test.rs` held twelve
-/// of them, seven routed through `instance_and_devices` and five kept a direct
-/// call because **instance creation is what they test** — an unknown layer
-/// failing cleanly, empty option lists being accepted, the `validation()`
-/// constructor. Those five call the guard themselves and carry
-/// [`DELIBERATE_MARKER`] with a reason.
+/// 20 at 2026-08-20, then 8 the same day, then **0 at 2026-08-26**.
 ///
-/// The remaining eight are in `extension_pnext_test`, `generator_live_device_test`,
-/// `kiss_target_live`, `raytracing_test` and `tier2_extensions_test`.
-const UNGUARDED_BUDGET: usize = 8;
+/// `safe_wrapper_test.rs` held twelve of the original twenty: seven routed
+/// through `instance_and_devices`, and five kept a direct call because
+/// **instance creation is what they test** — an unknown layer failing cleanly,
+/// empty option lists being accepted, the `validation()` constructor. A sixth
+/// of that kind is `instance_create_info_pnext_is_plumbed_without_error`. All
+/// six call the guard themselves and carry [`DELIBERATE_MARKER`] with a reason.
+///
+/// The last eight — in `extension_pnext_test`, `generator_live_device_test`,
+/// `kiss_target_live`, `raytracing_test` and `tier2_extensions_test` — were
+/// routed through the guarded helpers on 2026-08-26.
+///
+/// **Zero is a floor, not a finish.** The scan's reach is naming and syntax, so
+/// this says "no site spelled `Instance::new(` sits outside a helper", which is
+/// a smaller claim than "no test can touch the GPU unguarded". What zero does
+/// buy is that the next such site is now a REGRESSION rather than one more
+/// entry in a backlog — the number can no longer absorb it silently.
+const UNGUARDED_BUDGET: usize = 0;
 
 /// Spellings that acquire a device. Extend when a new route appears — see the
 /// lower-bound note in the module docs.
@@ -244,35 +254,54 @@ fn unguarded_device_acquisitions_do_not_increase() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(
-        total <= UNGUARDED_BUDGET,
-        concat!(
-            "unguarded device acquisitions rose to {} (budget {}).\n\n{}\n\n",
-            "A live test acquiring a device outside a guarded helper can touch ",
-            "the GPU without the machine-wide `Global\\gpu-run` mutex, and ",
-            "nothing at runtime will say so — the run completes, the tests ",
-            "pass, and the only difference is a mutex nobody observes.\n\n",
-            "Route it through `common::instance_and_devices` (or another helper ",
-            "that calls `require_serialization_lock`) rather than raising this ",
-            "number. The budget is DEBT, not an allowlist: it may only go down."
-        ),
-        total,
-        UNGUARDED_BUDGET,
-        detail
-    );
+    // A `match` on the ordering rather than two asserts. At a budget of 0 the
+    // old `assert!(total <= UNGUARDED_BUDGET, ..)` became an absurd comparison
+    // -- `usize <= 0` is `== 0`, and clippy is right to reject it. Branching on
+    // `cmp` keeps BOTH directions and both messages, and makes the two-sidedness
+    // of the ratchet explicit instead of implied by a pair of assertions.
+    match total.cmp(&UNGUARDED_BUDGET) {
+        Ordering::Equal => {}
+        Ordering::Greater => panic!(
+            concat!(
+                "unguarded device acquisitions rose to {} (budget {}).
 
-    assert_eq!(
-        total, UNGUARDED_BUDGET,
-        concat!(
-            "unguarded device acquisitions fell to {} — below the recorded ",
-            "budget of {}. That is good; lower {} to {} in the same change so ",
-            "the ratchet keeps holding at the new level.\n\n{}\n\n",
-            "Left as a failure rather than a pass on purpose: a budget that ",
-            "silently tolerates being beaten stops being a ratchet and becomes ",
-            "a ceiling nobody lowers."
+{}
+
+",
+                "A live test acquiring a device outside a guarded helper can touch ",
+                "the GPU without the machine-wide `Global\\gpu-run` mutex, and ",
+                "nothing at runtime will say so -- the run completes, the tests ",
+                "pass, and the only difference is a mutex nobody observes.
+
+",
+                "Route it through `common::instance_and_devices` (or another helper ",
+                "that calls `require_serialization_lock`) rather than raising this ",
+                "number. The budget is DEBT, not an allowlist: it may only go down."
+            ),
+            total, UNGUARDED_BUDGET, detail
         ),
-        total, UNGUARDED_BUDGET, "UNGUARDED_BUDGET", total, detail
-    );
+        // Currently UNREACHABLE: `total` is a `usize` and the budget is 0. Kept
+        // because it becomes live again the moment the budget is non-zero, and
+        // there is one real way for that to happen -- teaching
+        // `ACQUIRES_A_DEVICE` a new spelling can raise the count legitimately,
+        // and the budget then has to come back down. This is not the same as a
+        // check that could never fail; it is one that cannot fail TODAY.
+        Ordering::Less => panic!(
+            concat!(
+                "unguarded device acquisitions fell to {} -- below the recorded ",
+                "budget of {}. That is good; lower UNGUARDED_BUDGET to {} in the ",
+                "same change so the ratchet keeps holding at the new level.
+
+{}
+
+",
+                "Left as a failure rather than a pass on purpose: a budget that ",
+                "silently tolerates being beaten stops being a ratchet and becomes ",
+                "a ceiling nobody lowers."
+            ),
+            total, UNGUARDED_BUDGET, total, detail
+        ),
+    }
 }
 
 /// The guarded helpers must actually be guarded.

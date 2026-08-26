@@ -18,8 +18,8 @@ use std::sync::Arc;
 use vulkane::safe::{
     AccelerationStructure, AccelerationStructureBuildFlags, AccelerationStructureBuildMode,
     AccelerationStructureBuildType, AccelerationStructureCreateInfo, AccelerationStructureGeometry,
-    AccelerationStructureType, Buffer, BufferCreateInfo, BufferUsage, BuildRange, Instance,
-    InstanceCreateInfo, Queue, ShaderBindingRegion,
+    AccelerationStructureType, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, BuildRange,
+    Queue, ShaderBindingRegion,
 };
 
 fn bootstrap()
@@ -254,24 +254,15 @@ fn trace_rays_graceful_missing_function() {
 #[test]
 fn ray_tracing_pipeline_properties_queryable() {
     // Should never panic regardless of driver support.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-        }
-    };
-    // NOT `unwrap_or_default()`. That turns a FAILED enumeration into an empty
-    // Vec, the loop runs zero times, and the test passes having asserted
-    // nothing — the error and the honest-empty case become the same event, and
-    // the honest-empty case is itself a vacuous pass. Both are declared.
-    let devices = match instance.enumerate_physical_devices() {
-        Ok(d) => d,
-        Err(e) => {
-            return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e}"
-            ));
-        }
-    };
+    // Through the guard. `instance_and_devices` keeps both failures distinct --
+    // "no Vulkan ICD" and "an ICD is present but enumerating failed" -- so the
+    // reason this used to spell out by hand is preserved, and neither collapses
+    // into an empty Vec that would run the loop below zero times.
+    let (_instance, devices) =
+        match common::instance_and_devices("vulkane-raytracing-test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     if devices.is_empty() {
         return common::skipped("an ICD is present but reports no physical devices");
     }

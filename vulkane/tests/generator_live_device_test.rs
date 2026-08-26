@@ -14,8 +14,7 @@
 mod common;
 
 use vulkane::safe::{
-    DeviceSafeExt, Instance, InstanceCreateInfo, InstanceSafeExt, PhysicalDeviceSafeExt,
-    QueueSafeExt,
+    ApiVersion, DeviceSafeExt, Instance, InstanceSafeExt, PhysicalDeviceSafeExt, QueueSafeExt,
 };
 
 /// The previous version also returned the `Instance`, and every caller bound it
@@ -30,17 +29,16 @@ fn bootstrap() -> Result<(vulkane::safe::Device, u32), common::Missing> {
 fn generated_instance_enumerate_physical_devices_live() {
     // Proof the generator's count-then-fill enumerate pattern produces
     // a working two-call sequence against a real loader.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-        }
-    };
+    // `instance_and_devices` enumerates via the HAND-WRITTEN path, which is
+    // precisely the side this test compares the generated one against -- so
+    // routing through the guard does not change what is being compared.
+    let (instance, safe_physdevs) =
+        match common::instance_and_devices("vulkane-generator-live", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     let raw_physdevs = <Instance as InstanceSafeExt>::enumerate_physical_devices(&instance)
         .expect("InstanceSafeExt::enumerate_physical_devices");
-    let safe_physdevs = instance
-        .enumerate_physical_devices()
-        .expect("Instance::enumerate_physical_devices (hand-written)");
     // Both paths should report the same number of physical devices.
     assert_eq!(
         raw_physdevs.len(),
@@ -82,18 +80,14 @@ fn generated_physical_device_get_queue_family_properties_live() {
         Err(cause) => return common::skip(cause),
     };
     let _ = device;
-    let instance = Instance::new(InstanceCreateInfo::default()).unwrap();
-    // NOT `unwrap_or_default()` — see raytracing_test.rs. A failed enumeration
-    // becomes an empty Vec, the loop runs zero times, and the test passes
-    // having asserted nothing.
-    let devices = match instance.enumerate_physical_devices() {
-        Ok(d) => d,
-        Err(e) => {
-            return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e}"
-            ));
-        }
-    };
+    // Through the guard. The helper keeps "no ICD" and "enumeration failed"
+    // distinct, so neither collapses into an empty Vec that would run the loop
+    // below zero times.
+    let (_instance, devices) =
+        match common::instance_and_devices("vulkane-generator-live", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     if devices.is_empty() {
         return common::skipped("an ICD is present but reports no physical devices");
     }
@@ -112,23 +106,12 @@ fn generated_physical_device_get_queue_family_properties_live() {
 fn generated_physical_device_get_properties_live() {
     // Generated single-output pattern: driver fills
     // VkPhysicalDeviceProperties, we return it.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-        }
-    };
-    // NOT `unwrap_or_default()` — see raytracing_test.rs. A failed enumeration
-    // becomes an empty Vec, the loop runs zero times, and the test passes
-    // having asserted nothing.
-    let devices = match instance.enumerate_physical_devices() {
-        Ok(d) => d,
-        Err(e) => {
-            return common::skipped(&format!(
-                "an ICD is present but enumerating physical devices failed: {e}"
-            ));
-        }
-    };
+    // Through the guard; both failure causes stay distinct in the helper.
+    let (_instance, devices) =
+        match common::instance_and_devices("vulkane-generator-live", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
     if devices.is_empty() {
         return common::skipped("an ICD is present but reports no physical devices");
     }
