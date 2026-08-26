@@ -366,11 +366,34 @@ impl DeviceCapabilities {
 /// error: new Vulkan component types appear faster than a vocabulary revision
 /// can track them, and an honest round-trippable token beats a decline.
 fn component(raw: u32) -> ComponentType {
-    // Taken from the generated binding rather than written as a literal. The
-    // base values are 0..=10 and check by eye; an extension value like
-    // 1000141000 is derived from an extension number and an offset and does
-    // not — so the one that could be silently wrong is the one the compiler
-    // should own.
+    // EVERY arm names its enumerant. The earlier version took only the five
+    // extension values from the generated binding and wrote the base ones as
+    // literals `0..=10`, reasoning that those "check by eye" while an
+    // extension value like 1000141000 does not.
+    //
+    // The reasoning was right about which is harder to read and wrong about
+    // what that buys. A literal is not checked by anything — not by eye after
+    // the day it was written, and not by any test: nothing in this crate tied
+    // `0` to `COMPONENT_TYPE_FLOAT16_KHR`, so eleven of sixteen component types
+    // were named, spelled, tested, and had an unverified numeric identity. The
+    // values ARE correct; that was never in doubt. What was missing is anything
+    // that would notice if they stopped being.
+    //
+    // Naming the enumerant makes vk.xml the authority for all sixteen: if a
+    // construct leaves the registry, this stops COMPILING rather than quietly
+    // mapping a stale number. That is a compile-time derivability witness, and
+    // it is what KISS-Classify #228 asks a vocabulary entry to carry.
+    const F16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT16_KHR as u32;
+    const F32: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT32_KHR as u32;
+    const F64: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT64_KHR as u32;
+    const S8: u32 = VkComponentTypeKHR::COMPONENT_TYPE_SINT8_KHR as u32;
+    const S16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_SINT16_KHR as u32;
+    const S32: u32 = VkComponentTypeKHR::COMPONENT_TYPE_SINT32_KHR as u32;
+    const S64: u32 = VkComponentTypeKHR::COMPONENT_TYPE_SINT64_KHR as u32;
+    const U8: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT8_KHR as u32;
+    const U16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT16_KHR as u32;
+    const U32: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT32_KHR as u32;
+    const U64: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT64_KHR as u32;
     const BFLOAT16: u32 = VkComponentTypeKHR::COMPONENT_TYPE_BFLOAT16_KHR as u32;
     const F8E4M3: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E4M3_EXT as u32;
     const F8E5M2: u32 = VkComponentTypeKHR::COMPONENT_TYPE_FLOAT8_E5M2_EXT as u32;
@@ -378,17 +401,17 @@ fn component(raw: u32) -> ComponentType {
     const U8_PACKED: u32 = VkComponentTypeKHR::COMPONENT_TYPE_UINT8_PACKED_NV as u32;
 
     match raw {
-        0 => ComponentType::F16,
-        1 => ComponentType::F32,
-        2 => ComponentType::F64,
-        3 => ComponentType::S8,
-        4 => ComponentType::S16,
-        5 => ComponentType::S32,
-        6 => ComponentType::S64,
-        7 => ComponentType::U8,
-        8 => ComponentType::U16,
-        9 => ComponentType::U32,
-        10 => ComponentType::U64,
+        F16 => ComponentType::F16,
+        F32 => ComponentType::F32,
+        F64 => ComponentType::F64,
+        S8 => ComponentType::S8,
+        S16 => ComponentType::S16,
+        S32 => ComponentType::S32,
+        S64 => ComponentType::S64,
+        U8 => ComponentType::U8,
+        U16 => ComponentType::U16,
+        U32 => ComponentType::U32,
+        U64 => ComponentType::U64,
         BFLOAT16 => ComponentType::BF16,
         F8E4M3 => ComponentType::F8E4M3FN,
         F8E5M2 => ComponentType::F8E5M2,
