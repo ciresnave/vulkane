@@ -3,8 +3,31 @@ name: CI
 on:
   push:
     branches: [main]
+
+  # NO `branches:` FILTER HERE, DELIBERATELY. With `branches: [main]` a pull
+  # request based on any other branch got NO CI AT ALL -- not red, not pending,
+  # ABSENT. A stacked PR was therefore indistinguishable from a PR with nothing
+  # wrong, which is the one failure shape that leaves no artefact to misread.
+  # Found by stacking a PR on another and noticing it had only third-party
+  # checks attached.
+  #
+  # This DOES cost CI minutes -- stacked PRs now run a full matrix each, where
+  # before they ran nothing. What it does not do is duplicate work for any one
+  # PR. An earlier version of this comment said it "costs nothing extra", which
+  # was wrong: the honest trade is minutes for the ability to tell a green
+  # stacked PR from an untested one.
+  #
+  # NOT opting into `types: [.., edited]`, and the omission is deliberate.
+  # Retargeting a PR's base fires `edited`, which is not in the default
+  # opened/synchronize/reopened set, so a retarget alone still starts no run --
+  # close and reopen the PR, or push. Opting in would fix that, but `edited`
+  # also fires on every TITLE and BODY edit, and PR bodies here get revised
+  # repeatedly. That trades a frequent waste for a rare inconvenience.
+  #
+  # `push` stays scoped to main on purpose. An open PR already gets a run on
+  # every push via `synchronize`, so widening this one would double every run
+  # rather than close a gap.
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
