@@ -26,8 +26,8 @@ use vulkane::raw::bindings::{
     VkStructureType,
 };
 use vulkane::safe::{
-    Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceMemory, Fence, Format, Image,
-    Image2dCreateInfo, ImageUsage, Instance, InstanceCreateInfo, MemoryAllocateInfo,
+    ApiVersion, Buffer, BufferCreateInfo, BufferUsage, DeviceCreateInfo, DeviceMemory, Fence,
+    Format, Image, Image2dCreateInfo, ImageUsage, Instance, InstanceCreateInfo, MemoryAllocateInfo,
     MemoryPropertyFlags, PNextChain, QueueCreateInfo, Semaphore,
 };
 
@@ -263,20 +263,19 @@ fn device_create_info_pnext_is_plumbed_without_error() {
     // runs in for no gain, and since a failed precondition here is fatal under
     // VULKANE_REQUIRE_DEVICE, over-constraining it would fail runs on hardware
     // perfectly able to answer the question the test asks.
-    let instance = match Instance::new(InstanceCreateInfo::default()) {
-        Ok(i) => i,
-        Err(e) => {
-            return common::skipped(&format!("no Vulkan ICD, or instance creation failed: {e}"));
-        }
-    };
-    let physical = match instance.enumerate_physical_devices() {
-        Ok(devices) => match devices.into_iter().next() {
-            Some(p) => p,
-            None => return common::skipped("an ICD is present but reports no physical devices"),
-        },
-        Err(e) => {
-            return common::skipped(&format!("enumerating physical devices failed: {e}"));
-        }
+    // `instance_and_devices` does not require a compute family either, so the
+    // reason above for avoiding `bootstrap()` survives the routing. Bound as
+    // `_instance` rather than `_`: the underscore PREFIX keeps it alive to the
+    // end of scope, where a bare `_` would drop it immediately and leave
+    // `physical` holding a handle from a destroyed instance.
+    let (_instance, devices) =
+        match common::instance_and_devices("vulkane-pnext-test", ApiVersion::V1_0) {
+            Ok(v) => v,
+            Err(cause) => return common::skip(cause),
+        };
+    let physical = match devices.into_iter().next() {
+        Some(p) => p,
+        None => return common::skipped("an ICD is present but reports no physical devices"),
     };
     // Family 0. Every physical device exposes at least one queue family, and
     // this test does not care which kind it is.
@@ -297,6 +296,11 @@ fn device_create_info_pnext_is_plumbed_without_error() {
 
 #[test]
 fn instance_create_info_pnext_is_plumbed_without_error() {
+    // GPU-LOCK-DIRECT: what is under test IS `Instance::new` with a pnext
+    // chain, so routing through a helper would exercise the helper's arguments
+    // instead of the thing being asserted. Guarded in place.
+    common::require_serialization_lock();
+
     let empty = PNextChain::new();
     let result = Instance::new(InstanceCreateInfo {
         pnext: Some(&empty),

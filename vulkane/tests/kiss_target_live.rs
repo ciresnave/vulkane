@@ -53,23 +53,27 @@ use vulkane::safe::*;
 /// was the third or fourth would send them to fix the wrong thing.
 // Fully qualified: the `vulkane::safe::*` glob above brings vulkane's own
 // one-parameter `Result<T>` alias into scope, which shadows std's.
-fn caps() -> std::result::Result<(Instance, PhysicalDevice, DeviceCapabilities), &'static str> {
-    let instance = Instance::new(InstanceCreateInfo {
-        api_version: ApiVersion::V1_3,
-        ..Default::default()
-    })
-    .map_err(|_| "no Vulkan ICD, or the loader declined a 1.3 instance")?;
-    let physical = instance
-        .enumerate_physical_devices()
-        .map_err(|_| "an ICD is present but enumerating physical devices failed")?
+// `String` rather than `&'static str`, so the guarded helper's own message can be
+// carried through. The four causes stay distinguishable: the helper separates
+// "no ICD / the loader declined" from "enumeration failed", and the 1.3 request
+// is appended to the first, because a loader that would have granted a 1.0
+// instance is a different thing to go and fix.
+fn caps() -> std::result::Result<(Instance, PhysicalDevice, DeviceCapabilities), String> {
+    let (instance, devices) = common::instance_and_devices("vulkane-kiss-target", ApiVersion::V1_3)
+        .map_err(|cause| match cause {
+            common::Missing::Device(why) => format!("{why}, and a 1.3 instance was requested"),
+            common::Missing::Capability(what) => what,
+        })?;
+    let physical = devices
         .into_iter()
         .next()
-        .ok_or("an ICD is present but reports no physical devices")?;
-    let c = DeviceCapabilities::of(&physical).ok_or(
+        .ok_or_else(|| "an ICD is present but reports no physical devices".to_string())?;
+    let c = DeviceCapabilities::of(&physical).ok_or_else(|| {
         "the device declined subgroup properties — note this gates on the \
          INSTANCE version, so a pre-1.1 instance starves the deriver however \
-         new the device is",
-    )?;
+         new the device is"
+            .to_string()
+    })?;
     Ok((instance, physical, c))
 }
 
@@ -77,7 +81,7 @@ fn caps() -> std::result::Result<(Instance, PhysicalDevice, DeviceCapabilities),
 fn derives_a_parseable_canonical_token_for_every_admissible_choice() {
     let (_i, physical, caps) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
     println!("device: {}", physical.properties().device_name());
     println!("caps:   {caps:?}");
@@ -118,7 +122,7 @@ fn derivation_is_deterministic_across_calls() {
     // which under byte-exact matching means a cache that never hits.
     let (_i, physical, first) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
     let second = DeviceCapabilities::of(&physical).expect("second read");
     assert_eq!(first, second, "capability read is not deterministic");
@@ -136,7 +140,7 @@ fn derivation_is_deterministic_across_calls() {
 fn subgroup_choices_match_the_reported_range() {
     let (_i, physical, caps) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
     let sg = physical
         .subgroup_properties()
@@ -187,7 +191,7 @@ fn a_narrower_kernel_target_is_admitted_but_spells_differently() {
     // on a given device would collapse into one cell.
     let (_i, _p, caps) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
     let full = caps.target_for(Subgroup::Dynamic);
     let minimal = VulkanTarget {
@@ -214,7 +218,7 @@ fn a_narrower_kernel_target_is_admitted_but_spells_differently() {
 fn rejects_a_target_the_device_cannot_run() {
     let (_i, _p, caps) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
     // A width no real device pins.
     let impossible = VulkanTarget {
@@ -243,7 +247,7 @@ fn rejects_a_target_the_device_cannot_run() {
 fn v5_arith_names_are_derivable_from_the_device_not_merely_spellable() {
     let (_i, physical, caps) = match caps() {
         Ok(v) => v,
-        Err(why) => return common::skipped(why),
+        Err(why) => return common::skipped(&why),
     };
 
     let f = physical.supported_features();
