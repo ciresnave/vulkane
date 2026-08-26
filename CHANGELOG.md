@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — clause citations in `kiss-vulkan-vocab` name their spec
+
+Every `§` citation in the exported crate now reads `KISS-Classify §…` rather than a bare
+clause id. **A bare id does not identify a clause.** `6.8-0002` is *defined* in at least three
+KISS specs and means something different in each — token matching in Classify, the ULP oracle
+in Conform, a typed decline in Emit. So a reader resolving a bare cite can land on a real
+clause that says something unrelated, which is worse than failing to find one.
+
+**Two of the twenty-three were in `Display` output, not comments**, and those are the ones
+that mattered most: an error message is where a reader with no context meets a citation.
+`ParseError::Colons` and `ParseError::Charset` now name the spec in their messages. No test
+asserted on either string, and the emitted manifest is byte-identical.
+
+Scoped to the exported crate deliberately. The superseded namespace proposal keeps its bare
+cites — it already carries a banner saying not to build against it — and **the CHANGELOG's own
+historical entries are left verbatim**, because a changelog records what was said at the time
+and correcting a citation inside one rewrites history rather than fixing a document.
+
 ### Changed (breaking) — `vulkan:` vocabulary version 5 names three arithmetic capabilities
 
 `<arith>` gains `i16`, `i64` and `f64`, naming the core `VkPhysicalDeviceFeatures` bits

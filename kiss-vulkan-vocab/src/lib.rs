@@ -6,12 +6,12 @@
 //! KISS-Classify §6.8 pins the *grammar* of a `target_capability` token —
 //! `<namespace>:<capability-set>`, exactly one colon, matched **byte-exact** —
 //! and delegates each namespace's capability-set vocabulary to that namespace's
-//! maintainer (§6.8-0004). This crate is the reference implementation of the
+//! maintainer (KISS-Classify §6.8-0004). This crate is the reference implementation of the
 //! `vulkan:` vocabulary: it spells a target canonically, parses one back, and
 //! compares two.
 //!
 //! It is deliberately **not** the normative definition. The spelling is pinned
-//! in the KISS spec text under §6.8-0004; this crate must match it byte for
+//! in the KISS spec text under KISS-Classify §6.8-0004; this crate must match it byte for
 //! byte, and the spec wins on any disagreement.
 //!
 //! # What this crate is not
@@ -34,7 +34,7 @@
 //! tokens; a token naming the device's *capability envelope* would collide
 //! them on one cell. Consequently **a device admits a set of tokens rather
 //! than having one**, and the consumer chooses before matching. Because
-//! §6.8-0002 forbids subset and implication logic, a consumer holding a
+//! KISS-Classify §6.8-0002 forbids subset and implication logic, a consumer holding a
 //! 32..=64-capable device may not look up a `sg32` kernel by reasoning that
 //! its envelope contains 32 — it must decide it is building a wave32 cell,
 //! spell that token, and match it exactly.
@@ -48,7 +48,7 @@
 //! Four fields in fixed positions, separated by `.`; parts *within* a field
 //! separated by `-`. Every set is canonically sorted and every field is
 //! always present, so two independent implementations spelling the same
-//! target produce identical bytes — which §6.8-0002 requires, since it gives
+//! target produce identical bytes — which KISS-Classify §6.8-0002 requires, since it gives
 //! no matching tolerance whatsoever.
 //!
 //! | Field | Spelling | Meaning |
@@ -86,17 +86,17 @@
 
 use std::fmt;
 
-/// Namespace component of every token this crate produces (§6.8-0003).
+/// Namespace component of every token this crate produces (KISS-Classify §6.8-0003).
 pub const NAMESPACE: &str = "vulkan";
 
 /// The vocabulary version this crate implements.
 ///
-/// Emitted into the §6.8-0008 manifest as `vocabulary_version`, and the value a
-/// consumer asserts against under §6.8-0009 — which requires the assertion, not
+/// Emitted into the KISS-Classify §6.8-0008 manifest as `vocabulary_version`, and the value a
+/// consumer asserts against under KISS-Classify §6.8-0009 — which requires the assertion, not
 /// merely the read: *"a consumer that handles a version skew gracefully has
 /// defeated the freeze rather than honored it."*
 ///
-/// A `u32` rather than anything wider or fractional, because §6.8-0008 says so
+/// A `u32` rather than anything wider or fractional, because KISS-Classify §6.8-0008 says so
 /// and says why: *"an integer — a gate that truncates a fractional value is not
 /// a gate."*
 pub const VOCABULARY_VERSION: u32 = 5;
@@ -115,7 +115,7 @@ pub const VOCABULARY_VERSION: u32 = 5;
 /// `len <= 512` enumerates, `len > 512` digests — never an implementation
 /// preference. Two honest implementations on the same target that disagreed
 /// about which form to emit would produce different tokens and fail
-/// §6.8-0002 byte-exact matching, which is the same determinism argument that
+/// KISS-Classify §6.8-0002 byte-exact matching, which is the same determinism argument that
 /// motivates the digest having a pinned hash at all. [`CoopMatrix`] applies it.
 ///
 /// *Rationale (not normative).* 512 is `2^9`, an eighth of
@@ -136,7 +136,7 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// FNV-1a 64, over `bytes`, emitted as fixed-width lowercase hex by callers.
 ///
-/// Pinned rather than chosen freely: §6.9-0003 requires a token be producible
+/// Pinned rather than chosen freely: KISS-Classify §6.9-0003 requires a token be producible
 /// with only a standard library, which rules out reaching for a SHA-2 crate.
 /// Derivers are not adversarial here — the digest only has to avoid accidental
 /// collision across the handful of shape sets real hardware reports — so a
@@ -153,12 +153,12 @@ pub fn fnv1a64(bytes: &[u8]) -> u64 {
 
 /// Why a token could not be parsed.
 ///
-/// Every variant is a *typed decline* in the §7.1-0002 sense: parsing an
+/// Every variant is a *typed decline* in the KISS-Classify §7.1-0002 sense: parsing an
 /// unrecognized or malformed token must never panic, abort, hang, or read out
 /// of bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
-    /// The token did not have exactly one `:` (§6.8-0001).
+    /// The token did not have exactly one `:` (KISS-Classify §6.8-0001).
     Colons {
         /// How many were found.
         found: usize,
@@ -180,7 +180,7 @@ pub enum ParseError {
         /// The offending text.
         found: String,
     },
-    /// A byte forbidden by §6.8-0005 appeared in the token.
+    /// A byte forbidden by KISS-Classify §6.8-0005 appeared in the token.
     Charset {
         /// The offending byte.
         byte: u8,
@@ -188,7 +188,7 @@ pub enum ParseError {
     /// The token was spelled legally but non-canonically — e.g. an unsorted
     /// op-class set, or a duplicated cooperative-matrix shape.
     ///
-    /// Rejected rather than normalized: §6.8-0002 matches byte-exact, so
+    /// Rejected rather than normalized: KISS-Classify §6.8-0002 matches byte-exact, so
     /// silently accepting a non-canonical spelling would let two spellings of
     /// one target coexist and fail to match each other.
     NonCanonical {
@@ -201,7 +201,10 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Colons { found } => {
-                write!(f, "expected exactly one ':' (§6.8-0001), found {found}")
+                write!(
+                    f,
+                    "expected exactly one ':' (KISS-Classify §6.8-0001), found {found}"
+                )
             }
             Self::Namespace { found } => write!(f, "expected namespace `vulkan`, found `{found}`"),
             Self::FieldCount { found } => {
@@ -209,7 +212,10 @@ impl fmt::Display for ParseError {
             }
             Self::Field { field, found } => write!(f, "malformed {field} field: `{found}`"),
             Self::Charset { byte } => {
-                write!(f, "byte 0x{byte:02x} is forbidden in a token (§6.8-0005)")
+                write!(
+                    f,
+                    "byte 0x{byte:02x} is forbidden in a token (KISS-Classify §6.8-0005)"
+                )
             }
             Self::NonCanonical { why } => write!(f, "non-canonical spelling: {why}"),
         }
@@ -248,7 +254,7 @@ impl Subgroup {
         }
         let digits = s.strip_prefix("sg").ok_or_else(bad)?;
         // Reject a leading zero explicitly: `sg032` and `sg32` would be two
-        // spellings of one target, and §6.8-0002 would not match them.
+        // spellings of one target, and KISS-Classify §6.8-0002 would not match them.
         if digits.is_empty() || (digits.len() > 1 && digits.starts_with('0')) {
             return Err(bad());
         }
@@ -285,7 +291,7 @@ macro_rules! flag_set {
 
             /// Every letter of this alphabet, in canonical order.
             ///
-            /// Part of the manifest's **declarative half** (§6.8-0012), which
+            /// Part of the manifest's **declarative half** (KISS-Classify §6.8-0012), which
             /// must be sufficient for a consumer that only parses.
             pub fn alphabet() -> String {
                 Self::LETTERS.iter().map(|(c, _)| *c).collect()
@@ -455,7 +461,7 @@ impl Arith {
 
     /// Every arithmetic name, in canonical order.
     ///
-    /// Part of the manifest's **declarative half** (§6.8-0012), which must be
+    /// Part of the manifest's **declarative half** (KISS-Classify §6.8-0012), which must be
     /// sufficient for a consumer that only parses.
     pub fn alphabet() -> Vec<&'static str> {
         Self::NAMES.iter().map(|(n, _)| *n).collect()
@@ -506,7 +512,7 @@ impl Arith {
                 .map(|(_, b)| *b)
                 .ok_or_else(bad)?;
             // Strictly ascending: a re-ordered or repeated spelling names the
-            // same set in different bytes, which §6.8-0002 would then fail to
+            // same set in different bytes, which KISS-Classify §6.8-0002 would then fail to
             // match against the canonical form.
             if let Some(p) = last {
                 if part <= p {
@@ -631,7 +637,7 @@ pub enum ComponentType {
 impl ComponentType {
     /// The spelling this vocabulary version gives the type.
     ///
-    /// Public because the §6.8-0008 manifest's declarative half lists them, and
+    /// Public because the KISS-Classify §6.8-0008 manifest's declarative half lists them, and
     /// a manifest generated by reaching into private state would be generated
     /// from something a consumer cannot check.
     pub fn spelling(self) -> String {
@@ -793,7 +799,7 @@ impl CoopMatrix {
     /// `None` for the empty and already-digested forms, which have no
     /// enumeration to report.
     ///
-    /// Public because the §6.8-0008 vocabulary manifest must pin the exact
+    /// Public because the KISS-Classify §6.8-0008 vocabulary manifest must pin the exact
     /// `digest_input` — the string a conformant producer hashes — and it must
     /// pin it for inputs *above* the threshold, where the spelled field shows
     /// only the hash. Reconstructing that string in the emitter would mean two
@@ -1086,7 +1092,7 @@ impl VulkanTarget {
     /// Parse a canonical token.
     ///
     /// Rejects any legal-but-non-canonical spelling rather than normalizing
-    /// it: under §6.8-0002 two spellings of one target would fail to match
+    /// it: under KISS-Classify §6.8-0002 two spellings of one target would fail to match
     /// each other, so accepting both would be worse than accepting neither.
     pub fn parse(token: &str) -> Result<Self, ParseError> {
         if let Some(b) = token
