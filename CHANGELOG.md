@@ -17,8 +17,8 @@ clause that says something unrelated, which is worse than failing to find one.
 
 **Two of the twenty-three were in `Display` output, not comments**, and those are the ones
 that mattered most: an error message is where a reader with no context meets a citation.
-The `MissingColon` and forbidden-byte messages now name the spec. No test asserted on either
-string, and the emitted manifest is byte-identical.
+`ParseError::Colons` and `ParseError::Charset` now name the spec in their messages. No test
+asserted on either string, and the emitted manifest is byte-identical.
 
 Scoped to the exported crate deliberately. The superseded namespace proposal keeps its bare
 cites — it already carries a banner saying not to build against it — and **the CHANGELOG's own
