@@ -226,10 +226,15 @@ fn test_safe_full_gpu_round_trip() {
         .unwrap();
     let queue = device.get_queue(queue_family, 0);
 
+    // The buffer size, the fill length, and the number of chunks verified are
+    // one number. Keeping them as one is what lets the verify loop below assert
+    // how much it checked rather than trusting whatever the mapping hands back.
+    const FILLED_BYTES: usize = 64;
+
     let buffer = Buffer::new(
         &device,
         BufferCreateInfo {
-            size: 64,
+            size: FILLED_BYTES as u64,
             usage: BufferUsage::TRANSFER_DST,
         },
     )
@@ -256,7 +261,7 @@ fn test_safe_full_gpu_round_trip() {
     let mut cmd = pool.allocate_primary().unwrap();
     {
         let mut rec = cmd.begin().unwrap();
-        rec.fill_buffer(&buffer, 0, 64, 0xCAFEBABE);
+        rec.fill_buffer(&buffer, 0, FILLED_BYTES as u64, 0xCAFEBABE);
         rec.end().unwrap();
     }
 
@@ -269,8 +274,43 @@ fn test_safe_full_gpu_round_trip() {
     {
         let mapped = memory.map().unwrap();
         let slice = mapped.as_slice();
+        // NATIVE-endian on purpose, though this file uses `to_le_bytes`
+        // elsewhere and the inconsistency is only apparent. Those sites write
+        // SPIR-V words and shader input data, which the spec fixes as
+        // little-endian regardless of host. This one reads back a 32-bit word
+        // the GPU wrote into HOST_VISIBLE memory, where the byte order that
+        // matches is the HOST's. Two different obligations, two conversions.
         let expected: [u8; 4] = 0xCAFEBABEu32.to_ne_bytes();
-        for chunk in slice.as_chunks::<4>().0 {
+
+        // The extent of this loop is pinned in BOTH directions, and neither
+        // bound is theoretical.
+        //
+        // Too few: `map()` hands back the whole allocation, so a zero-length or
+        // short mapping would run the loop zero times and the test would pass
+        // having verified nothing. The GPU could have written nothing at all.
+        //
+        // Too many: the allocation is `req.size`, which a driver may round UP
+        // above the `FILLED_BYTES` that `fill_buffer` covered. Those extra
+        // bytes still hold the pre-write zeros, so verifying the whole mapping
+        // would fail on such a driver for a reason that is not a defect. It is
+        // measured at exactly `FILLED_BYTES` on this hardware, which is why it
+        // needs stating rather than trusting.
+        assert!(
+            slice.len() >= FILLED_BYTES,
+            "mapped only {} bytes, fewer than the {FILLED_BYTES} the fill covered",
+            slice.len()
+        );
+        //
+        // There is deliberately NO `chunks.len()` assertion. Once the slice is
+        // bounded to `FILLED_BYTES`, the chunk count is `FILLED_BYTES / 4` by
+        // construction and such an assertion could never fail -- it would be
+        // one more check that cannot distinguish success from absence, which is
+        // the thing being removed here. The length assertion above is what
+        // carries the weight; `tail` catches a future `FILLED_BYTES` that is
+        // not a multiple of 4.
+        let (chunks, tail) = slice[..FILLED_BYTES].as_chunks::<4>();
+        assert!(tail.is_empty(), "FILLED_BYTES must be a multiple of 4");
+        for chunk in chunks {
             assert_eq!(*chunk, expected, "GPU did not write expected pattern");
         }
     }

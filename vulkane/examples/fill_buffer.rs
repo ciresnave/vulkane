@@ -126,12 +126,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut mapped = memory.map()?;
         let slice = mapped.as_slice_mut();
-        // Each 4 bytes should be 0xDEADBEEF in little-endian (Vulkan spec).
+        // NATIVE-endian, and the old comment here saying "little-endian" was
+        // wrong. `vkCmdFillBuffer` writes a 32-bit WORD; reading it back through
+        // a HOST_VISIBLE mapping yields the host's byte representation of that
+        // word, so `to_ne_bytes` is what matches on any host and `to_le_bytes`
+        // would be the portability bug rather than the fix.
         let expected: [u8; 4] = 0xDEADBEEFu32.to_ne_bytes();
-        for chunk in slice.as_chunks::<4>().0 {
+
+        // Verify exactly the region `fill_buffer` covered, and say how many
+        // chunks that is. The mapping is `req.size`, which a driver may round
+        // up above BUFFER_SIZE; those bytes were never filled. And a loop over
+        // an empty mapping would print the [OK] line below having checked
+        // nothing, which is the failure this example would be worst at showing.
+        let filled = BUFFER_SIZE as usize;
+        assert!(
+            slice.len() >= filled,
+            "mapped only {} bytes, fewer than the {filled} the fill covered",
+            slice.len()
+        );
+        // No `chunks.len()` assertion: bounded to `filled`, the count is
+        // `filled / 4` by construction and could never fail.
+        let (chunks, tail) = slice[..filled].as_chunks::<4>();
+        assert!(tail.is_empty(), "BUFFER_SIZE must be a multiple of 4");
+        for chunk in chunks {
             assert_eq!(*chunk, expected, "GPU did not write the expected pattern");
         }
-        println!("[OK] Verified all bytes match 0xDEADBEEF");
+        println!("[OK] Verified all {} bytes match 0xDEADBEEF", filled);
     }
 
     // Wait for the device to be idle before dropping everything (defensive;
