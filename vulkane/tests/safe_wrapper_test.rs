@@ -274,6 +274,12 @@ fn test_safe_full_gpu_round_trip() {
     {
         let mapped = memory.map().unwrap();
         let slice = mapped.as_slice();
+        // NATIVE-endian on purpose, though this file uses `to_le_bytes`
+        // elsewhere and the inconsistency is only apparent. Those sites write
+        // SPIR-V words and shader input data, which the spec fixes as
+        // little-endian regardless of host. This one reads back a 32-bit word
+        // the GPU wrote into HOST_VISIBLE memory, where the byte order that
+        // matches is the HOST's. Two different obligations, two conversions.
         let expected: [u8; 4] = 0xCAFEBABEu32.to_ne_bytes();
 
         // The extent of this loop is pinned in BOTH directions, and neither

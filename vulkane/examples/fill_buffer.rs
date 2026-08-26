@@ -126,7 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut mapped = memory.map()?;
         let slice = mapped.as_slice_mut();
-        // Each 4 bytes should be 0xDEADBEEF in little-endian (Vulkan spec).
+        // NATIVE-endian, and the old comment here saying "little-endian" was
+        // wrong. `vkCmdFillBuffer` writes a 32-bit WORD; reading it back through
+        // a HOST_VISIBLE mapping yields the host's byte representation of that
+        // word, so `to_ne_bytes` is what matches on any host and `to_le_bytes`
+        // would be the portability bug rather than the fix.
         let expected: [u8; 4] = 0xDEADBEEFu32.to_ne_bytes();
 
         // Verify exactly the region `fill_buffer` covered, and say how many
