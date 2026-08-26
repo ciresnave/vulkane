@@ -1,3 +1,49 @@
+> # ⚠ SUPERSEDED — HISTORICAL RECORD, NOT A SPECIFICATION
+>
+> **This document asked for something that was granted. It is kept for the
+> reasoning and evidence that won the namespace, and for nothing else.**
+>
+> **The normative definition of `vulkan:` is KISS's `spec/namespaces/vulkan.md`.**
+> Per KISS-Classify §6.8-0003 the registry's `vocabulary` field names where a vocabulary is
+> *normatively defined*, and it names that file. Nothing in this repository is
+> normative for the namespace, this document least of all.
+>
+> **Do not read a grammar out of it.** This document's §4 proposes `vulkan:<fields>.fnv1a64:<hex>`.
+> The ratified grammar, reproduced BYTE-FOR-BYTE from the `grammar` field of
+> `kiss-vulkan-vocab/manifest/vulkan-vocabulary.json`, which is authoritative:
+>
+> ```
+> vulkan:<subgroup>.<ops>.<arith>.<coop>.<coopvec>
+> ```
+>
+> That block holds the grammar and nothing else — no version suffix, no trailing
+> commentary — because this is a document about BYTE-EXACT matching and a reader
+> who copies the line must get a usable value. It is vocabulary_version 5 as of
+> writing, and the version is stated here in prose rather than inside the block
+> for that reason. `vulkane/tests/superseded_doc_grammar.rs` asserts the two are
+> byte-identical, so this copy cannot drift from the manifest the way the count
+> in KISS's registry row did.
+>
+> Those are different token shapes, not a refinement of one into the other. KISS-Classify §6.8-0002
+> matching is **byte-exact**, so anything emitted from that strawman matches nothing
+> any current implementation produces. The machine-readable vocabulary lives at
+> `kiss-vulkan-vocab/manifest/vulkan-vocabulary.json` and is regenerated and
+> byte-compared on every CI run; **that file, not this one, is what a tool should read.**
+>
+> **Statements below that were true on 2026-07-31 and are false now**, listed because
+> a reader landing mid-document will not see this header:
+>
+> - *"`vulkan:` currently has no maintainer, so its vocabulary is undefined"* —
+>   Vulkane is the registered maintainer and the vocabulary is at version 5.
+> - *"asks four questions before anything is filed"* — all four were answered and
+>   the namespace was filed, registered, and revised four times since.
+>
+> Kept rather than deleted because the argument for *why* the namespace needed an
+> owner, and Fuel's two-device measurement, exist nowhere else. **The history is the
+> value; the vocabulary in it is four revisions stale.**
+
+---
+
 # To the KISS steward — claiming the `vulkan:` `target_capability` namespace
 
 **Status: PROPOSAL — opening a design thread.** From Vulkane (the `vk.xml`-generated safe
