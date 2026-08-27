@@ -29,6 +29,23 @@ The env that IS replicated is the part whose absence weakens the check:
 a failure. A local `cargo doc` without it passes. **A harness that runs a weaker
 configuration than CI reports green on a configuration nobody ships.**
 
+# What this executes, and the trust boundary
+
+This runs the commands written in `.github/workflows/ci.yml`. That is the point,
+and it is also the whole security story: a static-analysis pass will flag the
+`subprocess.run` here as a call without a literal argument, correctly, because
+the argument comes from a file.
+
+The file is the workflow CI already executes with more privilege than you have.
+Anyone who can change it can already run code in CI, so running it here is not an
+escalation ON A BRANCH YOU TRUST. **On a branch you do not trust it is arbitrary
+code execution on your machine** -- but so is `cargo test`, which runs that
+branch's `build.rs`. The rule is the same one Rust already asks of you: do not
+run a build, a test, or this, on a branch you would not review first.
+
+Stated rather than suppressed, because a security finding waved away as a false
+positive is indistinguishable from one nobody read.
+
 Never pipe this. It is a gate, and a pipe turns its exit status into the exit
 status of whatever you piped into.
 """
@@ -41,7 +58,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
-GPU_RUN = Path("C:/Projects/fuel/scripts/gpu-run.ps1")
+GPU_RUN_ENV = "VULKANE_GPU_RUN"
+# Where the machine-wide GPU serialization wrapper lives. The default is where
+# it sits on the machine this was written on; anywhere else, set the env var.
+# A hard-coded absolute path would make the harness behave differently per
+# machine, which is the same drift this file exists to remove -- by machine
+# instead of by time.
+GPU_RUN = Path(os.environ.get(GPU_RUN_ENV, "C:/Projects/fuel/scripts/gpu-run.ps1"))
 
 RUN = "run"
 GPU = "gpu"
@@ -93,7 +116,14 @@ POLICIES = [
 
 def steps():
     """Every `run:` step in the workflow, with the env CI gives it."""
-    import yaml
+    try:
+        import yaml
+    except ImportError:
+        # The person who hits this is the person the tool is for: CI installs
+        # pyyaml explicitly, so only a local run can lack it. A traceback here
+        # costs most exactly where it helps least.
+        sys.exit("error: this needs pyyaml to read the workflow. Install it with:"
+                 "\n  " + sys.executable + " -m pip install pyyaml")
 
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     top = {k: str(v) for k, v in (doc.get("env") or {}).items()}
@@ -193,10 +223,21 @@ def main():
 
         if policy == MSRV:
             for expanded, leg in msrv_invocations(command):
-                subprocess.run(
+                # Read the install result. Ignoring it lets the build below run on
+                # whatever toolchain happened to be present and report a pass or a
+                # fail about a version nobody chose -- an exit code produced and
+                # never read, which is the same defect as treating gpu-run's
+                # EX_TEMPFAIL as a gate result, one layer over.
+                install = subprocess.run(
                     ["rustup", "toolchain", "install", leg["msrv"], "--profile", "minimal"],
-                    capture_output=True,
+                    capture_output=True, text=True,
                 )
+                if install.returncode != 0:
+                    failures.append(label + " (" + leg["name"] + " @ " + leg["msrv"]
+                                    + ") toolchain install failed: "
+                                    + install.stderr.strip()[:160])
+                    ran += 1
+                    continue
                 print("  RUN   [" + job + "] " + leg["name"] + " @ " + leg["msrv"])
                 code = shell(expanded, env)
                 if code != 0:
