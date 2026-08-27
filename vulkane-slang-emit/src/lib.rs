@@ -71,7 +71,17 @@ fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
         ElementKind::F64 => Some("double"),
         ElementKind::I32 => Some("int"),
         ElementKind::I64 => Some("int64_t"),
-        // F16/Bf16/S8/U8/U32 declined in v1 (no clean base-profile scalar type).
+        // `uint`/`uint64_t`. The v1 comment here said U32 had "no clean
+        // base-profile scalar type", which was simply wrong: Slang documents
+        // `int`/`int32_t` and `uint`/`uint32_t` as the two integer types that are
+        // *universally* supported, so this was never a capability question — it
+        // was unwritten. The coverage table said so in as many words while this
+        // line claimed the opposite, and the table was right.
+        ElementKind::U32 => Some("uint"),
+        ElementKind::U64 => Some("uint64_t"),
+        // F16/Bf16/i8/u8 remain declined: i8/u8 are over-refusal answerable from
+        // the vulkan `<arith>` field, i16/u16 are not expressible in that
+        // vocabulary at all. See `supports_dtype`.
         _ => None,
     }
 }
@@ -484,6 +494,59 @@ mod tests {
         structure_key(OpCategory::UnaryElementwise, &[a, a], ArchSku::Sm89)
     }
 
+    /// `u32`/`u64` lower to `uint`/`uint64_t`.
+    ///
+    /// The v1 `slang_ctype` comment claimed U32 had "no clean base-profile
+    /// scalar type". That was never true — Slang documents `int`/`int32_t` and
+    /// `uint`/`uint32_t` as the two integer types that are *universally*
+    /// supported. The coverage table said so (`this one is entirely ours to
+    /// add`) while the code said the opposite, and the table was right.
+    ///
+    /// # The warrant covers u32, and u64 rides on i64's existing assumption
+    ///
+    /// Slang's universality claim is about the **32-bit** pair. `uint64_t` is a
+    /// capability-dependent type, exactly as `int64_t` is — and this backend has
+    /// claimed `int64_t` with no capability check since v1. So u64 is admitted
+    /// for **symmetry with an assumption already being made**, not because the
+    /// universality argument reaches it. If i64 is over-claiming here then so is
+    /// u64, and both are answered by the same `supports_dtype` three-state
+    /// question already raised with Eric — not by this test.
+    #[test]
+    fn unsigned_elementwise_emits_uint_buffers() {
+        for (dt, ctype, tag) in [
+            (ElementKind::U32, "uint", "u32"),
+            (ElementKind::U64, "uint64_t", "u64"),
+        ] {
+            let op = OpDef::elementwise("bits", 2, &[dt], input(0) * input(1) + input(0));
+            let k = generate(&op, &binary_scalar_key(dt, 4), &Slang);
+            let src = &k.source;
+            assert_eq!(k.name, format!("unpopped_slang_bits_{tag}"));
+            assert!(
+                src.contains(&format!("StructuredBuffer<{ctype}> input0;")),
+                "{tag}: operand buffer is not {ctype}:
+{src}"
+            );
+            assert!(
+                src.contains(&format!("RWStructuredBuffer<{ctype}> output;")),
+                "{tag}: output buffer is not {ctype}:
+{src}"
+            );
+            assert!(
+                src.contains("output[i] = ((input0[i] * input1[i]) + input0[i]);"),
+                "{tag}: body did not lower:
+{src}"
+            );
+            // The index is `uint` and so is the data at u32. A ctype that
+            // collided with the loop variable would still emit and still read
+            // fine here, so this pins the DECLARATION rather than a usage.
+            assert!(
+                src.contains("uint i = tid.x;"),
+                "{tag}: index decl:
+{src}"
+            );
+        }
+    }
+
     #[test]
     fn f32_elementwise_emits_a_slang_compute_shader() {
         let op = OpDef::elementwise(
@@ -576,7 +639,12 @@ mod tests {
     fn declines_f16_and_non_scalar_dtypes_via_supports_dtype() {
         assert!(!Slang.supports_dtype(ElementKind::F16, ArchSku::Sm89.into()));
         assert!(!Slang.supports_dtype(ElementKind::Bf16, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::U32, ArchSku::Sm89.into()));
+        // U32/U64 now lower — see `slang_ctype` and
+        // `unsigned_elementwise_emits_uint_buffers`. i8/u8/i16/u16 stay declined.
+        assert!(!Slang.supports_dtype(ElementKind::I8, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::U8, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::I16, ArchSku::Sm89.into()));
+        assert!(!Slang.supports_dtype(ElementKind::U16, ArchSku::Sm89.into()));
         assert!(!Slang.supports_dtype(ElementKind::I8, ArchSku::Sm89.into()));
         for dt in [
             ElementKind::F32,
