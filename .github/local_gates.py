@@ -200,9 +200,12 @@ def shell(command, env):
     somewhere else is one the next reader has to take on trust; the full argument
     is in the module docstring under "the trust boundary".
     """
-    return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        ["bash", "-lc", command], cwd=REPO, env=env
-    ).returncode
+    # NOT suppressed, because it cannot be: `# nosemgrep` was tried both on the
+    # preceding line and on the matched line, and Sourcery honours neither. A
+    # directive that does nothing is worse than none -- it reads as though the
+    # finding were handled. So the finding stands, red, correct, and answered in
+    # the docstring above and in the PR thread.
+    return subprocess.run(["bash", "-lc", command], cwd=REPO, env=env).returncode
 
 
 def main():
