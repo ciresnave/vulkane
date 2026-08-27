@@ -651,7 +651,7 @@ mod component_tests {
 /// module existed:
 ///
 /// - **Direction A** — every capability the device reports is named. That is what
-///   `kiss_target_live::v5_arith_names_are_derivable_from_the_device_not_merely_spellable`
+///   `kiss_target_live::v5_arith_names_the_device_reports_are_spelled_in_the_token`
 ///   does: it walks the DEVICE's feature bits and requires the token to spell each.
 /// - **Direction B** — every name in the vocabulary is producible. Nothing checked
 ///   this, and its absence is invisible: a phantom name has a perfectly valid

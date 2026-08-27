@@ -291,7 +291,7 @@ macro_rules! flag_set {
 
             /// Every named bit this set can spell, OR-ed together.
             ///
-            /// Derived from [`Self::LETTERS`] rather than restated, so it cannot
+            /// Derived from the `LETTERS` table rather than restated, so it cannot
             /// disagree with the alphabet. A deriver can assert it covers this
             /// value and thereby prove **direction B** — that every name the
             /// vocabulary offers is one the deriver can actually produce. The
@@ -479,7 +479,7 @@ impl Arith {
 
     /// Every named bit this set can spell, OR-ed together.
     ///
-    /// Derived from [`Self::NAMES`] rather than restated. See the note on the
+    /// Derived from the `NAMES` table rather than restated. See the note on the
     /// macro-generated `all()` for why a deriver wants this: covering it is what
     /// makes "every name is producible" checkable without a device that happens
     /// to support everything.
