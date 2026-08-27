@@ -289,6 +289,24 @@ macro_rules! flag_set {
                 &[ $( ($letter, $bit) ),+ ]
             };
 
+            /// Every named bit this set can spell, OR-ed together.
+            ///
+            /// Derived from the `LETTERS` table rather than restated, so it cannot
+            /// disagree with the alphabet. A deriver can assert it covers this
+            /// value and thereby prove **direction B** — that every name the
+            /// vocabulary offers is one the deriver can actually produce. The
+            /// converse check, that every capability a device reports is named,
+            /// is direction A and is a different obligation.
+            pub const fn all() -> Self {
+                let mut bits = 0;
+                let mut i = 0;
+                while i < Self::LETTERS.len() {
+                    bits |= Self::LETTERS[i].1;
+                    i += 1;
+                }
+                Self(bits)
+            }
+
             /// Every letter of this alphabet, in canonical order.
             ///
             /// Part of the manifest's **declarative half** (KISS-Classify §6.8-0012), which
@@ -458,6 +476,22 @@ impl Arith {
         ("st16", 1 << 4),
         ("st8", 1 << 3),
     ];
+
+    /// Every named bit this set can spell, OR-ed together.
+    ///
+    /// Derived from the `NAMES` table rather than restated. See the note on the
+    /// macro-generated `all()` for why a deriver wants this: covering it is what
+    /// makes "every name is producible" checkable without a device that happens
+    /// to support everything.
+    pub const fn all() -> Self {
+        let mut bits = 0;
+        let mut i = 0;
+        while i < Self::NAMES.len() {
+            bits |= Self::NAMES[i].1;
+            i += 1;
+        }
+        Self(bits)
+    }
 
     /// Every arithmetic name, in canonical order.
     ///

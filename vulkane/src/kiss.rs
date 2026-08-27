@@ -52,8 +52,8 @@
 //! # }
 //! ```
 
-use crate::raw::bindings::VkComponentTypeKHR;
-use crate::safe::{PhysicalDevice, SubgroupFeatureFlags};
+use crate::raw::bindings::{VkComponentTypeKHR, VkPhysicalDeviceFeatures};
+use crate::safe::{PhysicalDevice, ShaderArithmeticFeatures, SubgroupFeatureFlags};
 use kiss_vulkan_vocab::{
     Arith, ComponentType, CoopMatrix, CoopShape, CoopVecCombo, CoopVector, OpClasses, Subgroup,
     VulkanTarget,
@@ -85,6 +85,62 @@ pub struct DeviceCapabilities {
     pub coopvec: Vec<CoopVecCombo>,
 }
 
+/// A probe over a feature struct, paired with the vocabulary name it yields.
+///
+/// Named so the tables below read as data rather than as a type puzzle, and so
+/// the deriver's coverage can be a value the tests compare instead of source
+/// they scan.
+type ArithProbes<T> = &'static [(fn(&T) -> bool, Arith)];
+
+/// The subgroup-operation classes this deriver can produce, and the device flag
+/// each is produced FROM.
+///
+/// A table rather than an `if` chain so that what the deriver COVERS is a value
+/// the tests can read. `every_named_capability_is_derivable` compares the union
+/// of these against `OpClasses::all()`; a name added to the vocabulary without an
+/// entry here fails that comparison instead of shipping as a phantom.
+const OPS_DERIVATION: &[(SubgroupFeatureFlags, OpClasses)] = &[
+    (SubgroupFeatureFlags::BASIC, OpClasses::BASIC),
+    (SubgroupFeatureFlags::VOTE, OpClasses::VOTE),
+    (SubgroupFeatureFlags::ARITHMETIC, OpClasses::ARITHMETIC),
+    (SubgroupFeatureFlags::BALLOT, OpClasses::BALLOT),
+    (SubgroupFeatureFlags::SHUFFLE, OpClasses::SHUFFLE),
+    (
+        SubgroupFeatureFlags::SHUFFLE_RELATIVE,
+        OpClasses::SHUFFLE_RELATIVE,
+    ),
+    (SubgroupFeatureFlags::CLUSTERED, OpClasses::CLUSTERED),
+    (SubgroupFeatureFlags::QUAD, OpClasses::QUAD),
+    (SubgroupFeatureFlags::ROTATE, OpClasses::ROTATE),
+    (
+        SubgroupFeatureFlags::ROTATE_CLUSTERED,
+        OpClasses::ROTATE_CLUSTERED,
+    ),
+    (SubgroupFeatureFlags::PARTITIONED_NV, OpClasses::PARTITIONED),
+];
+
+/// Arithmetic names produced from the OPTIONAL extension feature struct, which a
+/// device may decline entirely.
+const ARITH_FROM_EXTENSION_FEATURES: ArithProbes<ShaderArithmeticFeatures> = &[
+    (|f| f.shader_float16, Arith::FLOAT16),
+    (|f| f.shader_int8, Arith::INT8),
+    (|f| f.storage_buffer_16bit, Arith::STORAGE16),
+    (|f| f.storage_buffer_8bit, Arith::STORAGE8),
+];
+
+/// Arithmetic names produced from CORE `VkPhysicalDeviceFeatures` bits, which
+/// every device reports and none can decline.
+const ARITH_FROM_CORE_FEATURES: ArithProbes<VkPhysicalDeviceFeatures> = &[
+    (|f| f.shaderInt16 != 0, Arith::INT16),
+    (|f| f.shaderInt64 != 0, Arith::INT64),
+    (|f| f.shaderFloat64 != 0, Arith::FLOAT64),
+];
+
+/// The one arithmetic name produced from a disjunction rather than a single bit:
+/// any of six `integerDotProduct*` accelerations satisfies it. Held separately
+/// because its probe takes a different struct and is not a field read.
+const ARITH_FROM_DOT_PRODUCT: Arith = Arith::DOT8;
+
 impl DeviceCapabilities {
     /// Read a device's capability envelope.
     ///
@@ -103,50 +159,25 @@ impl DeviceCapabilities {
 
         let mut ops = OpClasses::NONE;
         let supported = sg.supported_operations;
-        for (flag, class) in [
-            (SubgroupFeatureFlags::BASIC, OpClasses::BASIC),
-            (SubgroupFeatureFlags::VOTE, OpClasses::VOTE),
-            (SubgroupFeatureFlags::ARITHMETIC, OpClasses::ARITHMETIC),
-            (SubgroupFeatureFlags::BALLOT, OpClasses::BALLOT),
-            (SubgroupFeatureFlags::SHUFFLE, OpClasses::SHUFFLE),
-            (
-                SubgroupFeatureFlags::SHUFFLE_RELATIVE,
-                OpClasses::SHUFFLE_RELATIVE,
-            ),
-            (SubgroupFeatureFlags::CLUSTERED, OpClasses::CLUSTERED),
-            (SubgroupFeatureFlags::QUAD, OpClasses::QUAD),
-            (SubgroupFeatureFlags::ROTATE, OpClasses::ROTATE),
-            (
-                SubgroupFeatureFlags::ROTATE_CLUSTERED,
-                OpClasses::ROTATE_CLUSTERED,
-            ),
-            (SubgroupFeatureFlags::PARTITIONED_NV, OpClasses::PARTITIONED),
-        ] {
-            if supported.contains(flag) {
-                ops |= class;
+        for (flag, class) in OPS_DERIVATION {
+            if supported.contains(*flag) {
+                ops |= *class;
             }
         }
 
         let mut arith = Arith::NONE;
         if let Some(f) = physical.shader_arithmetic_features() {
-            if f.shader_float16 {
-                arith |= Arith::FLOAT16;
-            }
-            if f.shader_int8 {
-                arith |= Arith::INT8;
-            }
-            if f.storage_buffer_16bit {
-                arith |= Arith::STORAGE16;
-            }
-            if f.storage_buffer_8bit {
-                arith |= Arith::STORAGE8;
+            for (probe, name) in ARITH_FROM_EXTENSION_FEATURES {
+                if probe(&f) {
+                    arith |= *name;
+                }
             }
         }
         if physical
             .shader_integer_dot_product_properties()
             .is_some_and(|d| d.has_any_int8_acceleration())
         {
-            arith |= Arith::DOT8;
+            arith |= ARITH_FROM_DOT_PRODUCT;
         }
 
         // Vocabulary version 5. These three are core `VkPhysicalDeviceFeatures`
@@ -159,14 +190,10 @@ impl DeviceCapabilities {
         // packed component types: spellable, underivable, and invisible because
         // the absent value has a perfectly valid spelling.
         let f = physical.supported_features();
-        if f.shaderInt16 != 0 {
-            arith |= Arith::INT16;
-        }
-        if f.shaderInt64 != 0 {
-            arith |= Arith::INT64;
-        }
-        if f.shaderFloat64 != 0 {
-            arith |= Arith::FLOAT64;
+        for (probe, name) in ARITH_FROM_CORE_FEATURES {
+            if probe(&f) {
+                arith |= *name;
+            }
         }
 
         // `?` on the error, not `unwrap_or_default()`. An empty shape list
@@ -614,5 +641,103 @@ mod component_tests {
 
     fn vulkane_raw_nv_e5m2() -> u32 {
         crate::raw::bindings::COMPONENT_TYPE_FLOAT_E5M2_NV as u32
+    }
+}
+
+/// **Direction B**: every capability the vocabulary NAMES must be one this
+/// deriver can produce.
+///
+/// The obligation runs two ways and only one of them was checked before this
+/// module existed:
+///
+/// - **Direction A** — every capability the device reports is named. That is what
+///   `kiss_target_live::v5_arith_names_the_device_reports_are_spelled_in_the_token`
+///   does: it walks the DEVICE's feature bits and requires the token to spell each.
+/// - **Direction B** — every name in the vocabulary is producible. Nothing checked
+///   this, and its absence is invisible: a phantom name has a perfectly valid
+///   spelling and round-trips correctly, so every parse, format and manifest test
+///   passes. That is precisely the defect vocabulary version 4 shipped with for the
+///   packed component types.
+///
+/// Demonstrated before it was written: adding an arith name `PHANTOM` to the
+/// vocabulary and regenerating the manifest left the manifest freshness gate GREEN
+/// — it compares the manifest to the emitter that produced it, so a phantom is
+/// consistent with its own source. A gate that answers a different question than
+/// its name suggests is worse than an absent one.
+///
+/// This compares VALUES rather than scanning source: `all()` is derived from the
+/// vocabulary's own name tables, and the deriver's coverage is the union of the
+/// tables it actually iterates. Neither side is restated, so neither can drift.
+#[cfg(test)]
+mod derivability {
+    use super::*;
+
+    /// Every `Arith` bit this deriver can set, from the tables it really uses.
+    fn derivable_arith() -> Arith {
+        let mut a = ARITH_FROM_DOT_PRODUCT;
+        for (_, name) in ARITH_FROM_EXTENSION_FEATURES {
+            a |= *name;
+        }
+        for (_, name) in ARITH_FROM_CORE_FEATURES {
+            a |= *name;
+        }
+        a
+    }
+
+    /// Every `OpClasses` bit this deriver can set.
+    fn derivable_ops() -> OpClasses {
+        let mut o = OpClasses::NONE;
+        for (_, class) in OPS_DERIVATION {
+            o |= *class;
+        }
+        o
+    }
+
+    #[test]
+    fn every_named_arith_capability_is_derivable() {
+        assert_eq!(
+            derivable_arith(),
+            Arith::all(),
+            "the vocabulary names an arith capability this deriver cannot produce. \
+             A name no device can be shown to yield is a phantom: it spells, parses \
+             and round-trips, so nothing else in the suite objects. Either give it a \
+             derivation here or remove it from the vocabulary."
+        );
+    }
+
+    #[test]
+    fn every_named_op_class_is_derivable() {
+        assert_eq!(
+            derivable_ops(),
+            OpClasses::all(),
+            "the vocabulary names a subgroup op class this deriver cannot produce"
+        );
+    }
+
+    /// The comparison is worthless if either side is empty — two absences compare
+    /// equal. `Arith::NONE == Arith::NONE` would pass both tests above while
+    /// proving nothing at all.
+    #[test]
+    fn neither_side_of_the_comparison_is_empty() {
+        assert_ne!(
+            Arith::all(),
+            Arith::NONE,
+            "the vocabulary names no arith capability"
+        );
+        assert_ne!(
+            derivable_arith(),
+            Arith::NONE,
+            "the deriver covers no arith capability"
+        );
+        assert_ne!(
+            OpClasses::all(),
+            OpClasses::NONE,
+            "the vocabulary names no op class"
+        );
+        assert_ne!(
+            derivable_ops(),
+            OpClasses::NONE,
+            "the deriver covers no op class"
+        );
     }
 }
