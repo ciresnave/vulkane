@@ -244,7 +244,19 @@ fn rejects_a_target_the_device_cannot_run() {
 /// **device feature bit** directly, then require the derived token to spell the
 /// name — rather than reading the token and believing it.
 #[test]
-fn v5_arith_names_are_derivable_from_the_device_not_merely_spellable() {
+/// **Direction A only**, and the name says so because the previous one did not.
+///
+/// This walks the DEVICE's feature bits and requires the token to spell each one.
+/// It does NOT walk the vocabulary asking whether every name is producible — that
+/// is direction B, and it lives in `kiss::derivability` because it needs no device.
+///
+/// The old name was `v5_arith_names_are_derivable_from_the_device_not_merely_spellable`,
+/// which asserts direction B while doing direction A. It passed with a phantom
+/// arith name in the vocabulary — a capability no Vulkan device can report —
+/// because a phantom bit is simply never set, so no iteration of this loop ever
+/// looks at it. A test named for a guarantee it does not provide is worse than no
+/// test: nobody reading the name goes looking for the gap.
+fn v5_arith_names_the_device_reports_are_spelled_in_the_token() {
     let (_i, physical, caps) = match caps() {
         Ok(v) => v,
         Err(why) => return common::skipped(&why),

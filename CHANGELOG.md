@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a capability could be NAMED without being derivable, and the test that said otherwise
+
+The vocabulary's obligation runs two ways and only one was checked:
+
+- **Direction A** — every capability the device reports is named in the token.
+- **Direction B** — every name the vocabulary offers is one some device can produce.
+
+Nothing checked B, and its absence is invisible by construction: a phantom name spells,
+parses and round-trips correctly, so every parse, format and manifest test passes. That is
+the defect vocabulary version 4 shipped with for the packed component types.
+
+**Demonstrated before it was fixed.** Adding an arith name `PHANTOM` — a capability no
+Vulkan device can report — and regenerating the manifest left the freshness gate **green**:
+it compares the manifest against the emitter that produced it, and a phantom is perfectly
+consistent with its own source.
+
+`kiss-vulkan-vocab` gains `Arith::all()` and `OpClasses::all()`, derived from the existing
+name tables rather than restated. `vulkane::kiss` lifts its derivation into tables it
+actually iterates, so what the deriver COVERS is a value, and a new unit test compares that
+value against `all()`. Neither side is a copy, so neither can drift, and no source scanning
+is involved.
+
+**A test was renamed because it asserted the guarantee it did not provide.**
+`v5_arith_names_are_derivable_from_the_device_not_merely_spellable` walks the *device's*
+feature bits — direction A — and passed with a phantom in the vocabulary, because a phantom
+bit is never set and no iteration looks at it. It is now
+`v5_arith_names_the_device_reports_are_spelled_in_the_token`. A test named for a guarantee it
+does not give is worse than an absent one: nobody reading the name goes looking for the gap.
+
 ### Changed — clause citations in `kiss-vulkan-vocab` name their spec
 
 Every `§` citation in the exported crate now reads `KISS-Classify §…` rather than a bare
