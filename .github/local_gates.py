@@ -123,6 +123,13 @@ def ci_env(step_env):
     dropped rather than exported literally.
     """
     env = dict(os.environ)
+    # POP, not merely decline-to-add. Declining only stops it arriving from the
+    # step; it does nothing about an ambient one. CI sets this at workflow level,
+    # so on a runner it is already in `os.environ` and an inherit-then-filter
+    # would pass it straight through -- and any developer with it exported would
+    # silently lose the guard this whole harness routes around. The self-test
+    # caught exactly that, in CI, which is the only place the variable is set.
+    env.pop("GPU_RUN_UNGUARDED", None)
     for key, value in step_env.items():
         if key == "GPU_RUN_UNGUARDED" or "${{" in value:
             continue
@@ -257,8 +264,15 @@ def self_test():
 
     # 3. the escape hatch must not cross over, and the strict flags must
     expr = "${{ runner.os == 'Linux' }}"
-    env = ci_env({"GPU_RUN_UNGUARDED": "x", "RUSTDOCFLAGS": "-D warnings",
-                  "VULKANE_REQUIRE_DEVICE": expr})
+    # Set it AMBIENTLY for the duration, because that is the case that failed:
+    # on a runner the workflow-level env is already in `os.environ`, and a test
+    # that only passes it via step_env exercises the easy half.
+    os.environ["GPU_RUN_UNGUARDED"] = "ambient, as a runner would have it"
+    try:
+        env = ci_env({"GPU_RUN_UNGUARDED": "x", "RUSTDOCFLAGS": "-D warnings",
+                      "VULKANE_REQUIRE_DEVICE": expr})
+    finally:
+        os.environ.pop("GPU_RUN_UNGUARDED", None)
     check("GPU_RUN_UNGUARDED does not reach a local run",
           "GPU_RUN_UNGUARDED" not in env)
     check("RUSTDOCFLAGS=-D warnings does reach a local run",
