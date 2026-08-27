@@ -186,7 +186,21 @@ def msrv_invocations(command):
 
 
 def shell(command, env):
-    """Run one workflow command through bash, as `shell: bash` steps do."""
+    """Run one workflow command through bash, as `shell: bash` steps do.
+
+    `command` is not a literal, and a security scan is right to say so. It comes
+    from `.github/workflows/ci.yml` -- the workflow CI already executes with more
+    privilege than the developer running this. On a branch you trust that is not
+    an escalation; on a branch you do not, it is arbitrary code execution, and so
+    is `cargo test` running that branch's `build.rs`.
+
+    Suppressed WITH THE REASON AT THE SITE, which is this repository's convention
+    for a reason-bearing exemption (`GPU_RUN_UNGUARDED` in the workflow,
+    `GPU-LOCK-DIRECT:` in the test suite). An exemption whose justification lives
+    somewhere else is one the next reader has to take on trust; the full argument
+    is in the module docstring under "the trust boundary".
+    """
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     return subprocess.run(["bash", "-lc", command], cwd=REPO, env=env).returncode
 
 
