@@ -369,6 +369,28 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --features fetch-spec --no-deps
 
+  # Not a gate on the code — a gate on the LOCAL gate harness.
+  # `.github/local_gates.py` extracts these very `run:` steps so a developer's
+  # local check set cannot silently omit a job. Its first self-test asserts every
+  # command here has a policy, so ADDING A CI JOB WITHOUT DECIDING ABOUT IT FAILS
+  # HERE rather than months later when someone's green local run meets a red CI.
+  local-gates:
+    name: Local gate harness self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Provisioning is a SEPARATE step from the gate, deliberately. The harness
+      # replays these commands locally, and a gate bundled with a `pip install`
+      # makes a local verification depend on the network. Same category as the
+      # apt-get steps above, and skipped locally for the same reason.
+      - name: Install pyyaml (runner provisioning)
+        shell: bash
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Self-test the local gate harness
+        shell: bash
+        run: python3 .github/local_gates.py --self-test
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest
