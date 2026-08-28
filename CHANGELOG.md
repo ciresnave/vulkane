@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the normative vectors pinned no set-valued field
+
+Every vector in the vocabulary manifest carried `ops-none` and `arith-none`. So the manifest
+pinned both fields' **alphabets** while pinning nothing about **how a set with more than one
+member is written down** — and those are different questions.
+
+Found by a consumer, not here. Unpopped asked whether two arithmetic capabilities spell
+`arith-f16i8`, `arith-f16-i8`, or a repeated field. The answer is normative in the namespace
+document — *"This field uses explicit `-` separators and MUST NOT juxtapose"* — but **the
+machine-readable artifact, which is the thing a producer validates against, could not answer.**
+They declined to infer it from the single-member example in their tree, which was the right call.
+
+Two vectors added, one per set-valued field, because **the two fields do not spell alike**:
+`<ops>` juxtaposes single letters, `<arith>` joins variable-length names with `-`. A vector for
+one says nothing about the other, and an implementer generalising from `<arith>` alone would emit
+`ops-a-b-r`.
+
+```
+arith   input ["i8", "f16"]        ->  arith-f16-i8
+ops     input ["w", "l", "b"]      ->  ops-blw
+```
+
+Each input is **non-canonical on purpose**, so one vector pins two things a parser cannot infer
+from an alphabet: the join, and the canonical order. Order is load-bearing because §6.8-0002
+matching is byte-exact — `arith-i8-f16` is a different cell, not a differently-written same one.
+
+**The input members are derived from the token rather than passed beside it.** A first draft took
+them as a separate argument and I immediately wrote members that did not match the flags: the
+vector would have taught a reader that `{r,a,b}` spells `blw`. Deriving them makes the two halves
+of a vector incapable of disagreeing, and a `> 1` assertion refuses a "set" vector carrying one
+member, which would pin nothing.
+
+**No `vocabulary_version` bump.** No token changes, and no producer acquires an obligation it did
+not have — V-6 already required this. The vectors make existing non-conformance detectable rather
+than creating new non-conformance.
+
 ### Fixed — a capability could be NAMED without being derivable, and the test that said otherwise
 
 The vocabulary's obligation runs two ways and only one was checked:

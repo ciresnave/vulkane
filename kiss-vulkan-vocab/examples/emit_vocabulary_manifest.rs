@@ -247,6 +247,31 @@ fn emit_vectors(o: &mut String) {
         &cv_dupes,
     ));
 
+    // -- the two SET-VALUED scalar fields. Nothing pinned these before: every
+    //    vector above carries `ops-none` and `arith-none`, so a consumer could
+    //    read the alphabet and still not know how two members are joined.
+    v.push(set_field_vector(
+        "arith",
+        "Two arithmetic capabilities, given in NON-CANONICAL order. Pins that \
+         `<arith>` joins its names with `-` and never juxtaposes them, and that \
+         the canonical order is the alphabet's own order rather than the order \
+         a device reported them in. Both matter because matching is byte-exact: \
+         `arith-i8-f16` is a different cell, not a differently-written same cell.",
+        OpClasses::NONE,
+        Arith::FLOAT16 | Arith::INT8,
+    ));
+    v.push(set_field_vector(
+        "ops",
+        "Three operation classes, given in NON-CANONICAL order. Pinned \
+         SEPARATELY from `<arith>` because the two set-valued fields do NOT \
+         spell alike: `<ops>` JUXTAPOSES single letters while `<arith>` joins \
+         variable-length names with `-`. A vector for one says nothing about \
+         the other, and an implementer who generalised from `<arith>` alone \
+         would emit `ops-a-b-r`.",
+        OpClasses::BASIC | OpClasses::BALLOT | OpClasses::ROTATE,
+        Arith::NONE,
+    ));
+
     // -- threshold + digest_input, per field, at and immediately across.
     match find_coop_at_and_across() {
         Some((at, across)) => {
@@ -488,6 +513,101 @@ fn coop_vector(pins: &str, note: &str, shapes: &[CoopShape]) -> String {
         pins,
         esc(note),
         shapes.iter().map(shape_json).collect::<Vec<_>>().join(","),
+        token
+    )
+}
+
+/// A vector for one of the two SET-VALUED scalar fields, `<ops>` and `<arith>`.
+///
+/// These existed in the declarative half and in no vector, which is a gap a
+/// consumer found rather than a gap anyone here noticed: every vector shipped
+/// before this one carried `ops-none` and `arith-none`, so the manifest pinned
+/// the two fields' ALPHABETS while pinning nothing about how a multi-member set
+/// is written down. A downstream implementer asked whether `arith` with two
+/// members is `arith-f16i8`, `arith-f16-i8`, or a repeated field, and the
+/// machine-readable artifact could not answer.
+///
+/// `input` lists the members in a DELIBERATELY non-canonical order, exactly as
+/// the `<coop>` order vector does, so one vector pins two things a parser cannot
+/// infer from the alphabet: the join, and the canonical order.
+/// The text an empty set spells after its `<field>-` prefix is stripped.
+///
+/// Named because it must be REJECTED before a field is decomposed into members,
+/// and a bare `"none"` at the comparison site reads like a member.
+const EMPTY_SET_MEMBER: &str = "none";
+
+fn set_field_vector(field: &str, note: &str, ops: OpClasses, arith: Arith) -> String {
+    let token = VulkanTarget {
+        subgroup: Subgroup::Fixed(32),
+        ops,
+        arith,
+        coop: CoopMatrix::None,
+        coopvec: CoopVector::None,
+    }
+    .to_token();
+
+    // The input members are DERIVED FROM THE TOKEN, not passed alongside it.
+    // An earlier draft took them as a separate argument and I promptly wrote
+    // members that did not correspond to the flags -- the vector would have
+    // taught a reader that {r,a,b} spells `blw`. Deriving them makes the two
+    // halves of the vector incapable of disagreeing, which is the same reason
+    // the coop vectors compute their token from the shapes they display.
+    let spelled = token
+        .split(':')
+        .nth(1)
+        .expect("a token has a namespace prefix")
+        .split('.')
+        .find(|f| f.starts_with(field))
+        .unwrap_or_else(|| panic!("token has no `{field}` field: {token}"))
+        .strip_prefix(field)
+        .and_then(|r| r.strip_prefix('-'))
+        .unwrap_or_else(|| panic!("`{field}` field is not `{field}-...`: {token}"));
+
+    // The EMPTY-SET SENTINEL has to be rejected before the field is decomposed,
+    // not after. `ops-none` strips to `"none"`, and `<ops>` decomposes by
+    // character, so it becomes `["n","o","n","e"]` -- four members, which sails
+    // through a `len() > 1` check and emits nonsense. `<arith>` splits on `-` and
+    // yields `["none"]`, so the same check catches it BY ACCIDENT of arity. A
+    // guard that holds for one field and not the other is not a guard.
+    assert!(
+        spelled != EMPTY_SET_MEMBER,
+        "a set-spelling vector was built from an EMPTY set: `{field}-{spelled}` \
+         is the empty-set sentinel, not a member list. Pass flags with at least \
+         two members."
+    );
+
+    // `<ops>` juxtaposes single letters; `<arith>` joins names with `-`. That
+    // difference is the whole point of having a vector for each.
+    let canonical: Vec<String> = if field == "ops" {
+        spelled.chars().map(|c| c.to_string()).collect()
+    } else {
+        spelled.split('-').map(str::to_string).collect()
+    };
+    assert!(
+        canonical.len() > 1,
+        "a set-spelling vector must carry MORE THAN ONE member, or it pins \
+         nothing about how members are joined -- got {canonical:?}"
+    );
+
+    // Reversed, so the input is non-canonical by construction rather than by
+    // an author remembering to scramble it.
+    let members = canonical
+        .iter()
+        .rev()
+        .map(|m| format!("\"{m}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let (ops_in, arith_in) = if field == "ops" {
+        (members, String::new())
+    } else {
+        (String::new(), members)
+    };
+    format!(
+        "{{ \"pins\": \"set-spelling\", \"field\": \"{}\", \"note\": \"{}\", \"input\": {{ \"subgroup\": 32, \"ops\": [{}], \"arith\": [{}], \"coop\": [], \"coopvec\": [] }}, \"token\": \"{}\" }}",
+        field,
+        esc(note),
+        ops_in,
+        arith_in,
         token
     )
 }
