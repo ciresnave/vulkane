@@ -530,6 +530,12 @@ fn coop_vector(pins: &str, note: &str, shapes: &[CoopShape]) -> String {
 /// `input` lists the members in a DELIBERATELY non-canonical order, exactly as
 /// the `<coop>` order vector does, so one vector pins two things a parser cannot
 /// infer from the alphabet: the join, and the canonical order.
+/// The text an empty set spells after its `<field>-` prefix is stripped.
+///
+/// Named because it must be REJECTED before a field is decomposed into members,
+/// and a bare `"none"` at the comparison site reads like a member.
+const EMPTY_SET_MEMBER: &str = "none";
+
 fn set_field_vector(field: &str, note: &str, ops: OpClasses, arith: Arith) -> String {
     let token = VulkanTarget {
         subgroup: Subgroup::Fixed(32),
@@ -556,6 +562,19 @@ fn set_field_vector(field: &str, note: &str, ops: OpClasses, arith: Arith) -> St
         .strip_prefix(field)
         .and_then(|r| r.strip_prefix('-'))
         .unwrap_or_else(|| panic!("`{field}` field is not `{field}-...`: {token}"));
+
+    // The EMPTY-SET SENTINEL has to be rejected before the field is decomposed,
+    // not after. `ops-none` strips to `"none"`, and `<ops>` decomposes by
+    // character, so it becomes `["n","o","n","e"]` -- four members, which sails
+    // through a `len() > 1` check and emits nonsense. `<arith>` splits on `-` and
+    // yields `["none"]`, so the same check catches it BY ACCIDENT of arity. A
+    // guard that holds for one field and not the other is not a guard.
+    assert!(
+        spelled != EMPTY_SET_MEMBER,
+        "a set-spelling vector was built from an EMPTY set: `{field}-{spelled}` \
+         is the empty-set sentinel, not a member list. Pass flags with at least \
+         two members."
+    );
 
     // `<ops>` juxtaposes single letters; `<arith>` joins names with `-`. That
     // difference is the whole point of having a vector for each.
