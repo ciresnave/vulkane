@@ -79,10 +79,113 @@ fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
         // line claimed the opposite, and the table was right.
         ElementKind::U32 => Some("uint"),
         ElementKind::U64 => Some("uint64_t"),
-        // F16/Bf16/i8/u8 remain declined: i8/u8 are over-refusal answerable from
-        // the vulkan `<arith>` field, i16/u16 are not expressible in that
-        // vocabulary at all. See `supports_dtype`.
+        // Narrow integers. Spellable ONLY where the target advertises 8-bit
+        // arithmetic — `slang_ctype` answers "is there a type name", and
+        // `supports_dtype` is what consults the target. Keeping the split means
+        // this function stays a pure name table.
+        ElementKind::I8 => Some("int8_t"),
+        ElementKind::U8 => Some("uint8_t"),
+        // F16/Bf16 remain declined (the spelling seam); i16/u16 wait on
+        // vocabulary v5 shipping `i16`. See `supports_dtype`.
         _ => None,
+    }
+}
+
+/// Whether `dt` is spellable for `target`. **The one statement.**
+///
+/// [`Backend::supports_dtype`] and [`Backend::lower`] both call this, so they
+/// cannot disagree. They did, for the length of one commit: adding `int8_t` to
+/// `slang_ctype` made `lower` succeed on a `cuda:` target that advertises no
+/// 8-bit arithmetic, because `lower` consulted only the name table and
+/// `supports_dtype` was never on that path. **A capability gate that the
+/// lowering path does not call is not a gate.**
+fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
+    // `target` is now CONSULTED for the narrow integers — the gap this
+    // comment used to describe is closed for i8/u8. What follows records why
+    // the answer differs per width, and what is still unanswerable.
+    //
+    // Slang's own conformance docs: only `int`/`int32_t` and `uint`/`uint32_t`
+    // are universally supported, and *"the others depend on target +
+    // capabilities"*. So `i8`/`i16`/`u8`/`u16` are spellable on a capable
+    // target, and declining them everywhere is over-refusal.
+    //
+    // # The reason is NOT "no capability data", and it differs per width
+    //
+    // This comment used to say the blocker was a missing machine-readable
+    // manifest (KISS #171). Vulkane — who **owns** the `vulkan:` capability
+    // vocabulary under §6.8-0004 — answered directly, and the truth is
+    // asymmetric:
+    //
+    // * **`i8`/`u8`: a token already answers this.** The `<arith>` field
+    //   carries `i8`, which names `shaderInt8` — 8-bit integer *arithmetic*.
+    //   A target whose arith set contains `i8` does 8-bit integer math.
+    //   Declining these is genuine over-refusal, answerable today with no
+    //   manifest and no new API.
+    // * **`i16`/`u16`: the vocabulary cannot express it.** The published
+    //   `<arith>` names are exactly `dot8`, `f16`, `i8`, `st16`, `st8` —
+    //   **`shaderInt16` is not among them**. No `vulkan:` token asserts
+    //   16-bit integer arithmetic, so no consumer can derive it. Vulkane's
+    //   phrasing, which is the right line for this code: *the vocabulary
+    //   names `shaderInt8` and does not name `shaderInt16`; absence here is
+    //   silence, not denial.* They record it as their gap, and naming it
+    //   later bumps the vocabulary version rather than being additive.
+    //
+    // # NEVER infer 16-bit arithmetic from `st16`
+    //
+    // `st16` is `storageBuffer16BitAccess` — a **storage** capability. The
+    // vulkan vocabulary §2.3 keeps compute precision and storage precision
+    // as separate members precisely because they are separate: a device may
+    // accept 16-bit data in a buffer and perform the arithmetic in `f32`.
+    // Reading `st16` as permission to emit 16-bit integer math is a
+    // **silently wrong lowering on conformant hardware**, and the token
+    // would not be at fault. Verified absent from this crate today; written
+    // down because it is exactly the inference a future reader would think
+    // was an obvious win.
+    //
+    // # Why this still returns a bare `bool`, for now
+    //
+    // The honest answer has THREE states — supported, unsupported, and *not
+    // expressible in this vocabulary version* — and `bool` collapses the
+    // last two. "The device lacks it" and "the vocabulary cannot say" call
+    // for different responses (wait for hardware vs wait for a spec), which
+    // is Vulkane's point and a real API question rather than a comment's.
+    // Raised with Eric; not decided unilaterally, since `Backend` is a
+    // peer-implemented trait.
+    if slang_ctype(dt).is_none() {
+        return false;
+    }
+    // The narrow integers are the only dtypes whose answer depends on the
+    // target. Everything else `slang_ctype` names is universally spellable.
+    if !matches!(dt, ElementKind::I8 | ElementKind::U8) {
+        return true;
+    }
+    // 8-bit ARITHMETIC is `shaderInt8`, spelled `i8` in the `<arith>` field.
+    //
+    // ⚠️ `i8` is SIGNEDNESS-AGNOSTIC — it names the capability, not a
+    // component type — so `u8` gates on it too. There is no `u8` token and
+    // its absence is not an omission; signedness lives in the component-type
+    // vocabulary (`cm-`/`cv-`), a different alphabet. Reading the absence of
+    // `u8` as "unsigned 8-bit is unsupported" is the collision Vulkane's own
+    // doc flags because it trips people. It tripped me.
+    //
+    // ⚠️ NOT `st8`. That is `storageBuffer8BitAccess` — 8-bit data in a
+    // buffer — and a conformant device may accept 8-bit storage while doing
+    // the arithmetic in `f32`. Gating compute on a storage token is a
+    // silently wrong lowering on hardware that is behaving correctly.
+    //
+    // **This gates on the stronger requirement because it cannot see the
+    // weaker one.** A kernel that only loads and stores these bytes would be
+    // legal under `st8` alone — but `supports_dtype` is handed no plan, so it
+    // cannot tell compute from movement and must assume compute. That
+    // over-refuses a pure-copy kernel, which is the safe direction and is the
+    // same three-state limitation already recorded below.
+    match target.capability_field("arith") {
+        Some(arith) => arith.iter().any(|t| t == "i8"),
+        // The token does not speak about arithmetic — a `cuda:` or `metal:`
+        // target, or a `vulkan:` one that omits the field. **Absence is
+        // silence, not permission.** Declining here is the same answer as
+        // before this gate existed; what changed is that it now has a reason.
+        None => false,
     }
 }
 
@@ -95,70 +198,24 @@ impl Backend for Slang {
         "unpopped"
     }
 
-    fn supports_dtype(&self, dtype: ElementKind, _target: TargetId) -> bool {
-        // `_target` is unused, and unlike CpuC's (where it is unused because C
-        // is C everywhere) that is a **gap**, not an answer.
-        //
-        // Slang's own conformance docs: only `int`/`int32_t` and `uint`/`uint32_t`
-        // are universally supported, and *"the others depend on target +
-        // capabilities"*. So `i8`/`i16`/`u8`/`u16` are spellable on a capable
-        // target, and declining them everywhere is over-refusal.
-        //
-        // # The reason is NOT "no capability data", and it differs per width
-        //
-        // This comment used to say the blocker was a missing machine-readable
-        // manifest (KISS #171). Vulkane — who **owns** the `vulkan:` capability
-        // vocabulary under §6.8-0004 — answered directly, and the truth is
-        // asymmetric:
-        //
-        // * **`i8`/`u8`: a token already answers this.** The `<arith>` field
-        //   carries `i8`, which names `shaderInt8` — 8-bit integer *arithmetic*.
-        //   A target whose arith set contains `i8` does 8-bit integer math.
-        //   Declining these is genuine over-refusal, answerable today with no
-        //   manifest and no new API.
-        // * **`i16`/`u16`: the vocabulary cannot express it.** The published
-        //   `<arith>` names are exactly `dot8`, `f16`, `i8`, `st16`, `st8` —
-        //   **`shaderInt16` is not among them**. No `vulkan:` token asserts
-        //   16-bit integer arithmetic, so no consumer can derive it. Vulkane's
-        //   phrasing, which is the right line for this code: *the vocabulary
-        //   names `shaderInt8` and does not name `shaderInt16`; absence here is
-        //   silence, not denial.* They record it as their gap, and naming it
-        //   later bumps the vocabulary version rather than being additive.
-        //
-        // # NEVER infer 16-bit arithmetic from `st16`
-        //
-        // `st16` is `storageBuffer16BitAccess` — a **storage** capability. The
-        // vulkan vocabulary §2.3 keeps compute precision and storage precision
-        // as separate members precisely because they are separate: a device may
-        // accept 16-bit data in a buffer and perform the arithmetic in `f32`.
-        // Reading `st16` as permission to emit 16-bit integer math is a
-        // **silently wrong lowering on conformant hardware**, and the token
-        // would not be at fault. Verified absent from this crate today; written
-        // down because it is exactly the inference a future reader would think
-        // was an obvious win.
-        //
-        // # Why this still returns a bare `bool`, for now
-        //
-        // The honest answer has THREE states — supported, unsupported, and *not
-        // expressible in this vocabulary version* — and `bool` collapses the
-        // last two. "The device lacks it" and "the vocabulary cannot say" call
-        // for different responses (wait for hardware vs wait for a spec), which
-        // is Vulkane's point and a real API question rather than a comment's.
-        // Raised with Eric; not decided unilaterally, since `Backend` is a
-        // peer-implemented trait.
-        slang_ctype(dtype).is_some()
+    fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> bool {
+        dtype_ok(dtype, target)
     }
 
     fn lower(&self, plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         // The ONE statement of slang's legality surface. The JIT used to keep a
         // parallel copy derived from CUDA's rules and apply it to every backend.
-        let Some(ctype) = slang_ctype(plan.dtype) else {
+        if !dtype_ok(plan.dtype, plan.key.target) {
             return Err(LowerError::UnsupportedDtype {
                 dtype: plan.dtype,
-                detail: "slang backend v1: f32/f32s/f64/i32/i64 only (f16/bf16/i8/u8/u32                          are declined; no clean base-profile scalar type)"
-                    .to_string(),
+                detail: format!(
+                    "slang backend: {:?} is not spellable for target `{}`. f16/bf16 are                      declined outright; i8/u8 require the target to advertise 8-bit                      arithmetic (`i8` in the vulkan `<arith>` field — NOT `st8`, which is                      storage only), and i16/u16 wait on vocabulary v5",
+                    plan.dtype,
+                    plan.key.target.as_str()
+                ),
             });
-        };
+        }
+        let ctype = slang_ctype(plan.dtype).expect("dtype_ok implies a ctype");
         if plan.n_outputs != 1 {
             return Err(LowerError::UnsupportedPlanShape {
                 detail: format!(
@@ -492,6 +549,64 @@ mod tests {
     fn unary_scalar_key(dt: ElementKind, align: u32) -> unpopped_vocab::StructureKey {
         let a = OperandDesc::new(1, &[1 << 20], &[1], dt, align);
         structure_key(OpCategory::UnaryElementwise, &[a, a], ArchSku::Sm89)
+    }
+
+    /// The 8-bit gate reads the target, and refuses when the target is silent.
+    ///
+    /// # Both arms, deliberately
+    ///
+    /// A gate that always refuses is **indistinguishable from a correctly strict
+    /// one** until something that should pass, doesn't — and if no corpus
+    /// exercises the dtype, nothing ever notices. A one-armed test proves only
+    /// that the matcher I wrote agrees with itself.
+    ///
+    /// # Order does NOT matter here, and that is worth stating
+    ///
+    /// §6.8-0002's byte-exact rule governs *matching whole sets* and *spelling*
+    /// one — a builder must sort before joining, because `arith-i8-f16` matches
+    /// nothing. This gate does neither: it asks whether the parsed tuple list
+    /// **contains** `i8`, and membership is legitimately order-insensitive. The
+    /// permuted arm below is here to pin that reading rather than to pass by
+    /// accident, because a future reader who knows the order rule will otherwise
+    /// assume this code is broken.
+    #[test]
+    fn eight_bit_gates_on_the_arith_field_and_refuses_when_silent() {
+        let t = |tok: &str| TargetId::parse(tok).expect("valid token");
+        let can = |tok: &str, dt| Slang.supports_dtype(dt, t(tok));
+
+        // ADVERTISED -> supported, and `u8` gates on `i8` because `shaderInt8`
+        // is signedness-agnostic. There is no `u8` token to look for.
+        assert!(can("vulkan:sg32.arith-f16-i8", ElementKind::I8));
+        assert!(can("vulkan:sg32.arith-f16-i8", ElementKind::U8));
+        // Permuted: malformed to SPELL, but membership still holds. Pinned so
+        // nobody "fixes" this into an order-sensitive check.
+        assert!(can("vulkan:sg32.arith-i8-f16", ElementKind::U8));
+
+        // NOT ADVERTISED -> refused. This is the arm that makes the test mean
+        // something.
+        assert!(!can("vulkan:sg32.arith-f16", ElementKind::I8));
+        assert!(!can("vulkan:sg32.arith-f16", ElementKind::U8));
+        assert!(!can("vulkan:sg32.arith-none", ElementKind::U8));
+
+        // SILENT -> refused. A `cuda:` token has no `arith` field at all, and
+        // absence is silence rather than permission.
+        assert!(!can("cuda:sm89", ElementKind::U8));
+        assert!(!can("vulkan:sg32.ops-abr", ElementKind::U8));
+
+        // ⚠️ `st8` is NOT `i8`. `storageBuffer8BitAccess` means 8-bit data may
+        // live in a buffer; a conformant device may accept that and still do the
+        // arithmetic in f32. Gating compute on a storage token is a silently
+        // wrong lowering on hardware behaving correctly, so a target offering
+        // storage-only must still refuse.
+        assert!(!can("vulkan:sg32.arith-f16.st8-yes", ElementKind::U8));
+
+        // And an `i8` sitting in some OTHER field must not answer for `arith` —
+        // the reader takes the named field, never a substring of the token.
+        assert!(!can("vulkan:sg32.arith-none.cm-i8", ElementKind::U8));
+
+        // Universally-spellable dtypes are unaffected by the target.
+        assert!(can("cuda:sm89", ElementKind::F32));
+        assert!(can("vulkan:sg32.arith-none", ElementKind::U32));
     }
 
     /// `u32`/`u64` lower to `uint`/`uint64_t`.
