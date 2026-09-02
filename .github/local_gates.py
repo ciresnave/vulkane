@@ -153,6 +153,20 @@ POLICIES = [
 ]
 
 
+def _load_matrix_module():
+    """Import msrv_matrix.py so its rules are exercised, not re-stated here.
+
+    A copy of `minimality_verdict` in this file would be a second
+    implementation free to drift from the one CI calls -- the defect removed
+    from the toolchain probe earlier.
+    """
+    import importlib.util
+    path = REPO / ".github" / "msrv_matrix.py"
+    spec = importlib.util.spec_from_file_location("msrv_matrix", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 def probe_toolchain(name):
     """Ask a toolchain to identify itself. Returns the CompletedProcess.
 
@@ -268,10 +282,15 @@ def msrv_invocations(command):
         )
     expanded = []
     for leg in json.loads(raw.stdout):
-        cmd = command.replace("${{ matrix.crate.msrv }}", leg["msrv"])
-        cmd = cmd.replace("${{ matrix.crate.name }}", leg["name"])
-        if "below" in leg:
-            cmd = cmd.replace("${{ matrix.crate.below }}", leg["below"])
+        # Substitute EVERY field the leg carries, rather than a hand-written
+        # list. The list version needed an edit each time the emitter grew a
+        # field, and forgetting one left a literal `${{ ... }}` in the command:
+        # `dep_floor` and `dep_by` were added upstream and missed here, which
+        # the placeholder guard below caught rather than running a half-
+        # expanded command. Iterating removes the class instead of the case.
+        cmd = command
+        for key, value in leg.items():
+            cmd = cmd.replace("${{ matrix.crate." + key + " }}", str(value))
         # A leftover placeholder means the matrix did not carry a field the
         # command asked for. Running it anyway would execute a command nobody
         # wrote, so refuse instead.
@@ -512,6 +531,70 @@ def self_test():
           not any("${{" in cmd for cmd, _ in suff + mini))
     check("a minimality leg steps BELOW its declared floor",
           all(leg["below"] != leg["msrv"] for _, leg in mini))
+
+    # 1f. the minimality verdict, including the branch a green run never enters.
+    #
+    # "necessary-dep" fires only when a crate COMPILES below its floor while a
+    # dependency holds the floor up. No crate here does that today, so CI cannot
+    # be the evidence -- and that branch is the whole point of this addition,
+    # because without it a dependency-driven floor reds on healthy code.
+    verdict = _load_matrix_module().minimality_verdict
+    cases = {(False, "1.87", "1.88"): "necessary-code",
+             (True, "1.87", "1.88"): "necessary-dep",
+             (True, "1.87", "1.71"): "too-high",
+             (True, "1.87", "1.87"): "too-high",   # equal does not justify going above
+             (True, "1.87", ""): "too-high"}       # no dependency floor at all
+    wrong = [(k, verdict(*k)) for k, want in cases.items() if verdict(*k) != want]
+    check("a floor its code does not need but a dependency does is NOT too high",
+          verdict(True, "1.87", "1.88") == "necessary-dep")
+    check("every minimality verdict case is right", not wrong)
+    check("each minimality leg carries a dep_floor field",
+          all("dep_floor" in leg for _, leg in mini))
+
+    # 1g. the dependency walk, against a hand-built graph.
+    #
+    # Untestable until `_reachable_non_dev` was split out, because the whole
+    # function needs a real `cargo metadata`. The dev exclusion is the part that
+    # decides whether a floor is a promise to consumers or an artefact of the
+    # test suite, and it had no test at all.
+    mm = _load_matrix_module()
+    graph = {
+        "root": {"deps": [
+            {"pkg": "normal", "dep_kinds": [{"kind": None}]},
+            {"pkg": "devonly", "dep_kinds": [{"kind": "dev"}]},
+            {"pkg": "both", "dep_kinds": [{"kind": "dev"}, {"kind": None}]},
+            {"pkg": "buildonly", "dep_kinds": [{"kind": "build"}]},
+        ]},
+        "normal": {"deps": [{"pkg": "deep", "dep_kinds": [{"kind": None}]}]},
+        "devonly": {"deps": []},
+        "both": {"deps": []},
+        "buildonly": {"deps": []},
+        "deep": {"deps": [{"pkg": "root", "dep_kinds": [{"kind": None}]}]},  # cycle
+    }
+    reach = mm._reachable_non_dev("root", graph)
+    check("a normal dependency is followed", "normal" in reach)
+    check("a transitive normal dependency is followed", "deep" in reach)
+    check("a DEV-ONLY dependency is not followed", "devonly" not in reach)
+    check("an edge that is both dev and normal IS followed", "both" in reach)
+    # A build-dependency's build script runs on the consumer's machine, so its
+    # floor binds them. Excluding it would understate the constraint.
+    check("a build dependency is followed", "buildonly" in reach)
+    check("a cycle terminates rather than looping", "root" in reach)
+
+    # And the attribution helper, including the tie it exists to make stable.
+    pkgs = {
+        "a": {"rust_version": "1.70", "name": "a", "version": "1.0"},
+        "b": {"rust_version": "1.88", "name": "b-external", "version": "2.0"},
+        "c": {"rust_version": "1.88", "name": "c-sibling", "version": "3.0"},
+        "d": {"name": "d-no-floor", "version": "4.0"},
+    }
+    v, who = mm._highest_declared({"a", "b", "c", "d"}, None, pkgs, {"c"})
+    check("the highest declared floor wins", v == (1, 88))
+    check("an external package wins a tie over a workspace sibling",
+          who == "b-external 2.0")
+    v2, who2 = mm._highest_declared({"d"}, None, pkgs, set())
+    check("no declared floor anywhere returns None rather than a default",
+          v2 is None and who2 is None)
 
     # 2. a command with no policy is detected (the whole point)
     check("an unknown command is unclassified, not defaulted",

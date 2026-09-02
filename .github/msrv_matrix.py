@@ -104,13 +104,123 @@ def _parse(v):
     return (int(parts[0]), int(parts[1]))
 
 
+def minimality_verdict(built_below, below, dep_floor):
+    """What a minimality leg's build result MEANS. One implementation, testable.
+
+    `built_below` is whether the crate compiled one minor under its floor.
+
+      "necessary-code"  it did not compile: the code requires the floor
+      "necessary-dep"   it compiled, but a dependency declares above `below`,
+                        so cargo refuses a consumer there anyway
+      "too-high"        it compiled and nothing else holds the floor up
+
+    Lifted out of the job's shell because "necessary-dep" is only reachable when
+    a build SUCCEEDS below the floor, which no crate here currently does -- a
+    branch a green run never enters, so a green run cannot be its evidence. The
+    same reason `toolchain_verdict` exists.
+    """
+    if not built_below:
+        return "necessary-code"
+    b, d = _parse(below), _parse(dep_floor or "")
+    if d and b and d > b:
+        return "necessary-dep"
+    return "too-high"
+
+
+def _reachable_non_dev(root, resolve):
+    """Package ids reachable from `root` without crossing a dev-only edge.
+
+    Split out of `dependency_floors` because "what does this crate pull in" and
+    "which of those declares the highest floor" are two questions, and because a
+    graph walk can be tested against a hand-built graph while the whole function
+    needs a real `cargo metadata`. The dev exclusion in particular had no test
+    until it was reachable on its own.
+    """
+    seen, stack = set(), [root]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        for d in resolve[cur]["deps"]:
+            kinds = {k.get("kind") for k in d.get("dep_kinds", [])}
+            # `kind` is None for a normal dependency, so an edge is dev-ONLY
+            # when every kind on it is "dev". An edge that is both dev and
+            # normal still reaches a consumer and must be followed.
+            if kinds and kinds <= {"dev"}:
+                continue
+            stack.append(d["pkg"])
+    return seen
+
+
+def _highest_declared(ids, skip, packages, workspace):
+    """The highest floor declared among `ids`, and which package declares it.
+
+    Attribution is deterministic. Several packages can share the highest floor
+    and dict order would let the named one change between runs -- a message
+    varying without the fact varying. External packages win ties because
+    "libloading 0.9 declares 1.88" is actionable, while naming a workspace
+    sibling that declares 1.88 for its own reasons just moves the question.
+    """
+    candidates = []
+    for i in ids:
+        if i == skip:
+            continue
+        v = _parse(packages[i].get("rust_version") or "")
+        if v:
+            candidates.append((v, i in workspace,
+                               packages[i]["name"], packages[i]["version"]))
+    if not candidates:
+        return None, None
+    v, _ws, name, version = sorted(
+        candidates, key=lambda c: (c[0], not c[1], c[2]), reverse=True
+    )[0]
+    return v, name + " " + version
+
+
+def dependency_floors():
+    """Highest floor DECLARED by each workspace crate's non-dev dependencies.
+
+    Deliberately a declaration and not a measurement, and that is the right
+    instrument here rather than the cheap one. For a crate's OWN floor,
+    "declared" and "required" are different questions -- which is why the
+    minimality job builds instead of reading a number. For a DEPENDENCY they are
+    the same question: cargo refuses a consumer whose toolchain is below any
+    dependency's declared `rust-version`, whether or not that dependency's code
+    truly needs it. The declaration IS the constraint the consumer meets.
+
+    Dev-dependencies are excluded because a consumer never compiles them, which
+    is the same reason the sufficiency legs run `build` rather than `test`.
+    """
+    meta = json.loads(
+        subprocess.run(
+            ["cargo", "metadata", "--format-version", "1"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    )
+    pk = {p["id"]: p for p in meta["packages"]}
+    res = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    ws = set(meta["workspace_members"])
+    return {
+        pk[pid]["name"]: _highest_declared(_reachable_non_dev(pid, res), pid, pk, ws)
+        for pid in ws
+    }
+
+
 def minimality_legs(packages):
     """One leg per crate whose floor can be shown necessary by a build.
 
-    Emits `below` = floor minus one minor. The job asks that crate to FAIL to
-    compile there; if it succeeds, the declared floor is higher than the code
-    needs and the promise excludes consumers for no reason.
+    Emits `below` = floor minus one minor, and the highest floor DECLARED by the
+    crate's non-dev dependencies. The job asks the crate to FAIL to compile at
+    `below`; if it succeeds, the code does not need the floor -- but the floor
+    may still be necessary, because `--ignore-rust-version` ignores dependency
+    floors too and a consumer at `below` would be refused by cargo. So a
+    successful build is only "too high" when no dependency reaches above `below`
+    either. Without this, a crate whose floor came SOLELY from a dependency
+    would red on a correct floor, which is the failure direction that gets
+    guards switched off.
     """
+    dep = dependency_floors()
     legs = []
     for p in packages:
         floor = _parse(p["rust_version"])
@@ -132,9 +242,18 @@ def minimality_legs(packages):
                 file=sys.stderr,
             )
             continue
+        dfloor, dwho = dep.get(p["name"], (None, None))
+        if dfloor:
+            print(
+                f"note: {p['name']} highest dependency floor is "
+                f"{dfloor[0]}.{dfloor[1]} ({dwho})",
+                file=sys.stderr,
+            )
         legs.append({"name": p["name"],
                      "msrv": p["rust_version"],
-                     "below": f"{below[0]}.{below[1]}"})
+                     "below": f"{below[0]}.{below[1]}",
+                     "dep_floor": f"{dfloor[0]}.{dfloor[1]}" if dfloor else "",
+                     "dep_by": dwho or ""})
     return sorted(legs, key=lambda e: e["name"])
 
 
@@ -145,7 +264,14 @@ matrix = sorted(
 for entry in matrix:
     print(f"note: {entry['name']} declares {entry['msrv']}", file=sys.stderr)
 
-if "--minimality" in sys.argv:
+if "--verdict" in sys.argv:
+    # `--verdict <built_below:0|1> <below> <dep_floor>` -- the CI job asks
+    # rather than reimplementing the rule in shell, so there is one copy.
+    a = sys.argv[sys.argv.index("--verdict") + 1:]
+    if len(a) < 2:
+        sys.exit("usage: --verdict <built_below:0|1> <below> [dep_floor]")
+    print(minimality_verdict(a[0] == "1", a[1], a[2] if len(a) > 2 else ""))
+elif "--minimality" in sys.argv:
     legs = minimality_legs(declared)
     # Unlike the sufficiency matrix, ZERO legs is a legitimate answer: every
     # floor could be an edition floor. But zero legs for a workspace that has a
