@@ -514,6 +514,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.read.outputs.matrix }}
+      minimality: ${{ steps.read.outputs.minimality }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -527,6 +528,10 @@ jobs:
           set -euo pipefail
           matrix="$(python3 .github/msrv_matrix.py)"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # Same emitter, same `cargo metadata` read: the two matrices cannot
+          # disagree about what the floors are.
+          minimality="$(python3 .github/msrv_matrix.py --minimality)"
+          echo "minimality=$minimality" >> "$GITHUB_OUTPUT"
 
   msrv:
     name: MSRV ${{ matrix.crate.msrv }} - ${{ matrix.crate.name }}
@@ -565,3 +570,91 @@ jobs:
       - name: Build at the declared floor
         shell: bash
         run: cargo "+${{ matrix.crate.msrv }}" build -p "${{ matrix.crate.name }}" --locked
+
+  # A floor that is not NECESSARY is a false promise in the other direction: it
+  # turns away consumers who could have compiled, and it fails silently because
+  # everything is green and the people excluded never show up. The job above
+  # proves each floor sufficient. This one proves it necessary, for the crates
+  # where that can be asked -- see `minimality_legs` in msrv_matrix.py for why a
+  # floor equal to the edition floor is minimal by construction and gets no leg.
+  #
+  # This is NOT a first measurement. Both 1.88 floors were measured minimal by
+  # hand before this job existed. A red here is a REGRESSION -- the floor has
+  # become higher than the code needs -- not a check finding its feet. The repair
+  # is to lower the declared floor, never to raise the version this job steps to.
+  msrv-minimality:
+    name: MSRV ${{ matrix.crate.msrv }} is minimal - ${{ matrix.crate.name }}
+    needs: msrv-discover
+    # An empty matrix would expand to zero legs and report green. Zero is a
+    # legitimate answer here (every floor could be an edition floor) so this
+    # cannot be fatal the way the sufficiency matrix is -- but it must be
+    # visible rather than silent.
+    if: needs.msrv-discover.outputs.minimality != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJson(needs.msrv-discover.outputs.minimality) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the toolchain one minor below the floor
+        run: rustup toolchain install "${{ matrix.crate.below }}" --profile minimal
+      - name: The toolchain must answer before its result means anything
+        shell: bash
+        # "the crate built at 1.87" and "1.87 never installed" both present as a
+        # non-failing build. The check that proves NECESSITY is the one most
+        # easily satisfied by nothing happening, so make the toolchain identify
+        # itself first and fail loudly if it cannot.
+        run: |
+          set -euo pipefail
+          got="$(cargo "+${{ matrix.crate.below }}" --version)"
+          echo "$got"
+          case "$got" in
+            *"${{ matrix.crate.below }}"*) ;;
+            *) echo "cargo did not answer as ${{ matrix.crate.below }}: $got"; exit 1 ;;
+          esac
+      - name: The crate must NOT build one minor below its declared floor
+        shell: bash
+        # `--ignore-rust-version` is mandatory, not a convenience. Without it
+        # cargo refuses on the DECLARED rust-version and the job proves the floor
+        # necessary by observing that cargo obeys the floor -- the number causing
+        # the failure that justifies it. Measured on 2026-09-02:
+        #   cargo +1.87 build -p vulkan_gen
+        #     -> error: rustc 1.87.0 is not supported by the following package
+        #   cargo +1.87 build --ignore-rust-version -p vulkan_gen
+        #     -> error[E0658]: `let` expressions in this position are unstable
+        # Only the second is about the code.
+        run: |
+          set -uo pipefail
+          # `--color never` is load-bearing, not cosmetic. This workflow sets
+          # CARGO_TERM_COLOR=always, so cargo prefixes every diagnostic with ANSI
+          # escapes and the anchored grep below then matches NOTHING -- the guard
+          # would reject a real E0658 as "not a compiler diagnostic" and fail a
+          # floor that is perfectly correct. Measured: 45 anchored matches with
+          # this flag under either env, 0 without it when the colour env is set.
+          # My own born-red passed only because I ran it in a shell that had no
+          # CARGO_TERM_COLOR, which is not the environment the job runs in.
+          out="$(cargo "+${{ matrix.crate.below }}" build --ignore-rust-version \
+                 --color never -p "${{ matrix.crate.name }}" 2>&1)" && code=0 || code=$?
+          echo "$out" | tail -25
+          if [ "$code" -eq 0 ]; then
+            echo
+            echo "FLOOR IS TOO HIGH: ${{ matrix.crate.name }} declares"
+            echo "rust-version = ${{ matrix.crate.msrv }} but compiles on"
+            echo "${{ matrix.crate.below }}. The promise excludes consumers who"
+            echo "could have used it. Lower the declared floor -- do not change"
+            echo "the version this job steps to."
+            exit 1
+          fi
+          # It failed, but a failure is only evidence if it is the RIGHT failure.
+          # A missing toolchain, an unreadable manifest or a network error all
+          # exit non-zero and would otherwise read as "the floor is necessary".
+          if ! echo "$out" | grep -qE "^error\[E[0-9]+\]"; then
+            echo
+            echo "The build failed, but not with a compiler diagnostic, so it is"
+            echo "not evidence about the floor. Refusing to report success."
+            exit 1
+          fi
+          echo
+          echo "${{ matrix.crate.name }} does not compile on ${{ matrix.crate.below }}:"
+          echo "${{ matrix.crate.msrv }} is necessary, not merely sufficient."

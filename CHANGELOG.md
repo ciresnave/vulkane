@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a floor that is not necessary is a false promise, and nothing checked
+
+The MSRV jobs proved every declared floor **sufficient**: the crate builds there. Nothing proved
+one **necessary**. The two directions fail differently and only one is loud — a floor set too low
+goes red immediately, while a floor set too high is green forever and turns away consumers who
+could have compiled, none of whom ever appear to say so. Same one-directional asymmetry as the
+vocabulary work in 0.14.0, where every capability the device reported was named and nothing
+checked that every name was producible.
+
+`msrv-minimality` asks the other question: each crate must **fail** to compile one minor below its
+declared floor.
+
+**The obvious form of that check is unsound, twice, and both were measured before it was written.**
+
+```
+cargo +1.87 build -p vulkan_gen
+  error: rustc 1.87.0 is not supported by the following package
+```
+
+That is cargo enforcing the **declared** `rust-version`. The check would prove the floor necessary
+by observing that cargo obeys the floor — **the number causing the failure that justifies it.** A
+check whose subject enforces its own precondition cannot return the interesting answer; it passes
+on every crate in every repository whether or not the floor is real, and it does so by producing a
+red exactly where a red was predicted.
+
+```
+cargo +1.84 build -p kiss-vulkan-vocab
+  error: failed to load manifest for workspace member ...
+```
+
+`edition = "2024"` requires 1.85, so any cargo below the edition floor dies reading the workspace
+and never reaches the code — a failure at the wrong layer reported as a finding about the right
+one.
+
+So the job passes `--ignore-rust-version`, which reaches
+`error[E0658]: let expressions in this position are unstable` — a feature gate rather than
+bookkeeping — and a leg is emitted only where `floor - 1` is still at or above the edition floor.
+
+**Both 1.88 floors were measured minimal before the job existed**, so a red is a regression rather
+than a first measurement, and the repair is to lower the declared floor rather than to raise the
+version the job steps to. `kiss-vulkan-vocab` and `vulkane_derive` sit at edition 2024's own floor
+and are minimal by construction — there is no lower version to fail at, which is an answer rather
+than a gap.
+
+**A failure is only evidence if it is the right failure.** A missing toolchain, an unreadable
+manifest and a network error all exit non-zero and would otherwise read as "the floor is
+necessary", so the job requires the toolchain to identify itself first and the failure to carry a
+compiler diagnostic.
+
+**Limitation, kept separate rather than folded in.** `--ignore-rust-version` ignores every
+`rust-version`, including dependencies'. The leg measures whether the CODE needs the floor.
+`vulkane`'s 1.88 has two independent drivers — let-chains and `libloading 0.9` declaring
+`1.88.0` — and this exercises the first. Dependency-necessity is a `cargo metadata` question.
+
+### Changed — each floor now says why, where the floor is
+
+All four `rust-version` fields carried a bare number. The justification was prose in
+`CONTRIBUTING.md`, which is not where anyone bumping a floor is looking — they are in the manifest.
+
+The comments state the KIND of reason and carry no counts. A comment reading "7 let-chain sites"
+is a measurement pinned to a moment in a place nothing re-measures: it becomes 8 the next time
+someone writes `if let ... && let`, with nothing failing and nothing noticing. What keeps the
+reason honest is the minimality leg, which tests whether the floor is still *necessary* whatever
+the reason turns out to be — not a grep asserting the stated reason is still present, which would
+be a second copy of the justification, free to rot on its own.
+
+`CONTRIBUTING.md` gains a floor-move policy: when a floor may move, what moving one obliges
+(a breaking-kind changelog entry, an updated comment, and the MSRV-gated clippy lints that switch
+on), and how to read a red minimality leg.
+
 ### Fixed — nothing enforced that the bundled vk.xml ships, and CI could not notice
 
 0.14.0 put a promise on the docs.rs front page: a copy of vk.xml ships inside the crate, so

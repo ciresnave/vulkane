@@ -156,6 +156,91 @@ Pick the type index with `PhysicalDevice::find_memory_type`, and prefer
 3. Add benchmarks for changes
 4. Compare against baselines
 
+## Moving an MSRV floor
+
+A crate's `rust-version` is a promise to **consumers**: this is the oldest
+compiler that can use the published crate. It is not the toolchain you develop
+with -- see Development Setup, where the three numbers that all get called "the
+Rust version" are separated.
+
+**The floor is wrong in two directions and only one of them is loud.** Too low
+and CI goes red, because the crate does not build there. Too high and everything
+is green forever, while consumers who could have compiled are turned away and
+never appear to tell you. CI now checks both:
+
+| job | asks | failure means |
+|---|---|---|
+| `MSRV <floor> - <crate>` | does it build at the floor? | the floor is too LOW |
+| `MSRV <floor> is minimal - <crate>` | does it fail one minor below? | the floor is too HIGH |
+
+### When a floor may move
+
+Only when the code or a dependency genuinely requires it. "Newer is tidier" is
+not a reason: every bump excludes someone, permanently, for every published
+version carrying it.
+
+Check what is actually forcing it before writing a number:
+
+    cargo metadata --format-version 1     # dependencies declare floors too
+
+`vulkane`'s 1.88 has two independent drivers -- let-chains in its own source,
+and `libloading 0.9` declaring `rust-version = 1.88.0`. Removing one would not
+lower the floor. Knowing which drivers exist is the difference between lowering
+a floor and guessing at it.
+
+### What moving one obliges
+
+1. **A CHANGELOG entry under a breaking kind.** Raising a floor is a breaking
+   change for consumers even though nothing in the API moved.
+2. **Updating the comment beside `rust-version`.** The reason lives at the
+   floor, not in this file, because someone bumping a floor edits the manifest
+   and never opens this document. State the KIND of reason and no counts: "7
+   let-chain sites" is a measurement pinned to a moment in a place nothing
+   re-measures.
+3. **Expect new clippy lints.** Raising a floor switches on MSRV-gated lints for
+   APIs that have fallen under it. 1.85 to 1.88 cost 35 sites across 13 files.
+   This is a stream, not a one-off: every clippy release adds more.
+
+### Reading a red minimality leg
+
+**It means the floor is now higher than the code needs.** The repair is to
+**lower the declared floor**, never to raise the version the job steps to --
+that would silently ratify an unmeasured floor rather than measure it.
+
+Both 1.88 floors were measured minimal by hand before the job existed, so a red
+there is a regression and not a check finding its feet.
+
+### Why only two crates have a minimality leg
+
+`kiss-vulkan-vocab` and `vulkane_derive` declare 1.85, which is **edition 2024's
+own floor** -- cargo below it cannot read the manifest at all. There is no lower
+version to fail at, so they are minimal by construction and `msrv_matrix.py`
+emits no leg for them. That is an answer, not a gap; adding a leg there would
+measure "cargo 1.84 cannot read edition 2024" and report it as a fact about the
+floor.
+
+### Why the job passes `--ignore-rust-version`
+
+Without it, cargo refuses on the declared `rust-version` before compiling
+anything, and the job would prove the floor necessary by observing that cargo
+obeys the floor -- the number causing the failure that justifies it. Measured:
+
+    cargo +1.87 build -p vulkan_gen
+      error: rustc 1.87.0 is not supported by the following package
+
+    cargo +1.87 build --ignore-rust-version -p vulkan_gen
+      error[E0658]: `let` expressions in this position are unstable
+
+Only the second is about the code. The job also requires the failure to carry a
+compiler diagnostic, because a missing toolchain and an unreadable manifest also
+exit non-zero and would otherwise read as "the floor is necessary".
+
+**One limitation.** `--ignore-rust-version` ignores every `rust-version`,
+including dependencies'. The leg therefore measures whether the CODE needs the
+floor. A crate whose floor came solely from a dependency would be reported too
+high; that half is a `cargo metadata` question and is deliberately not folded
+into this job.
+
 ## Release Process
 
 The six-line version of this list was accurate and still let a release ship

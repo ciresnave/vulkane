@@ -245,11 +245,23 @@ def ci_env(step_env):
 
 
 def msrv_invocations(command):
-    """Expand a `${{ matrix.crate.* }}` command over the declared floors."""
-    raw = subprocess.run(
-        [sys.executable, str(REPO / ".github" / "msrv_matrix.py")],
-        capture_output=True, text=True, cwd=REPO,
-    )
+    """Expand a `${{ matrix.crate.* }}` command over the right matrix.
+
+    There are TWO matrices now and they are not interchangeable. The sufficiency
+    legs carry `msrv`; the minimality legs also carry `below`, and cover only the
+    crates whose floor can be stepped beneath. Expanding a minimality command
+    over the sufficiency matrix would substitute nothing for `below`, leaving a
+    literal `${{ ... }}` in the command line and running SOMETHING -- which is
+    the shape where a gate reports about a thing nobody chose.
+
+    Selected by what the command actually references rather than by job name, so
+    a renamed job does not silently pick the wrong matrix.
+    """
+    minimality = "matrix.crate.below" in command
+    argv = [sys.executable, str(REPO / ".github" / "msrv_matrix.py")]
+    if minimality:
+        argv.append("--minimality")
+    raw = subprocess.run(argv, capture_output=True, text=True, cwd=REPO)
     if raw.returncode != 0:
         raise SystemExit(
             "msrv_matrix.py failed, so the msrv legs cannot be expanded:\n" + raw.stderr
@@ -258,6 +270,16 @@ def msrv_invocations(command):
     for leg in json.loads(raw.stdout):
         cmd = command.replace("${{ matrix.crate.msrv }}", leg["msrv"])
         cmd = cmd.replace("${{ matrix.crate.name }}", leg["name"])
+        if "below" in leg:
+            cmd = cmd.replace("${{ matrix.crate.below }}", leg["below"])
+        # A leftover placeholder means the matrix did not carry a field the
+        # command asked for. Running it anyway would execute a command nobody
+        # wrote, so refuse instead.
+        if "${{" in cmd:
+            raise SystemExit(
+                "an unexpanded matrix placeholder survived expansion, so the "
+                "command would not be the one CI runs:\n  " + cmd.strip()
+            )
         expanded.append((cmd, leg))
     return expanded
 
@@ -318,13 +340,18 @@ def main():
 
         if policy == MSRV:
             for expanded, leg in msrv_invocations(command):
+                # A minimality leg runs at `below`, not at the declared floor.
+                # Installing and probing `msrv` here would verify 1.88 and then
+                # run a 1.87 command -- a guard confirming a different toolchain
+                # from the one under test, which is worse than no guard.
+                want = leg.get("below", leg["msrv"])
                 # Read the install result. Ignoring it lets the build below run on
                 # whatever toolchain happened to be present and report a pass or a
                 # fail about a version nobody chose -- an exit code produced and
                 # never read, which is the same defect as treating gpu-run's
                 # EX_TEMPFAIL as a gate result, one layer over.
                 install = subprocess.run(
-                    ["rustup", "toolchain", "install", leg["msrv"], "--profile", "minimal"],
+                    ["rustup", "toolchain", "install", want, "--profile", "minimal"],
                     capture_output=True, text=True,
                 )
                 # `install.returncode` answers "did rustup exit cleanly", which
@@ -340,11 +367,11 @@ def main():
                 # Ask the toolchain to identify itself instead. That is the
                 # property the build actually needs, and it is false exactly when
                 # the install really did fail.
-                probe = probe_toolchain(leg["msrv"])
+                probe = probe_toolchain(want)
                 verdict = toolchain_verdict(install.returncode, probe.returncode)
                 if verdict == "unusable":
                     failures.append(label + " (" + leg["name"] + " @ " + leg["msrv"]
-                                    + ") toolchain is not usable (rustup exit="
+                                    + " @ " + want + ") toolchain is not usable (rustup exit="
                                     + str(install.returncode) + "): "
                                     + (probe.stderr.strip()
                                        or install.stderr.strip())[:160])
@@ -352,13 +379,17 @@ def main():
                     continue
                 if verdict == "note":
                     print("  note  rustup exited " + str(install.returncode)
-                          + " installing " + leg["msrv"]
+                          + " installing " + want
                           + ", but the toolchain answers: " + probe.stdout.strip())
-                print("  RUN   [" + job + "] " + leg["name"] + " @ " + leg["msrv"])
+                print("  RUN   [" + job + "] " + leg["name"] + " @ " + want
+                      + (" (must FAIL)" if "below" in leg else ""))
                 code = shell(expanded, env)
                 if code != 0:
-                    failures.append(label + " (" + leg["name"] + " @ "
-                                    + leg["msrv"] + ") exit=" + str(code))
+                    # `want`, not `leg["msrv"]`: a minimality leg runs at
+                    # `below`, and a failure line naming the declared floor
+                    # sends the reader to a version that was never executed.
+                    failures.append(label + " (" + leg["name"] + " @ " + want
+                                    + ") exit=" + str(code))
                 ran += 1
             continue
 
@@ -465,6 +496,22 @@ def self_test():
           toolchain_verdict(1, 0) == "note")
     check("a toolchain that cannot answer is unusable however rustup exited",
           not wrong)
+
+    # 1e. the two MSRV matrices are different populations, and a command is
+    # routed by what it references. Getting this wrong would expand a
+    # minimality command over the sufficiency matrix and run a version nobody
+    # chose, which is the defect the MSRV job exists to prevent.
+    suff = msrv_invocations("X ${{ matrix.crate.name }} ${{ matrix.crate.msrv }}")
+    mini = msrv_invocations("X ${{ matrix.crate.name }} ${{ matrix.crate.below }}")
+    check("the sufficiency matrix has legs", len(suff) > 0)
+    check("every minimality leg carries a `below`",
+          all("below" in leg for _, leg in mini))
+    check("no minimality leg is expanded from the sufficiency matrix",
+          all("below" not in leg for _, leg in suff))
+    check("expansion leaves no unsubstituted placeholder",
+          not any("${{" in cmd for cmd, _ in suff + mini))
+    check("a minimality leg steps BELOW its declared floor",
+          all(leg["below"] != leg["msrv"] for _, leg in mini))
 
     # 2. a command with no policy is detected (the whole point)
     check("an unknown command is unclassified, not defaulted",
