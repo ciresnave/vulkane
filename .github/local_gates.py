@@ -138,6 +138,14 @@ POLICIES = [
     ("local_gates.py --self-test", RUN,
      "this harness checking its own guards -- it is what fails in CI when a job" +
      " gains no policy"),
+    # ORDER MATTERS: `classify` returns the FIRST match, and these must precede
+    # the bare `cargo clippy` / `cargo doc` entries below. The shaderc and slang
+    # jobs now lint their own feature, and those commands contain "cargo clippy",
+    # so without these two rows the harness would try to build a toolchain this
+    # box does not have and fail for a reason that says nothing about the code.
+    ("fetch-spec,shaderc", SKIP,
+     "needs a system libshaderc or a source build of glslang"),
+    ("fetch-spec,slang", SKIP, "needs the Slang toolchain"),
     ("cargo fmt", RUN, ""),
     ("cargo clippy", RUN, ""),
     ("cargo doc", RUN, ""),
@@ -598,6 +606,24 @@ def self_test():
     v2, who2 = mm._highest_declared({"d"}, None, pkgs, set())
     check("no declared floor anywhere returns None rather than a default",
           v2 is None and who2 is None)
+
+    # 1h. POLICIES is ORDER-SENSITIVE and one pair of rows now depends on it.
+    #
+    # The shaderc and slang jobs lint their own feature, and those commands
+    # contain "cargo clippy" -- which has its own RUN row. If the toolchain rows
+    # are ever moved below it, the harness silently starts trying to build
+    # libshaderc on a box that has none, and fails for a reason that says
+    # nothing about the code. A comment saying "order matters" does not survive
+    # a reorder; this does.
+    check("a toolchain-gated clippy is SKIPped, not run",
+          classify("cargo clippy -p vulkane --features fetch-spec,shaderc "
+                   "-- -D warnings")[0] == SKIP)
+    check("a toolchain-gated doc build is SKIPped, not run",
+          classify("cargo doc -p vulkane --features fetch-spec,slang --no-deps")[0]
+          == SKIP)
+    check("the widened workspace clippy still RUNs locally",
+          classify("cargo clippy --workspace --features "
+                   "fetch-spec,naga,derive,kiss-target -- -D warnings")[0] == RUN)
 
     # 2. a command with no policy is detected (the whole point)
     check("an unknown command is unclassified, not defaulted",
