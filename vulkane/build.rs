@@ -1,11 +1,29 @@
 //! Build script for Vulkane - generates Vulkan bindings from vk.xml specification
 //!
-//! vk.xml resolution order:
-//! 1. `VK_XML_PATH` environment variable (explicit path to a vk.xml file)
-//! 2. Local copy at `../spec/registry/Vulkan-Docs/xml/vk.xml` (relative to this crate)
-//! 3. Auto-download from Khronos GitHub (requires `fetch-spec` feature)
-//!    - Set `VK_VERSION` to download a specific version (e.g., `VK_VERSION=1.3.250`)
+//! vk.xml resolution order — FOUR routes, and this list used to name three.
+//! The one it omitted is the one that serves everyone who depends on this crate,
+//! which made the documented order the inverse of the useful one: it featured a
+//! path only this workspace can satisfy and left out the bundled copy that makes
+//! a plain `cargo add vulkane` work offline.
+//!
+//! 1. `VK_XML_PATH` environment variable. Use an ABSOLUTE path: a relative one
+//!    is tried as given (resolved against this crate's directory) and then
+//!    against its parent, which for a dependency is cargo's registry cache --
+//!    so neither base is one a dependent controls. It reads as "workspace
+//!    root" only from inside this repository.
+//! 2. Bundled copy at `<CARGO_MANIFEST_DIR>/vk.xml`. **Ships inside the
+//!    published crate**, so dependents, docs.rs and other sandboxed builds
+//!    resolve without network access or configuration. This is the route the
+//!    overwhelming majority of builds take.
+//! 3. Workspace copy at `../spec/registry/Vulkan-Docs/xml/vk.xml`, relative to
+//!    this crate. Reachable only from a checkout of this repository — for a
+//!    dependency, `..` is cargo's registry cache.
+//! 4. Auto-download from Khronos GitHub (requires the `fetch-spec` feature)
+//!    - Set `VK_VERSION` to download a specific version (e.g. `VK_VERSION=1.3.250`)
 //!    - Without `VK_VERSION`, downloads the latest from the main branch
+//!
+//! Because route 2 is present in every published version, `fetch-spec` is a
+//! fallback rather than a requirement.
 //!
 //! The downloaded file is cached in OUT_DIR so subsequent builds don't re-download.
 
@@ -63,10 +81,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-/// Resolve the path to vk.xml using the priority order:
-/// 1. VK_XML_PATH env var
-/// 2. Local file relative to the workspace
-/// 3. Auto-download (if `fetch-spec` feature is enabled)
+/// Resolve the path to vk.xml. Four routes, first match wins — see the module
+/// docs for which are reachable by a dependent and which are repository-only.
+///
+/// 1. `VK_XML_PATH` (as given, then relative to this crate's parent)
+/// 2. Bundled `<CARGO_MANIFEST_DIR>/vk.xml` — ships in the published crate
+/// 3. `../spec/registry/Vulkan-Docs/xml/vk.xml` — this repository only
+/// 4. Auto-download, if the `fetch-spec` feature is enabled
 fn resolve_vk_xml(
     manifest_dir: &str,
     #[cfg_attr(not(feature = "fetch-spec"), allow(unused))] out_dir: &str,
@@ -78,17 +99,20 @@ fn resolve_vk_xml(
             println!("Using vk.xml from VK_XML_PATH: {}", path.display());
             return Ok(path);
         }
-        let workspace_relative = PathBuf::from(manifest_dir).join("..").join(&env_path);
-        if workspace_relative.exists() {
+        // Named for what it IS rather than what it is in this repo: the base is
+        // the parent of CARGO_MANIFEST_DIR, which happens to be the workspace
+        // root here and is cargo's registry cache for a dependency.
+        let parent_relative = PathBuf::from(manifest_dir).join("..").join(&env_path);
+        if parent_relative.exists() {
             println!(
-                "Using vk.xml from VK_XML_PATH (workspace-relative): {}",
-                workspace_relative.display()
+                "Using vk.xml from VK_XML_PATH (relative to this crate's parent): {}",
+                parent_relative.display()
             );
-            return Ok(workspace_relative);
+            return Ok(parent_relative);
         }
         return Err(format!(
             "VK_XML_PATH is set to '{}' but the file does not exist \
-             (tried absolute and relative to workspace root)",
+             (tried it as given, then relative to this crate's parent directory)",
             env_path
         )
         .into());
@@ -102,7 +126,8 @@ fn resolve_vk_xml(
         return Ok(bundled_path);
     }
 
-    // 2b. Check local copy relative to workspace
+    // 2b. Check the repository checkout. Reachable only from a clone of this
+    //     repo -- for a dependency, `..` is cargo's registry cache.
     let local_path = PathBuf::from(manifest_dir).join("../spec/registry/Vulkan-Docs/xml/vk.xml");
     if local_path.exists() {
         println!("Using local vk.xml: {}", local_path.display());
@@ -118,12 +143,30 @@ fn resolve_vk_xml(
 
     #[cfg(not(feature = "fetch-spec"))]
     {
-        Err("vk.xml not found. Provide it via one of:\n\
-             \x20 1. Set VK_XML_PATH environment variable to the path of your vk.xml\n\
-             \x20 2. Place the Vulkan-Docs repo at ../spec/registry/Vulkan-Docs/\n\
-             \x20 3. Enable the `fetch-spec` feature to auto-download:\n\
-             \x20    cargo build -p vulkane --features fetch-spec\n\
-             \x20    VK_VERSION=1.3.250 cargo build -p vulkane --features fetch-spec"
+        // Two audiences reach this and the routes differ between them. The
+        // previous message gave WORKSPACE-DEVELOPER instructions to everyone: a
+        // path resolved from CARGO_MANIFEST_DIR (which for a dependency is
+        // inside cargo's registry cache) and a `cargo build -p vulkane`
+        // invocation (which a dependent never runs). Someone consuming this
+        // crate could follow every line of it and get nowhere.
+        Err("vk.xml not found.\n\
+             \n\
+             \x20A copy normally ships inside this crate, so reaching this as a\n\
+             \x20DEPENDENT means the bundled vk.xml is missing from the package --\n\
+             \x20that is unusual and worth reporting. To get moving now, either:\n\
+             \x20 1. Set VK_XML_PATH to an ABSOLUTE path. A relative one is resolved\n\
+             \x20    against this crate's own directory, then against its parent --\n\
+             \x20    inside cargo's registry cache for a dependency, so neither base\n\
+             \x20    is anything you control. Or:\n\
+             \x20 2. Add the fetch-spec feature to your existing vulkane dependency,\n\
+             \x20    which lets the build download one (needs network at build time):\n\
+             \x20      features = [\"fetch-spec\"]\n\
+             \x20    optionally pinned with VK_VERSION=1.3.250\n\
+             \n\
+             \x20If you are working IN the vulkane repository: either of the above,\n\
+             \x20or place the Vulkan-Docs checkout at spec/registry/Vulkan-Docs/\n\
+             \x20(read as ../spec/registry/Vulkan-Docs/xml/vk.xml from this crate\n\
+             \x20directory), or build with --features fetch-spec."
             .into())
     }
 }

@@ -450,10 +450,22 @@ keep your Slang code in `.slang` files.
 
 ## Providing vk.xml
 
-1. **`VK_XML_PATH`** env var — point to any local `vk.xml`
-2. **Local copy** at `spec/registry/Vulkan-Docs/xml/vk.xml`
-3. **Auto-download** (`--features fetch-spec`), optionally pinned
-   with `VK_VERSION=1.3.250`
+**You usually do not have to.** A `vk.xml` ships inside the published crate, so
+`cargo add vulkane` builds with no configuration, no network, and no feature
+flags. The rest of this section is for overriding that.
+
+The build resolves a spec in this order and takes the first that exists:
+
+| | route | for |
+|---|---|---|
+| 1 | **`VK_XML_PATH`** — use an **absolute** path. A relative one is tried as given (against this crate's directory), then against its parent — cargo's registry cache for a dependency, so neither base is one you control | anyone pinning a different spec revision |
+| 2 | **Bundled copy** at `<crate>/vk.xml` | **the default for dependents** — ships in the crate, which is also why docs.rs and other sandboxed builds work offline |
+| 3 | **Workspace copy** at `../spec/registry/Vulkan-Docs/xml/vk.xml` | this repository only — the path is read from `CARGO_MANIFEST_DIR`, which for a dependency is inside cargo's registry cache |
+| 4 | **Auto-download**, `--features fetch-spec`, optionally pinned with `VK_VERSION=1.3.250` | when no copy is present, or to fetch a specific release |
+
+Because route 2 is present in every published version, `fetch-spec` is a fallback
+rather than a requirement. If every route fails the build errors with all of them
+named, rather than with a missing-file diagnostic.
 
 ## Supported Vulkan Versions
 
