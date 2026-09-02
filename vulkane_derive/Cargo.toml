@@ -2,6 +2,9 @@
 name = "vulkane_derive"
 version = "0.1.1"
 edition = "2024"
+# 1.85 is edition 2024's own floor, not a choice -- cargo below it cannot
+# read this manifest at all. Minimal by construction: there is no lower
+# version to fail at, which is why msrv_matrix.py emits no minimality leg.
 rust-version = "1.85"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
 license = "MIT OR Apache-2.0"

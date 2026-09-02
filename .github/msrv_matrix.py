@@ -57,6 +57,87 @@ if not declared:
     )
     sys.exit(1)
 
+# --- minimality ------------------------------------------------------------
+#
+# The matrix above proves each floor is SUFFICIENT: the crate builds at it.
+# Nothing proved it NECESSARY. A floor set too high is a false promise in the
+# other direction -- it turns away consumers who could have compiled -- and it
+# fails silently, because everything is green and the people excluded never
+# appear.
+#
+# The obvious check is unsound, twice, and both were measured before this was
+# written:
+#
+#   cargo +1.87 build -p vulkan_gen
+#     -> error: rustc 1.87.0 is not supported by the following package
+#
+# That is cargo enforcing the DECLARED rust-version. The check would "prove" the
+# floor necessary by observing that cargo obeys the floor: the number causes the
+# failure that justifies it. A check whose subject enforces its own precondition
+# cannot return the interesting answer -- it must pass, on every crate, whether
+# or not the floor is real.
+#
+#   cargo +1.84 build -p kiss-vulkan-vocab
+#     -> error: failed to load manifest for workspace member ...
+#
+# `edition = "2024"` requires 1.85, so any cargo below the edition floor dies
+# reading the workspace and never reaches the code. That is a failure at the
+# wrong layer, reported as a finding about the right one.
+#
+# So: `--ignore-rust-version` to get past the first, and emit a leg only where
+# `floor - 1` is still at or above the edition floor to avoid the second. Where
+# it is not, the floor IS the edition floor and is minimal by construction --
+# there is no lower version to fail at, which is an answer rather than a gap.
+
+# Editions and the Rust version that stabilised each. This is a restated
+# external fact, which this file otherwise avoids -- but it is Rust's own
+# history and cannot change retroactively, unlike anything read from this
+# workspace. cargo itself refuses to load a manifest below these.
+EDITION_FLOOR = {"2015": (1, 0), "2018": (1, 31), "2021": (1, 56), "2024": (1, 85)}
+
+
+def _parse(v):
+    """`"1.88"` or `"1.88.0"` -> (1, 88). Returns None if it is not that shape."""
+    parts = v.split(".")
+    if len(parts) < 2 or not all(p.isdigit() for p in parts[:2]):
+        return None
+    return (int(parts[0]), int(parts[1]))
+
+
+def minimality_legs(packages):
+    """One leg per crate whose floor can be shown necessary by a build.
+
+    Emits `below` = floor minus one minor. The job asks that crate to FAIL to
+    compile there; if it succeeds, the declared floor is higher than the code
+    needs and the promise excludes consumers for no reason.
+    """
+    legs = []
+    for p in packages:
+        floor = _parse(p["rust_version"])
+        edition = EDITION_FLOOR.get(str(p.get("edition", "")))
+        if floor is None or edition is None:
+            print(
+                f"note: {p['name']} declares rust-version {p['rust_version']!r} "
+                f"and edition {p.get('edition')!r}; not a shape this can step "
+                f"below, so no minimality leg",
+                file=sys.stderr,
+            )
+            continue
+        below = (floor[0], floor[1] - 1)
+        if below < edition:
+            print(
+                f"note: {p['name']} floor {p['rust_version']} is the edition "
+                f"{p['edition']} floor, so it is minimal by construction -- "
+                f"there is no lower version to fail at",
+                file=sys.stderr,
+            )
+            continue
+        legs.append({"name": p["name"],
+                     "msrv": p["rust_version"],
+                     "below": f"{below[0]}.{below[1]}"})
+    return sorted(legs, key=lambda e: e["name"])
+
+
 matrix = sorted(
     ({"name": p["name"], "msrv": p["rust_version"]} for p in declared),
     key=lambda e: e["name"],
@@ -64,4 +145,13 @@ matrix = sorted(
 for entry in matrix:
     print(f"note: {entry['name']} declares {entry['msrv']}", file=sys.stderr)
 
-print(json.dumps(matrix, separators=(",", ":")))
+if "--minimality" in sys.argv:
+    legs = minimality_legs(declared)
+    # Unlike the sufficiency matrix, ZERO legs is a legitimate answer: every
+    # floor could be an edition floor. But zero legs for a workspace that has a
+    # floor above its edition is the silent-empty-matrix defect, so say which.
+    print(f"note: {len(legs)} minimality leg(s) of {len(declared)} declared "
+          f"floor(s)", file=sys.stderr)
+    print(json.dumps(legs, separators=(",", ":")))
+else:
+    print(json.dumps(matrix, separators=(",", ":")))
