@@ -90,8 +90,14 @@ fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
         // NAME and the STORAGE are different facts, exactly as CpuC has it
         // (tag "bool", ctype "unsigned char").
         ElementKind::Bool => Some("uint8_t"),
-        // F16/Bf16 remain declined (the spelling seam); i16/u16 wait on
-        // vocabulary v5 shipping `i16`. See `supports_dtype`.
+        // 16-bit integers. Unblocked 2026-09-02 by kiss-vulkan-vocab 0.4.0 /
+        // vulkane 0.14.0 shipping capability vocabulary v5, which names `i16`
+        // (`shaderInt16`). Before that the vocabulary could not express the
+        // capability at all, so declining was the only honest answer — it was an
+        // UNSHIPPED vocabulary, not a missing one.
+        ElementKind::I16 => Some("int16_t"),
+        ElementKind::U16 => Some("uint16_t"),
+        // F16/Bf16 remain declined (the spelling seam). See `supports_dtype`.
         _ => None,
     }
 }
@@ -161,7 +167,10 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     }
     // The narrow integers are the only dtypes whose answer depends on the
     // target. Everything else `slang_ctype` names is universally spellable.
-    if !matches!(dt, ElementKind::I8 | ElementKind::U8 | ElementKind::Bool) {
+    if !matches!(
+        dt,
+        ElementKind::I8 | ElementKind::U8 | ElementKind::Bool | ElementKind::I16 | ElementKind::U16
+    ) {
         return true;
     }
     // 8-bit ARITHMETIC is `shaderInt8`, spelled `i8` in the `<arith>` field.
@@ -198,8 +207,17 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     // Weakening this to `st8` would admit genuine 8-bit arithmetic on a device
     // that cannot do it — the failure that does not announce itself, traded for
     // one that merely costs coverage.
+    // 8-bit dtypes gate on `i8` (`shaderInt8`), 16-bit on `i16` (`shaderInt16`).
+    // **Both tokens are SIGNEDNESS-AGNOSTIC** — each names a capability, not a
+    // component type — so `u8` gates on `i8` and `u16` gates on `i16`. There is
+    // no `u8` or `u16` token and neither absence is an omission.
+    let needed = if matches!(dt, ElementKind::I16 | ElementKind::U16) {
+        "i16"
+    } else {
+        "i8"
+    };
     match target.capability_field("arith") {
-        Some(arith) => arith.iter().any(|t| t == "i8"),
+        Some(arith) => arith.iter().any(|t| t == needed),
         // The token does not speak about arithmetic — a `cuda:` or `metal:`
         // target, or a `vulkan:` one that omits the field. **Absence is
         // silence, not permission.** Declining here is the same answer as
@@ -632,6 +650,23 @@ mod tests {
         assert!(!can("vulkan:sg32.arith-f16", ElementKind::Bool));
         assert!(!can("vulkan:sg32.st8-yes", ElementKind::Bool));
         assert!(!can("cuda:sm89", ElementKind::Bool));
+
+        // 16-BIT GATES ON ITS OWN TOKEN, and this is the arm that would pass
+        // by accident under a gate that checked only `i8`. `arith-f16-i8`
+        // advertises 8-bit arithmetic and says nothing about 16-bit, so a target
+        // offering i8 alone must still refuse i16/u16.
+        assert!(can("vulkan:sg32.arith-i16", ElementKind::I16));
+        assert!(can("vulkan:sg32.arith-i16", ElementKind::U16));
+        assert!(can("vulkan:sg32.arith-f16-i16-i8", ElementKind::U16));
+        assert!(
+            !can("vulkan:sg32.arith-f16-i8", ElementKind::I16),
+            "i8 must not answer for i16 — separate capabilities"
+        );
+        assert!(
+            !can("vulkan:sg32.arith-i16", ElementKind::U8),
+            "and i16 must not answer for u8, in the other direction"
+        );
+        assert!(!can("cuda:sm89", ElementKind::U16));
 
         // Universally-spellable dtypes are unaffected by the target.
         assert!(can("cuda:sm89", ElementKind::F32));
