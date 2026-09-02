@@ -102,6 +102,62 @@ Pick the type index with `PhysicalDevice::find_memory_type`, and prefer
    - Compare against baselines
    - Document performance characteristics
 
+## Finding what is undone
+
+**There is no `ROADMAP.md` here, deliberately.** A roadmap is a written claim
+with nothing checking it, which is the failure mode the rest of this document
+exists to remove. Every item of work this repository has taken on recently was
+found by *measuring what the code claims and what enforces it*, not by reading a
+plan — the vk.xml route lists, the bundled-spec guarantee, MSRV minimality, the
+1,349 unlinted lines, the suppressions. None of those were on anyone's list.
+
+So the answer to "what is undone" is a survey, and the survey is written down
+here rather than re-derived. **A null is only trustworthy when its search space
+was named in advance**; reconstructed afterwards, it is an assertion.
+
+### The survey
+
+Run these at `origin/main`, not against a working tree. **Each null needs its
+control** — the same query finding something you know is there.
+
+| where work hides | query | control |
+|---|---|---|
+| a planning file | `git ls-tree -r --name-only origin/main \| grep -iE 'roadmap\|todo\|backlog\|deferred'` | total tracked file count |
+| the issue tracker | `gh issue list --state all` | the same query against a repo known to have issues — an empty tracker and a broken query look identical |
+| the next release | `## [Unreleased]` in `CHANGELOG.md` — only entries that will ship; repository-only work is in `# Repository log` | the file has more than two `## [` headings |
+| code debt | `TODO`, `FIXME`, `for now`, `unimplemented!`, `#[ignore]` | `pub fn` count in the same trees |
+| suppressions | `allow(dead_code)`, `allow(clippy::` | see the trap below |
+| gate coverage | which `--features` sets `clippy`, `doc` and `test` each see in `ci.yml` | they should agree; a feature only one of them sees is a gap |
+| documented limits | `not yet`, `will be`, `planned`, `limitation` across `*.md` | read each — see the trap below |
+
+### Three traps this survey has actually hit
+
+**A count is not a result until someone has opened the members.** Every one of
+these produced a wrong number first:
+
+- **`allow(dead_code)` counted 33 and meant 6.** Five were string literals —
+  `push_str("#[allow(dead_code)]")` emitting into the generated bindings, where
+  thousands of unused items are correct. Count *attributes*, not text. And a
+  suppression's reason often sits in the comment block **above** it, not on the
+  same line, so a same-line classifier inverts the ranking on the cases done
+  right.
+- **"planned" is a pattern name here, not a tense.** `DEFRAG_FOR_ML.md`
+  describes a *planned* defragmentation API, meaning plan-then-apply. It is
+  built, with tests. Read the sentence.
+- **Searching for a label is not searching for the property.** A grep for the
+  phrase `POSITIVE CONTROL` reported that `ci_coverage.rs` had none. Its scans
+  are controlled — positive *and* negative, on the exact parser whose failure
+  would make them examine zero files — just not labelled. A naming convention is
+  followed by the people who adopted it, never by everyone.
+
+### What the answer legitimately is
+
+**"Nothing, and here are the documents I read" is a complete answer**, and a
+better one than a plausible-sounding item. State the documents. If a deliberate
+hold exists, name it — *"nothing open"* and *"nothing open except one item that
+is deliberately waiting"* read identically from outside and mean different
+things.
+
 ## Adding a gate
 
 Every gate in this repository is demonstrated FAILING before it is trusted. Not
