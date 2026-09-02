@@ -85,9 +85,32 @@ EX_TEMPFAIL = 75
 # This table CAN drift from the workflow -- a reworded command stops matching.
 # That is why an unmatched command is fatal rather than skipped: drift here is
 # loud, and loud drift is a different thing from silent absence.
+# Codacy flags implicit string concatenation inside a list, and the rule is
+# right in general: a dropped comma between two string literals joins them
+# silently instead of erroring. It fired here on PR #42 and was carried, so the
+# argument is recorded at the call site rather than in a review thread -- the
+# annotation is reachable only through the check-runs API, and nobody re-reading
+# this table will go there.
+#
+# What was actually measured, on that PR head:
+#
+#   * a dropped comma BETWEEN rows is not silent at all. `(...)(...)` is a call,
+#     so the module raises TypeError on import and the harness never runs.
+#   * a dropped comma INSIDE a row joins two reason fragments and leaves arity
+#     at 3, so an arity check cannot see it. That is the real hole, and it is
+#     the one the rule is pointing at.
+#   * the consequence here is bounded: the joined field is the REASON, which is
+#     prose. Pattern and action decide behaviour and sit ahead of it, where a
+#     dropped comma is a syntax error.
+#
+# So the fix is not to ban the pattern but to remove the ambiguity: every
+# continuation below is joined with an explicit `+`. The rule stops firing, the
+# intent stops being inferable, and a future multi-line reason does not reopen
+# it. A known-red that recurs trains readers to skip the check, which costs more
+# than the character it saves.
 POLICIES = [
     ("pip install", SKIP,
-     "runner provisioning; a gate that installs things makes a local check depend"
+     "runner provisioning; a gate that installs things makes a local check depend" +
      " on the network"),
     ("apt-get", SKIP,
      "provisions a Linux runner; this box is Windows with the SDK already installed"),
@@ -100,7 +123,7 @@ POLICIES = [
     ("rustup show active-toolchain", RUN,
      "asserts the pin is the mechanism; works identically here"),
     ("local_gates.py --self-test", RUN,
-     "this harness checking its own guards -- it is what fails in CI when a job"
+     "this harness checking its own guards -- it is what fails in CI when a job" +
      " gains no policy"),
     ("cargo fmt", RUN, ""),
     ("cargo clippy", RUN, ""),
@@ -109,12 +132,33 @@ POLICIES = [
      "needs a system libshaderc or a source build of glslang"),
     ("--test slang_test", SKIP, "needs the Slang toolchain"),
     ("cargo package --list", RUN,
-     "lists what WOULD be published without building or touching a device; the"
+     "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),
     ("cargo test", GPU, ""),
     ("cargo run", GPU, ""),
     ("cargo build", RUN, ""),
 ]
+
+
+def toolchain_verdict(install_code, probe_code):
+    """Is an MSRV floor usable? Two exit codes, and they answer DIFFERENT things.
+
+    `install_code` is rustup's, and rustup attempts a self-update during install.
+    On a shared box that fails ("could not remove 'rustup-bin'") whenever another
+    session holds rustup.exe, one line after reporting the toolchain installed and
+    unchanged -- so a nonzero install code routinely means nothing about the
+    toolchain. `probe_code` is `cargo +<floor> --version`: the toolchain being
+    asked to identify itself, which is the property a build depends on.
+
+    Lifted out of the loop because the interesting case only occurs when rustup
+    happens to be locked. A branch reachable only on a bad day is one a green run
+    never exercises, so the run cannot be the evidence -- this can.
+    """
+    if probe_code != 0:
+        return "unusable"
+    if install_code != 0:
+        return "note"
+    return "ok"
 
 
 def steps():
@@ -253,12 +297,36 @@ def main():
                     ["rustup", "toolchain", "install", leg["msrv"], "--profile", "minimal"],
                     capture_output=True, text=True,
                 )
-                if install.returncode != 0:
+                # `install.returncode` answers "did rustup exit cleanly", which
+                # is NOT the question the build below depends on. rustup attempts
+                # a SELF-UPDATE during install, and on a shared box that fails
+                # with "could not remove 'rustup-bin' ... Access is denied"
+                # whenever another session holds rustup.exe -- one line after
+                # reporting the toolchain installed and unchanged. Reading the
+                # exit code turned three already-present toolchains into three
+                # red MSRV legs, which is a false red, and a harness that cries
+                # wolf locally is one people stop running.
+                #
+                # Ask the toolchain to identify itself instead. That is the
+                # property the build actually needs, and it is false exactly when
+                # the install really did fail.
+                probe = subprocess.run(
+                    ["cargo", "+" + leg["msrv"], "--version"],
+                    capture_output=True, text=True,
+                )
+                verdict = toolchain_verdict(install.returncode, probe.returncode)
+                if verdict == "unusable":
                     failures.append(label + " (" + leg["name"] + " @ " + leg["msrv"]
-                                    + ") toolchain install failed: "
-                                    + install.stderr.strip()[:160])
+                                    + ") toolchain is not usable (rustup exit="
+                                    + str(install.returncode) + "): "
+                                    + (probe.stderr.strip()
+                                       or install.stderr.strip())[:160])
                     ran += 1
                     continue
+                if verdict == "note":
+                    print("  note  rustup exited " + str(install.returncode)
+                          + " installing " + leg["msrv"]
+                          + ", but the toolchain answers: " + probe.stdout.strip())
                 print("  RUN   [" + job + "] " + leg["name"] + " @ " + leg["msrv"])
                 code = shell(expanded, env)
                 if code != 0:
@@ -319,6 +387,55 @@ def self_test():
     unclassified = [c for _, _, c, _ in collected if classify(c)[0] is None]
     check("every current CI command is classified", not unclassified)
     check("the workflow parse found commands at all", len(collected) > 0)
+
+    # 1b. every POLICIES row is shaped (pattern, action, reason).
+    #
+    # Deliberately NOT sold as covering the concatenation footgun in the header
+    # comment above -- it does not, and saying so would be worse than leaving it
+    # unchecked. A joined reason keeps arity at 3 and passes this untouched.
+    # What it does catch is a row edited by hand into a shape `classify` would
+    # then read wrongly: a lost reason, an action that is not one of the four,
+    # a non-string reason, and an EMPTY pattern -- which is the dangerous one,
+    # because `"" in command` is true for every command, so one empty pattern
+    # silently classifies the entire workflow as whatever that row says.
+    shapes = [(i, r) for i, r in enumerate(POLICIES)
+              if not (isinstance(r, tuple) and len(r) == 3
+                      and isinstance(r[0], str) and r[0]
+                      and r[1] in (RUN, GPU, SKIP, MSRV)
+                      and isinstance(r[2], str))]
+    check("every POLICIES row is (pattern, action, reason)", not shapes)
+
+    # 1c. the MSRV toolchain probe must be able to FAIL.
+    #
+    # The MSRV legs now verify a floor by asking the toolchain to identify
+    # itself rather than by reading rustup's exit code. That is only a check if
+    # it can come back false, so prove both directions here.
+    active = subprocess.run(["rustup", "show", "active-toolchain"],
+                            capture_output=True, text=True)
+    if active.returncode == 0 and active.stdout.split():
+        name = active.stdout.split()[0]
+        real = subprocess.run(["cargo", "+" + name, "--version"],
+                              capture_output=True, text=True)
+        check("the toolchain probe answers for an installed toolchain",
+              real.returncode == 0)
+    bogus = subprocess.run(["cargo", "+not-a-real-toolchain-xyzzy", "--version"],
+                           capture_output=True, text=True)
+    check("the toolchain probe FAILS for a toolchain that does not exist",
+          bogus.returncode != 0)
+
+    # 1d. the four (install, probe) combinations, including the one a green run
+    # never reaches. The gates passing does NOT show that a locked rustup is
+    # tolerated -- on a run where rustup exits 0, that branch is never entered.
+    verdicts = {(0, 0): "ok",        # ordinary
+                (1, 0): "note",      # rustup could not self-update; toolchain fine
+                (1, 1): "unusable",  # install genuinely failed
+                (0, 1): "unusable"}  # installer "succeeded", toolchain absent
+    wrong = [(k, toolchain_verdict(*k)) for k, want in verdicts.items()
+             if toolchain_verdict(*k) != want]
+    check("a locked rustup with a working toolchain is a note, not a failure",
+          toolchain_verdict(1, 0) == "note")
+    check("a toolchain that cannot answer is unusable however rustup exited",
+          not wrong)
 
     # 2. a command with no policy is detected (the whole point)
     check("an unknown command is unclassified, not defaulted",
