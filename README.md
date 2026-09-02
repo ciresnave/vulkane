@@ -458,8 +458,8 @@ The build resolves a spec in this order and takes the first that exists:
 
 | | route | for |
 |---|---|---|
-| 1 | **`VK_XML_PATH`** — an absolute path, or one relative to the workspace root | anyone pinning a different spec revision |
-| 2 | **Bundled copy** at `<crate>/vk.xml` | **the default for dependants** — ships in the crate, which is also why docs.rs and other sandboxed builds work offline |
+| 1 | **`VK_XML_PATH`** — use an **absolute** path. A relative one is tried as given (against this crate's directory), then against its parent — cargo's registry cache for a dependency, so neither base is one you control | anyone pinning a different spec revision |
+| 2 | **Bundled copy** at `<crate>/vk.xml` | **the default for dependents** — ships in the crate, which is also why docs.rs and other sandboxed builds work offline |
 | 3 | **Workspace copy** at `../spec/registry/Vulkan-Docs/xml/vk.xml` | this repository only — the path is read from `CARGO_MANIFEST_DIR`, which for a dependency is inside cargo's registry cache |
 | 4 | **Auto-download**, `--features fetch-spec`, optionally pinned with `VK_VERSION=1.3.250` | when no copy is present, or to fetch a specific release |
 

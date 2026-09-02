@@ -193,10 +193,22 @@
 //!
 //! # Providing vk.xml
 //!
-//! 1. **`VK_XML_PATH`** env var — point to any local vk.xml file
-//! 2. **Local copy** at `spec/registry/Vulkan-Docs/xml/vk.xml`
-//! 3. **Auto-download** with `--features fetch-spec` (optionally pin
-//!    with `VK_VERSION=1.3.250`)
+//! **You almost certainly need to do nothing.** A copy of vk.xml ships inside
+//! the published crate, so `cargo add vulkane` builds offline, and so does
+//! docs.rs. The other routes exist to override that copy, and the first match
+//! wins:
+//!
+//! 1. **`VK_XML_PATH`** — an **absolute** path to the vk.xml you want. A
+//!    relative one is resolved against this crate's own directory and then
+//!    against its parent, which for a dependency is inside cargo's registry
+//!    cache — neither is a base you control.
+//! 2. **The bundled copy**, `<CARGO_MANIFEST_DIR>/vk.xml`. The default, and
+//!    the route nearly every build takes.
+//! 3. **A repository checkout** at `spec/registry/Vulkan-Docs/xml/vk.xml`.
+//!    Reachable only when building *this repository*, not as a dependency.
+//! 4. **Auto-download** with `--features fetch-spec` (optionally pin with
+//!    `VK_VERSION=1.3.250`). A fallback, not a requirement — route 2 covers
+//!    every published version.
 //!
 //! # Supported Vulkan Versions
 //!
