@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-09-02
+
 ### Fixed — the normative vectors pinned no set-valued field
 
 Every vector in the vocabulary manifest carried `ops-none` and `arith-none`. So the manifest
