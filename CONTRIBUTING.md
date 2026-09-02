@@ -102,6 +102,108 @@ Pick the type index with `PhysicalDevice::find_memory_type`, and prefer
    - Compare against baselines
    - Document performance characteristics
 
+## Adding a gate
+
+Every gate in this repository is demonstrated FAILING before it is trusted. Not
+as ceremony: a check that has only ever been run against working code has shown
+that it runs, which is a different claim from showing that it catches anything.
+
+    cargo package --list must contain vk.xml
+      -> proven by adding `exclude = ["vk.xml"]` and watching it red
+
+    the crate must not build one minor below its floor
+      -> proven by raising a floor nothing requires and watching it red
+
+    the changelog must name the version in Cargo.toml
+      -> proven at 64001e7, the commit where that was actually false
+
+The last one is the strongest form: born-red against **the defect that really
+happened, at the commit where it happened**. A synthetic reproduction shows the
+check runs; the real one shows it catches *this*.
+
+### A check that cannot find its subject must FAIL, not pass
+
+Put the positive control first, before the assertion it protects. If the shape
+being parsed ever changes, the real assertion compares against nothing — and
+comparing against nothing passes.
+
+    total="$(grep -c '^## \[' CHANGELOG.md || true)"
+    if [ "$total" -lt 2 ]; then exit 1; fi   # <- before the real checks
+
+The same rule applies to a null result. "I searched and found nothing" is not a
+finding until the same query is shown finding something you know is there:
+*0 hits for X; control: the same query finds Y, which I know is present.*
+
+### How checks in this repository have actually passed without checking
+
+Nine shapes, each with the instance it came from here. **Eight of the nine
+produced a REASSURING result** — which is why each needed a control rather than
+a closer look. A worrying result invites scrutiny for free; a reassuring one is
+self-certifying, and re-reading it only re-confirms it.
+
+1. **A filter between a check and its exit code.**
+   `git check-ignore -v path | sed ... || echo ABSENT` — `sed` succeeds on empty
+   input, so the `||` never fires and an absence prints nothing, which reads as
+   confirmation. Keep the exit code; never pipe the thing you are testing.
+2. **A query whose shape cannot match.** A single-line grep for let-chains found
+   **0 sites in all four crates**, which would have "proved" the documented MSRV
+   reason false. The query was wrong, not the answer; multiline found 17.
+3. **Matching the label instead of the outcome.** `grep -c FAIL` matched the
+   *name* of a passing assertion, "the probe FAILS for a toolchain that does not
+   exist". Caught only because the exit code disagreed with the grep.
+4. **Two tools disagreeing about a path.** Windows-Python's `/tmp` is `C:\tmp`,
+   not Git-Bash's. A file written by one and read by the other is silently
+   absent, so a comparison reports "differ" and a fixture reads as empty.
+5. **A fixture that cannot produce the defect.** `printf` turned `\n` into a
+   real newline, so the "escaped form" test input was not escaped. A born-red
+   whose broken input is not actually broken is a control that cannot fire.
+6. **The right control in the wrong environment.** A guard's born-red passed in
+   a shell with no `CARGO_TERM_COLOR`; CI sets it to `always`, cargo prefixes
+   diagnostics with ANSI escapes, and an anchored `^error\[E` then matches
+   nothing. Run controls under `.github/local_gates.py`, which replays CI's
+   workflow-level env, rather than in a bare shell.
+7. **A different question that agrees most of the time.**
+   `git diff main <branch>` for "is it merged" reports differences in *both*
+   directions, so a merged branch that main has moved past looks unmerged. Use
+   `gh pr list --head <branch>`. Likewise `git rev-parse --abbrev-ref HEAD`
+   answers "where is the worktree pointed", not "what contains this commit" --
+   that is `git branch --contains`.
+8. **The mode you were not looking at.** An edit broke `msrv_matrix.py`'s
+   default output while every targeted check exercised only `--minimality`.
+   Green everywhere it was looked at. Run the gates, not the check you wrote.
+9. **Repairing with the mechanism that caused it.** A quoting failure fixed by
+   rewriting the same literal in the same syntax fails the same way. Change the
+   mechanism -- a quoted heredoc, a file, a different tool -- not the value.
+
+### Individually green is not the same claim as green
+
+Several pull requests each passing alone have not been run together. After a
+run of merges, run `python .github/local_gates.py` on `main` itself: that is a
+separate measurement, and it is the one that describes what people get.
+
+### Gate what the change can break
+
+A documentation-only change to a file that is not compiled, not packaged and
+read by no test cannot be informed by the GPU gates. Do not run them for
+appearances -- they consume a machine-wide lock and add a green row that a later
+reader will mistake for evidence.
+
+**State the omission with its control**, in the pull request, in this form:
+
+    grep -rl '<the file>' --include=*.rs --include=*.yml --include=*.py
+    grep -rl '<something you know is referenced>' --include=... # the control
+
+"0 hits, and the same query finds N for a string I know is there" is a
+measurement. "It is only documentation" is an assertion.
+
+**Run it; do not copy a number out of here.** This paragraph originally quoted
+"0 references for `CONTRIBUTING.md`" as its example, measured minutes before
+being written. It was 1 by the time it was checked -- because the changelog gate
+added in #50 prints *"see the Release Process in CONTRIBUTING.md, step 3"*, so
+the pull request that motivated this section changed the number the section
+cited. **A count in prose is a measurement pinned to a moment, in a place
+nothing re-measures.**
+
 ## Pull Request Process
 
 1. Fork the repository
