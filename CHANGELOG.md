@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — nothing enforced that the bundled vk.xml ships, and CI could not notice
+
+0.14.0 put a promise on the docs.rs front page: a copy of vk.xml ships inside the crate, so
+`cargo add vulkane` builds offline. **That promise was held by nothing except the fact that
+nobody had deleted the file.**
+
+Every cargo invocation in `ci.yml` passed `--features fetch-spec`, and `spec/registry/` is not in
+this repository. So removing `vulkane/vk.xml` left route 1 unset, route 2a gone and route 2b
+absent — and **every leg would have quietly downloaded a spec and stayed green** while offline
+builds broke for every dependent. The failure is invisible by construction: the download is a
+documented feature working exactly as designed.
+
+**The step that should have caught it was named for a configuration it did not build.**
+`Build (default features)` ran `cargo build -p vulkane --features fetch-spec`, and `fetch-spec` is
+not a default feature (`default = ["build-support"]`). Its comment — *"we don't need to vendor a
+copy of the spec"* — was written before the crate vendored one and stopped being true without
+anything failing. A step whose name and comment both describe something else is worse than an
+absent one, because it occupies the slot where the missing check would be noticed.
+
+Three gates now, each demonstrated failing before being trusted:
+
+- `Build (default features, resolving via the bundled vk.xml)` builds what its name says, so
+  resolution must come from the bundled copy.
+- **The bundled copy is asserted present in `cargo package --list`**, because surviving a checkout
+  and surviving packaging are different claims and only the second is what dependents get. A
+  temporary `exclude = ["vk.xml"]` reds it; the assertion carries its own positive control so an
+  unrecognisable list fails rather than comparing two absences.
+- **The no-source path is executed, not merely compiled.** vk.xml is moved aside and the build must
+  FAIL with the dependent-facing diagnostic.
+
+### Fixed — the build-failure message reached dependents as one escaped line
+
+Found by running the error path rather than reading it. `fn main() -> Result<_, E>` reports with
+`{:?}`, and a `Box<dyn Error>` built from a `String` debug-prints it **quoted, with every newline
+escaped**. The two-audience message written in 0.14.0 was formatted, compiled, and then flattened
+to a single unreadable line at the last step — for the reader who has nothing else to go on.
+
+Nothing failed, because a build script that errors is already failing; only legibility was lost.
+A `PlainError` newtype whose `Debug` is its `Display` restores it: 18 lines instead of 1.
+
+**A substring check cannot see this bug** — the text is present either way. The CI assertion
+therefore requires the numbered option to occupy a line of its own, which is only true when the
+newlines are real.
+
 ## [0.14.0] — 2026-09-02
 
 ### Fixed — the normative vectors pinned no set-valued field

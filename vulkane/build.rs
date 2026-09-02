@@ -44,6 +44,31 @@ const VK_XML_REPO_PATHS: &[&str] = &[
     "src/spec/vk.xml", // Older layout (v1.1.70 – ~v1.2.139)
 ];
 
+/// An error whose `Debug` is its `Display`.
+///
+/// `fn main() -> Result<_, E>` reports failures with `{:?}`, and a
+/// `Box<dyn Error>` built from a String debug-prints it QUOTED AND ESCAPED.
+/// Every newline in the messages below reached the reader as a literal escape
+/// on one long line, so the two-audience formatting was written, compiled and
+/// then discarded at the last step. Nothing failed, because a build script
+/// that errors is already failing; only the legibility was lost, and only for
+/// the dependent who has nothing else to go on.
+struct PlainError(String);
+
+impl std::fmt::Debug for PlainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::fmt::Display for PlainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for PlainError {}
+
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=VK_XML_PATH");
@@ -110,11 +135,11 @@ fn resolve_vk_xml(
             );
             return Ok(parent_relative);
         }
-        return Err(format!(
+        return Err(PlainError(format!(
             "VK_XML_PATH is set to '{}' but the file does not exist \
              (tried it as given, then relative to this crate's parent directory)",
             env_path
-        )
+        ))
         .into());
     }
 
@@ -149,7 +174,8 @@ fn resolve_vk_xml(
         // inside cargo's registry cache) and a `cargo build -p vulkane`
         // invocation (which a dependent never runs). Someone consuming this
         // crate could follow every line of it and get nowhere.
-        Err("vk.xml not found.\n\
+        Err(PlainError(
+            "vk.xml not found.\n\
              \n\
              \x20A copy normally ships inside this crate, so reaching this as a\n\
              \x20DEPENDENT means the bundled vk.xml is missing from the package --\n\
@@ -167,7 +193,9 @@ fn resolve_vk_xml(
              \x20or place the Vulkan-Docs checkout at spec/registry/Vulkan-Docs/\n\
              \x20(read as ../spec/registry/Vulkan-Docs/xml/vk.xml from this crate\n\
              \x20directory), or build with --features fetch-spec."
-            .into())
+                .to_string(),
+        )
+        .into())
     }
 }
 

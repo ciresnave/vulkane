@@ -108,6 +108,9 @@ POLICIES = [
     ("--test shaderc_test", SKIP,
      "needs a system libshaderc or a source build of glslang"),
     ("--test slang_test", SKIP, "needs the Slang toolchain"),
+    ("cargo package --list", RUN,
+     "lists what WOULD be published without building or touching a device; the"
+     " bundled-vk.xml assertion it guards is worth running locally too"),
     ("cargo test", GPU, ""),
     ("cargo run", GPU, ""),
     ("cargo build", RUN, ""),
@@ -344,6 +347,16 @@ def self_test():
           classify("cargo test --workspace")[0] == GPU)
     check("cargo build is not needlessly locked",
           classify("cargo build -p vulkane")[0] == RUN)
+    # `cargo package --list` neither builds nor enumerates a device, so locking
+    # it behind the GPU mutex would serialise a check that needs no hardware.
+    check("cargo package --list runs locally without the GPU lock",
+          classify("list=$(cargo package --list -p vulkane --allow-dirty)")[0] == RUN)
+    # The no-source step moves vk.xml aside and asserts the build FAILS. It must
+    # classify off its `cargo build`, not fall through to unclassified -- an
+    # unclassified step is fatal, which is how this harness caught it being added.
+    check("the no-source negative step classifies as a plain local run",
+          classify('stash="${RUNNER_TEMP:-/tmp}/vk.xml.stashed" mv vulkane/vk.xml '
+                   '"$stash" out=$(cargo build -p vulkane 2>&1)')[0] == RUN)
 
     if failures:
         sys.exit("self-test FAILED: " + "; ".join(failures))
