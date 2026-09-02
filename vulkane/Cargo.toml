@@ -2,10 +2,17 @@
 name = "vulkane"
 version = "0.14.0"
 edition = "2024"
-# 1.88 for let-chains in this crate, and independently because
-# libloading 0.9 declares rust-version 1.88.0. Two drivers, so removing
-# the let-chains alone would not lower this. Checked, not asserted: the
-# msrv-minimality job requires this crate to FAIL to compile on 1.87.
+# 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
+# and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
+# them would not lower this floor.
+#
+# This comment said "Two drivers" until as_chunks became a third, hours
+# later, in this repository's own change. A count in a comment is a
+# measurement pinned to a moment in a place nothing re-measures -- which
+# is the rule this very comment was written to demonstrate.
+#
+# Checked rather than asserted: the msrv-minimality job requires this
+# crate to FAIL to compile on 1.87.
 rust-version = "1.88"
 authors = ["Eric Evans <CireSnave@gmail.com>"]
 license = "MIT OR Apache-2.0"
