@@ -551,6 +551,51 @@ def self_test():
     check("each minimality leg carries a dep_floor field",
           all("dep_floor" in leg for _, leg in mini))
 
+    # 1g. the dependency walk, against a hand-built graph.
+    #
+    # Untestable until `_reachable_non_dev` was split out, because the whole
+    # function needs a real `cargo metadata`. The dev exclusion is the part that
+    # decides whether a floor is a promise to consumers or an artefact of the
+    # test suite, and it had no test at all.
+    mm = _load_matrix_module()
+    graph = {
+        "root": {"deps": [
+            {"pkg": "normal", "dep_kinds": [{"kind": None}]},
+            {"pkg": "devonly", "dep_kinds": [{"kind": "dev"}]},
+            {"pkg": "both", "dep_kinds": [{"kind": "dev"}, {"kind": None}]},
+            {"pkg": "buildonly", "dep_kinds": [{"kind": "build"}]},
+        ]},
+        "normal": {"deps": [{"pkg": "deep", "dep_kinds": [{"kind": None}]}]},
+        "devonly": {"deps": []},
+        "both": {"deps": []},
+        "buildonly": {"deps": []},
+        "deep": {"deps": [{"pkg": "root", "dep_kinds": [{"kind": None}]}]},  # cycle
+    }
+    reach = mm._reachable_non_dev("root", graph)
+    check("a normal dependency is followed", "normal" in reach)
+    check("a transitive normal dependency is followed", "deep" in reach)
+    check("a DEV-ONLY dependency is not followed", "devonly" not in reach)
+    check("an edge that is both dev and normal IS followed", "both" in reach)
+    # A build-dependency's build script runs on the consumer's machine, so its
+    # floor binds them. Excluding it would understate the constraint.
+    check("a build dependency is followed", "buildonly" in reach)
+    check("a cycle terminates rather than looping", "root" in reach)
+
+    # And the attribution helper, including the tie it exists to make stable.
+    pkgs = {
+        "a": {"rust_version": "1.70", "name": "a", "version": "1.0"},
+        "b": {"rust_version": "1.88", "name": "b-external", "version": "2.0"},
+        "c": {"rust_version": "1.88", "name": "c-sibling", "version": "3.0"},
+        "d": {"name": "d-no-floor", "version": "4.0"},
+    }
+    v, who = mm._highest_declared({"a", "b", "c", "d"}, None, pkgs, {"c"})
+    check("the highest declared floor wins", v == (1, 88))
+    check("an external package wins a tie over a workspace sibling",
+          who == "b-external 2.0")
+    v2, who2 = mm._highest_declared({"d"}, None, pkgs, set())
+    check("no declared floor anywhere returns None rather than a default",
+          v2 is None and who2 is None)
+
     # 2. a command with no policy is detected (the whole point)
     check("an unknown command is unclassified, not defaulted",
           classify("some-new-tool --check --strict")[0] is None)

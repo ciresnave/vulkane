@@ -127,8 +127,59 @@ def minimality_verdict(built_below, below, dep_floor):
     return "too-high"
 
 
+def _reachable_non_dev(root, resolve):
+    """Package ids reachable from `root` without crossing a dev-only edge.
+
+    Split out of `dependency_floors` because "what does this crate pull in" and
+    "which of those declares the highest floor" are two questions, and because a
+    graph walk can be tested against a hand-built graph while the whole function
+    needs a real `cargo metadata`. The dev exclusion in particular had no test
+    until it was reachable on its own.
+    """
+    seen, stack = set(), [root]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        for d in resolve[cur]["deps"]:
+            kinds = {k.get("kind") for k in d.get("dep_kinds", [])}
+            # `kind` is None for a normal dependency, so an edge is dev-ONLY
+            # when every kind on it is "dev". An edge that is both dev and
+            # normal still reaches a consumer and must be followed.
+            if kinds and kinds <= {"dev"}:
+                continue
+            stack.append(d["pkg"])
+    return seen
+
+
+def _highest_declared(ids, skip, packages, workspace):
+    """The highest floor declared among `ids`, and which package declares it.
+
+    Attribution is deterministic. Several packages can share the highest floor
+    and dict order would let the named one change between runs -- a message
+    varying without the fact varying. External packages win ties because
+    "libloading 0.9 declares 1.88" is actionable, while naming a workspace
+    sibling that declares 1.88 for its own reasons just moves the question.
+    """
+    candidates = []
+    for i in ids:
+        if i == skip:
+            continue
+        v = _parse(packages[i].get("rust_version") or "")
+        if v:
+            candidates.append((v, i in workspace,
+                               packages[i]["name"], packages[i]["version"]))
+    if not candidates:
+        return None, None
+    v, _ws, name, version = sorted(
+        candidates, key=lambda c: (c[0], not c[1], c[2]), reverse=True
+    )[0]
+    return v, name + " " + version
+
+
 def dependency_floors():
-    """Highest floor DECLARED by each crate's non-dev dependencies.
+    """Highest floor DECLARED by each workspace crate's non-dev dependencies.
 
     Deliberately a declaration and not a measurement, and that is the right
     instrument here rather than the cheap one. For a crate's OWN floor,
@@ -149,45 +200,11 @@ def dependency_floors():
     )
     pk = {p["id"]: p for p in meta["packages"]}
     res = {n["id"]: n for n in meta["resolve"]["nodes"]}
-    out = {}
-    for pid, p in pk.items():
-        if pid not in meta["workspace_members"]:
-            continue
-        seen, stack = set(), [pid]
-        while stack:
-            cur = stack.pop()
-            if cur in seen:
-                continue
-            seen.add(cur)
-            for d in res[cur]["deps"]:
-                kinds = {k.get("kind") for k in d.get("dep_kinds", [])}
-                # kind is None for a normal dependency; {"dev"} only means the
-                # edge exists solely for tests and benches.
-                if kinds and kinds <= {"dev"}:
-                    continue
-                stack.append(d["pkg"])
-        # Deterministic attribution. Several packages can share the highest
-        # floor, and dict order would let the named one change between runs --
-        # a message that varies without the fact varying. External dependencies
-        # are preferred over workspace siblings because "libloading 0.9 declares
-        # 1.88" tells a reader something they can act on, while naming a sibling
-        # that declares 1.88 for its own reasons just moves the question.
-        candidates = []
-        for i in seen:
-            if i == pid:
-                continue
-            v = _parse(pk[i].get("rust_version") or "")
-            if v:
-                candidates.append((v, i in meta["workspace_members"],
-                                   pk[i]["name"], pk[i]["version"]))
-        best, who = None, None
-        if candidates:
-            v, _ws, name, ver = sorted(
-                candidates, key=lambda c: (c[0], not c[1], c[2]), reverse=True
-            )[0]
-            best, who = v, name + " " + ver
-        out[p["name"]] = (best, who)
-    return out
+    ws = set(meta["workspace_members"])
+    return {
+        pk[pid]["name"]: _highest_declared(_reachable_non_dev(pid, res), pid, pk, ws)
+        for pid in ws
+    }
 
 
 def minimality_legs(packages):
