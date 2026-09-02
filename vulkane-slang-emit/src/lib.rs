@@ -85,6 +85,11 @@ fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
         // this function stays a pure name table.
         ElementKind::I8 => Some("int8_t"),
         ElementKind::U8 => Some("uint8_t"),
+        // `Bool` is stored as U8 (FKC §5 pins Bool->U8), so it spells the same
+        // 8-bit type and gates the same way. `dtype_tag` still says "bool" — the
+        // NAME and the STORAGE are different facts, exactly as CpuC has it
+        // (tag "bool", ctype "unsigned char").
+        ElementKind::Bool => Some("uint8_t"),
         // F16/Bf16 remain declined (the spelling seam); i16/u16 wait on
         // vocabulary v5 shipping `i16`. See `supports_dtype`.
         _ => None,
@@ -156,7 +161,7 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     }
     // The narrow integers are the only dtypes whose answer depends on the
     // target. Everything else `slang_ctype` names is universally spellable.
-    if !matches!(dt, ElementKind::I8 | ElementKind::U8) {
+    if !matches!(dt, ElementKind::I8 | ElementKind::U8 | ElementKind::Bool) {
         return true;
     }
     // 8-bit ARITHMETIC is `shaderInt8`, spelled `i8` in the `<arith>` field.
@@ -173,12 +178,26 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     // the arithmetic in `f32`. Gating compute on a storage token is a
     // silently wrong lowering on hardware that is behaving correctly.
     //
-    // **This gates on the stronger requirement because it cannot see the
-    // weaker one.** A kernel that only loads and stores these bytes would be
-    // legal under `st8` alone — but `supports_dtype` is handed no plan, so it
-    // cannot tell compute from movement and must assume compute. That
-    // over-refuses a pure-copy kernel, which is the safe direction and is the
-    // same three-state limitation already recorded below.
+    // **This gates on the stronger requirement because it cannot see the weaker
+    // one, and that IS AN OVER-REFUSAL — written down as one so the next reader
+    // does not mistake it for the capability boundary.** A kernel that only
+    // loads and stores these bytes is legal under `st8` alone; one that computes
+    // in 8-bit needs `i8`. The distinction turns on **what the kernel does, not
+    // on the type**, and `supports_dtype` is handed no plan, so it cannot tell
+    // movement from compute and must assume compute.
+    //
+    // **`Bool` is the sharpest case and the least obvious.** FKC §5 pins
+    // Bool->U8 storage, and `binary_int` spells its logical ops as
+    // `((a != 0 && b != 0) ? 1 : 0)`. Whether that is 8-bit arithmetic or 32-bit
+    // arithmetic on promoted operands is a property of the target's compiler
+    // rather than of the IR — Slang, like C, promotes small integers. So a
+    // `bool` kernel may well be legal on an `st8`-only device and this gate
+    // refuses it anyway.
+    //
+    // **The fix is a plan-aware capability query, not a weaker constant here.**
+    // Weakening this to `st8` would admit genuine 8-bit arithmetic on a device
+    // that cannot do it — the failure that does not announce itself, traded for
+    // one that merely costs coverage.
     match target.capability_field("arith") {
         Some(arith) => arith.iter().any(|t| t == "i8"),
         // The token does not speak about arithmetic — a `cuda:` or `metal:`
@@ -603,6 +622,16 @@ mod tests {
         // And an `i8` sitting in some OTHER field must not answer for `arith` —
         // the reader takes the named field, never a substring of the token.
         assert!(!can("vulkan:sg32.arith-none.cm-i8", ElementKind::U8));
+
+        // `bool` gates the same way, because FKC §5 stores it as U8. This arm
+        // is the one most likely to be "corrected" later by someone who reasons
+        // that a boolean is not really 8-bit arithmetic — which may even be true
+        // on a given compiler, and is exactly why the refusal is recorded as an
+        // over-refusal in `dtype_ok` rather than defended as a boundary.
+        assert!(can("vulkan:sg32.arith-f16-i8", ElementKind::Bool));
+        assert!(!can("vulkan:sg32.arith-f16", ElementKind::Bool));
+        assert!(!can("vulkan:sg32.st8-yes", ElementKind::Bool));
+        assert!(!can("cuda:sm89", ElementKind::Bool));
 
         // Universally-spellable dtypes are unaffected by the target.
         assert!(can("cuda:sm89", ElementKind::F32));
