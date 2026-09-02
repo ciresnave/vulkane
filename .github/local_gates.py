@@ -45,6 +45,19 @@ run a build, a test, or this, on a branch you would not review first.
 
 Stated rather than suppressed, because a security finding waved away as a false
 positive is indistinguishable from one nobody read.
+The MSRV legs add one more: `probe_toolchain` runs `cargo +<floor> --version` to
+make a toolchain identify itself. Bandit flags it twice -- B603 for a subprocess
+call and B607 for a partial executable path -- and both are stated here rather
+than suppressed, for the same reason as above.
+
+B607 is asking for an absolute path to `cargo`. That would defeat the check. The
+rustup SHIM is the mechanism under test: `+<floor>` is meaningful only to it, and
+resolving past it would probe a different binary from the one the MSRV legs use.
+The whole point is to confirm the shim hands back the floor that was asked for.
+
+B603's untrusted input is the floor string, which comes from the `rust-version`
+field of this workspace's own manifests via `.github/msrv_matrix.py` -- the same
+tree whose `build.rs` a plain `cargo build` already runs.
 
 Never pipe this. It is a gate, and a pipe turns its exit status into the exit
 status of whatever you piped into.
@@ -138,6 +151,23 @@ POLICIES = [
     ("cargo run", GPU, ""),
     ("cargo build", RUN, ""),
 ]
+
+
+def probe_toolchain(name):
+    """Ask a toolchain to identify itself. Returns the CompletedProcess.
+
+    ONE call site rather than four, so `--self-test` exercises the function the
+    MSRV legs actually call instead of a copy of it. A duplicated probe can drift
+    from the real one and keep passing, which is the failure this file exists to
+    avoid.
+
+    `cargo` is resolved from PATH deliberately. The rustup shim IS the mechanism
+    under test -- `+name` means nothing to anything else -- so an absolute path
+    would be testing something other than what the MSRV legs use. See the trust
+    boundary note at the top of this file.
+    """
+    return subprocess.run(["cargo", "+" + name, "--version"],
+                          capture_output=True, text=True)
 
 
 def toolchain_verdict(install_code, probe_code):
@@ -310,10 +340,7 @@ def main():
                 # Ask the toolchain to identify itself instead. That is the
                 # property the build actually needs, and it is false exactly when
                 # the install really did fail.
-                probe = subprocess.run(
-                    ["cargo", "+" + leg["msrv"], "--version"],
-                    capture_output=True, text=True,
-                )
+                probe = probe_toolchain(leg["msrv"])
                 verdict = toolchain_verdict(install.returncode, probe.returncode)
                 if verdict == "unusable":
                     failures.append(label + " (" + leg["name"] + " @ " + leg["msrv"]
@@ -405,23 +432,25 @@ def self_test():
                       and isinstance(r[2], str))]
     check("every POLICIES row is (pattern, action, reason)", not shapes)
 
-    # 1c. the MSRV toolchain probe must be able to FAIL.
-    #
-    # The MSRV legs now verify a floor by asking the toolchain to identify
-    # itself rather than by reading rustup's exit code. That is only a check if
-    # it can come back false, so prove both directions here.
-    active = subprocess.run(["rustup", "show", "active-toolchain"],
-                            capture_output=True, text=True)
-    if active.returncode == 0 and active.stdout.split():
-        name = active.stdout.split()[0]
-        real = subprocess.run(["cargo", "+" + name, "--version"],
-                              capture_output=True, text=True)
+    # The probe is only a check if it can come back false, so drive it both ways
+    # through the SAME function the MSRV legs call. The subject is the pinned
+    # channel read out of rust-toolchain.toml -- a file read rather than another
+    # subprocess, and a fact this repo already owns rather than "whatever happens
+    # to be active", which varies per shell.
+    pinned = ""
+    toolchain_file = REPO / "rust-toolchain.toml"
+    if toolchain_file.exists():
+        for line in toolchain_file.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("channel"):
+                pinned = line.split("=", 1)[1].strip().strip("\"'")
+                break
+    check("the pinned channel is readable, so the control has a subject",
+          bool(pinned))
+    if pinned:
         check("the toolchain probe answers for an installed toolchain",
-              real.returncode == 0)
-    bogus = subprocess.run(["cargo", "+not-a-real-toolchain-xyzzy", "--version"],
-                           capture_output=True, text=True)
+              probe_toolchain(pinned).returncode == 0)
     check("the toolchain probe FAILS for a toolchain that does not exist",
-          bogus.returncode != 0)
+          probe_toolchain("not-a-real-toolchain-xyzzy").returncode != 0)
 
     # 1d. the four (install, probe) combinations, including the one a green run
     # never reaches. The gates passing does NOT show that a locked rustup is
