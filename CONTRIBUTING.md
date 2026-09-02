@@ -158,12 +158,122 @@ Pick the type index with `PhysicalDevice::find_memory_type`, and prefer
 
 ## Release Process
 
-1. Update version numbers
-2. Update changelog
-3. Run full test suite
-4. Build documentation
-5. Create release tag
-6. Publish to crates.io
+The six-line version of this list was accurate and still let a release ship
+wrong: `vulkane 0.14.0` reached crates.io and was tagged while every entry it
+carried was still filed under `## [Unreleased]`, because "update changelog" does
+not say what updating one means. Each step below says what to type and what to
+check, because a release is done under time pressure by someone who will not
+re-derive it.
+
+**crates.io is immutable.** A version cannot be replaced, only yanked and
+superseded. A wrong publish costs a version number, so the checks come first.
+
+### 1. Land everything first
+
+`README.md`, `build.rs`, `src/`, `docs/` and `vk.xml` all ship **inside** the
+published crate. A doc fix merged after the publish is not in the artifact
+people download, and `docs.rs` renders the published copy, not `main`.
+
+    cargo package --list -p vulkane
+
+### 2. Set versions, and know which crates move
+
+    cargo metadata --no-deps --format-version 1
+
+**`vulkane` publishes LAST.** It depends on the other three, and cargo resolves
+every dependency from the registry at publish time, so a floor that is not
+published yet fails the publish with `exit 101`. Among `kiss-vulkan-vocab`,
+`vulkan_gen` and `vulkane_derive` there is no ordering -- they depend on nothing
+in this workspace.
+
+Derive that rather than trusting this paragraph; a list of crate names here goes
+stale the first time one is added:
+
+    cargo metadata --no-deps --format-version 1 | python -c "import sys,json; \
+    m=json.load(sys.stdin); p={x['name'] for x in m['packages']}; \
+    print({x['name']: sorted(d['name'] for d in x['dependencies'] if d['name'] in p) \
+    for x in m['packages']})"
+
+Note that a dependency already satisfied by a PUBLISHED version does not force a
+republish. `vulkane` requires `vulkane_derive = "0.1"`, which `0.1.0` satisfied;
+`0.1.1` still had to go first if it was going at all, but it was not blocking.
+
+### 3. Stamp the changelog
+
+Not "update" -- **stamp**. Add a dated release header beneath an empty
+`## [Unreleased]`, leaving the entries where they are:
+
+    ## [Unreleased]
+
+    ## [0.14.0] — 2026-09-02
+
+Match the existing headers byte for byte, em dash included. This is the step
+0.14.0 skipped: the version was on the registry and tagged while the repository
+said it did not exist.
+
+### 4. Run the gates
+
+    python .github/local_gates.py
+
+Runs what CI runs, read out of `ci.yml` rather than from a list that can drift.
+
+### 5. Publish, in the order from step 2
+
+    cargo publish -p <crate> --dry-run
+    cargo publish -p <crate>
+
+### 6. Verify the REGISTRY, not cargo's output
+
+`cargo publish` printing "Published" is its own report of its own action. Ask
+crates.io, and ask it something that answers the question -- dumping the JSON
+shows a `versions` array of numeric IDs, which runs fine and tells you nothing:
+
+    for c in vulkane definitely-not-a-real-crate-xyzzy; do
+      curl -s -H "User-Agent: you <your@email>" \
+        "https://crates.io/api/v1/crates/$c" | python -c "
+    import sys, json
+    raw = sys.stdin.read()
+    if not raw.strip():
+        print('EMPTY BODY -- you did not send a User-Agent'); raise SystemExit(1)
+    d = json.loads(raw)
+    if 'errors' in d:
+        print('absent'); raise SystemExit(0)
+    print([v['num'] for v in d['versions'] if not v['yanked']][:3])
+    "
+    done
+
+    vulkane: ['0.14.0', '0.13.0', '0.10.1']
+    definitely-not-a-real-crate-xyzzy: absent
+
+**Send a User-Agent.** Without one crates.io returns an EMPTY BODY and curl
+exits 0, so a parser reports nothing found -- indistinguishable from a publish
+that did not happen, and the shape that leads to publishing twice.
+
+**The second name is not decoration.** It is the negative control: a crate that
+cannot exist must come back `absent`. If it does not, the instrument is
+answering rather than the registry, and the first line means nothing either.
+
+### 7. Verify the ARTIFACT, then tag the commit it names
+
+"`main` has the fix" and "the crate people download has the fix" are different
+claims. Only the second one reaches anybody:
+
+    curl -sL -H "User-Agent: you <your@email>" -o v.crate \
+      https://static.crates.io/crates/vulkane/vulkane-<version>.crate
+    tar xzf v.crate
+    cat vulkane-<version>/.cargo_vcs_info.json     # -> {"git":{"sha1":"..."}}
+    grep -c "<something the release changed>" vulkane-<version>/src/lib.rs
+
+**Tag the sha1 from `.cargo_vcs_info.json`, not `HEAD`.** They usually agree;
+when they do not, `HEAD` is wrong and nothing says so. Tags here are annotated:
+
+    git tag -a v<version> <sha1-from-the-artifact> -F -
+    git push origin v<version>
+
+### 8. Tag only after the registry confirms
+
+The tag asserts that a published version exists. Tagging first makes it a
+promise instead.
 
 ## Getting Help
 
