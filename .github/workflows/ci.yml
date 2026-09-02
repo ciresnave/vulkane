@@ -637,15 +637,42 @@ jobs:
           out="$(cargo "+${{ matrix.crate.below }}" build --ignore-rust-version \
                  --color never -p "${{ matrix.crate.name }}" 2>&1)" && code=0 || code=$?
           echo "$out" | tail -25
-          if [ "$code" -eq 0 ]; then
-            echo
-            echo "FLOOR IS TOO HIGH: ${{ matrix.crate.name }} declares"
-            echo "rust-version = ${{ matrix.crate.msrv }} but compiles on"
-            echo "${{ matrix.crate.below }}. The promise excludes consumers who"
-            echo "could have used it. Lower the declared floor -- do not change"
-            echo "the version this job steps to."
-            exit 1
-          fi
+          # What the build result MEANS is decided in one place, by the same
+          # function `--self-test` exercises, rather than reimplemented here in
+          # shell. "necessary-dep" is only reachable when a build succeeds below
+          # the floor, which no crate here currently does -- a branch a green run
+          # never enters, so a green run could not be its evidence.
+          built=0
+          [ "$code" -eq 0 ] && built=1
+          verdict="$(python3 .github/msrv_matrix.py --verdict "$built" \
+                     "${{ matrix.crate.below }}" "${{ matrix.crate.dep_floor }}")"
+          echo
+          case "$verdict" in
+            necessary-dep)
+              # `--ignore-rust-version` ignores DEPENDENCY floors too, so a crate
+              # whose floor comes solely from one compiles fine here. A consumer
+              # is still refused by cargo, so the floor is correct. Without this
+              # branch such a crate reds on healthy code, which is the failure
+              # direction that gets a guard switched off.
+              echo "${{ matrix.crate.name }} compiles on ${{ matrix.crate.below }},"
+              echo "so its own code does not require ${{ matrix.crate.msrv }} --"
+              echo "but ${{ matrix.crate.dep_by }} declares"
+              echo "rust-version ${{ matrix.crate.dep_floor }}, above"
+              echo "${{ matrix.crate.below }}. A consumer there is refused by"
+              echo "cargo regardless, so the floor is necessary."
+              exit 0
+              ;;
+            too-high)
+              echo "FLOOR IS TOO HIGH: ${{ matrix.crate.name }} declares"
+              echo "rust-version = ${{ matrix.crate.msrv }} but compiles on"
+              echo "${{ matrix.crate.below }}, and no dependency declares above"
+              echo "it (highest is ${{ matrix.crate.dep_floor }} from"
+              echo "${{ matrix.crate.dep_by }}). The promise excludes consumers"
+              echo "who could have used it. Lower the declared floor -- do not"
+              echo "change the version this job steps to."
+              exit 1
+              ;;
+          esac
           # It failed, but a failure is only evidence if it is the RIGHT failure.
           # A missing toolchain, an unreadable manifest or a network error all
           # exit non-zero and would otherwise read as "the floor is necessary".
