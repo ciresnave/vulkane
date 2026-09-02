@@ -115,7 +115,6 @@ pub(crate) struct TlsfAllocation {
     pub block_id: u32,
 }
 
-#[allow(dead_code)]
 impl Tlsf {
     pub(crate) fn new(capacity: u64) -> Self {
         let mut s = Self {
@@ -154,6 +153,15 @@ impl Tlsf {
         self.used_bytes
     }
 
+    /// Bytes not currently allocated.
+    ///
+    /// Used only by this module's unit tests, so the non-test `lib` target
+    /// correctly sees it as dead. The suppression is scoped to this one method
+    /// rather than to the whole `impl`, which is how it was written before: a
+    /// block-level allow silences every method in the block, so nobody can see
+    /// which one it is actually for. Removing it and reading the compiler is
+    /// the only way to find out, and the answer was this method alone.
+    #[allow(dead_code)]
     pub(crate) fn free_bytes(&self) -> u64 {
         self.free_bytes
     }

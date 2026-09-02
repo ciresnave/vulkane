@@ -11,20 +11,17 @@
 use std::cmp::max;
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub(crate) struct LinearAllocation {
     pub offset: u64,
     pub size: u64,
 }
 
-#[allow(dead_code)]
 pub(crate) struct Linear {
     capacity: u64,
     cursor: u64,
     allocation_count: u32,
 }
 
-#[allow(dead_code)]
 impl Linear {
     pub(crate) fn new(capacity: u64) -> Self {
         Self {
@@ -32,10 +29,6 @@ impl Linear {
             cursor: 0,
             allocation_count: 0,
         }
-    }
-
-    pub(crate) fn capacity(&self) -> u64 {
-        self.capacity
     }
 
     pub(crate) fn used_bytes(&self) -> u64 {

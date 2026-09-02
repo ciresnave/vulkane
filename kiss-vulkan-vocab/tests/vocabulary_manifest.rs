@@ -25,6 +25,10 @@
 //! Saying so here rather than letting a green run imply otherwise.
 
 #[path = "../examples/emit_vocabulary_manifest.rs"]
+// The example is compiled INTO this test so the emitter is exercised rather
+// than a copy of it. The test calls a subset of what the example defines, and
+// the rest is live in the example binary -- so this says "unused by this
+// test", not "unused".
 #[allow(dead_code)]
 mod emitter;
 

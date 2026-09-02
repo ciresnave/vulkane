@@ -24,6 +24,22 @@
 //!   *supposed* to have a device, where a skip means the evidence silently
 //!   evaporated rather than "you're on a laptop".
 //!
+//!
+//! # Why the `#[allow(dead_code)]` on almost everything here
+//!
+//! Cargo compiles each file in `tests/` into its OWN binary, and `mod common;`
+//! includes this module separately into every one of them. A helper used by
+//! four test binaries and not the fifth is dead code *in the fifth*, so without
+//! the attribute the suite emits a warning per helper per binary that does not
+//! happen to call it -- and `-D warnings` turns those into failures.
+//!
+//! So the attributes here say "unused in THIS binary", not "unused". They are
+//! not covering anything: removing one and watching the warning name a specific
+//! binary is the check, and the answer will name a test that simply does not
+//! need that helper.
+//!
+//! This is stated once, at the module, rather than repeated at each item --
+//! there is one reason and it is the same reason every time.
 //! # Two kinds of skip, and why conflating them would undo the mechanism
 //!
 //! "No device" and "device without this extension" are not the same event, and
