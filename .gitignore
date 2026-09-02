@@ -1,5 +1,10 @@
 # Build artifacts
 /target/
+# Python bytecode. `.github/local_gates.py` and `msrv_matrix.py` are executed
+# from inside `.github/`, so CPython writes a `__pycache__` right next to them
+# and a `git add` sweeps it in -- which is how one got committed in #38.
+__pycache__/
+*.py[cod]
 **/*.rs.bk
 Cargo.lock.bak
 *.pdb
