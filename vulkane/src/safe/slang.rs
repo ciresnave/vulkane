@@ -268,10 +268,21 @@ impl<'sess> SlangModule<'sess> {
                 bytes.len()
             )));
         }
-        Ok(bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect())
+        // `as_chunks` rather than `chunks_exact(4)`: clippy's
+        // `chunks_exact_to_as_chunks` fires on a constant chunk size, and it is
+        // MSRV-gated at 1.88 -- so it could only ever be seen by a lint run at
+        // this crate's floor, and this file had never met one. It was caught the
+        // first time the `slang` feature was linted at all.
+        //
+        // `as_chunks::<4>` yields `&[[u8; 4]]`, which drops the `c[0]..c[3]`
+        // indexing and the bounds checks with it. The length was validated as a
+        // multiple of 4 above, so the remainder is empty by construction.
+        let (words, remainder) = bytes.as_chunks::<4>();
+        debug_assert!(
+            remainder.is_empty(),
+            "length was checked as a multiple of 4 above"
+        );
+        Ok(words.iter().copied().map(u32::from_le_bytes).collect())
     }
 }
 

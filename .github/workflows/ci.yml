@@ -390,6 +390,15 @@ jobs:
       - name: Build and test with shaderc
         run: cargo test -p vulkane --features fetch-spec,shaderc --test shaderc_test
 
+      # This job installs the only toolchain that can compile the `shaderc`
+      # feature, so it is the only place its code can be linted or
+      # documented. Without this the module is built and tested here and
+      # linted nowhere.
+      - name: Lint and document the shaderc feature
+        run: |
+          cargo clippy -p vulkane --features fetch-spec,shaderc -- -D warnings
+          cargo doc -p vulkane --features fetch-spec,shaderc --no-deps
+
   slang:
     name: slang (Slang -> SPIR-V)
     # Pinned, not `ubuntu-latest`. This job needs a LunarG apt repository named
@@ -444,6 +453,15 @@ jobs:
       - name: Build and test with slang
         run: cargo test -p vulkane --features fetch-spec,slang --test slang_test
 
+      # This job installs the only toolchain that can compile the `slang`
+      # feature, so it is the only place its code can be linted or
+      # documented. Without this the module is built and tested here and
+      # linted nowhere.
+      - name: Lint and document the slang feature
+        run: |
+          cargo clippy -p vulkane --features fetch-spec,slang -- -D warnings
+          cargo doc -p vulkane --features fetch-spec,slang --no-deps
+
   docs:
     name: Build docs
     runs-on: ubuntu-latest
@@ -456,7 +474,14 @@ jobs:
       - name: Build documentation
         env:
           RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --workspace --features fetch-spec --no-deps
+        # Every feature buildable without an extra toolchain. `fetch-spec`
+        # alone left 1,349 lines -- 7.1% of vulkane/src -- with no rustdoc
+        # built at all, `kiss.rs` being 743 of them, which is the code other
+        # projects consume through the KISS seam. RUSTDOCFLAGS=-D warnings is
+        # set, so docs were strict for exactly one configuration.
+        # shaderc and slang are linted in their own jobs, which install the
+        # toolchains they need.
+        run: cargo doc --workspace --features fetch-spec,naga,derive,kiss-target --no-deps
 
   # Not a gate on the code — a gate on the LOCAL gate harness.
   # `.github/local_gates.py` extracts these very `run:` steps so a developer's
@@ -544,7 +569,10 @@ jobs:
         with:
           components: clippy
       - name: Run clippy
-        run: cargo clippy --workspace --features fetch-spec -- -D warnings
+        # Same coverage gap as the docs job. Proven rather than assumed: a
+        # deliberate clone_on_copy planted in kiss.rs is invisible to
+        # `--features fetch-spec` (0 matches) and caught by this set (4).
+        run: cargo clippy --workspace --features fetch-spec,naga,derive,kiss-target -- -D warnings
 
   # A declared `rust-version` is a promise to consumers, and until this job
   # existed vulkane's had never been run. It was wrong: the manifests said 1.85,
