@@ -480,6 +480,50 @@ jobs:
         shell: bash
         run: python3 .github/local_gates.py --self-test
 
+      # A published version whose entries are still filed under `[Unreleased]`
+      # is a repository disagreeing with the registry about what exists. That
+      # happened: 0.14.0 reached crates.io and was tagged while every entry it
+      # shipped sat under `[Unreleased]`, and nothing noticed, because
+      # CHANGELOG.md is not in the package and so is invisible to every check
+      # that reads what ships. #41 fixed the instance; this is the class.
+      #
+      # Verified against the defect rather than against the fix: at 64001e7,
+      # `vulkane/Cargo.toml` said 0.14.0 and CHANGELOG.md contained zero
+      # `## [0.14.0]` sections. This step reds there.
+      - name: The changelog names the version being shipped
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import sys,json; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='vulkane'))")"
+          # Positive control first. If the heading shape ever changes, the two
+          # assertions below would compare against nothing and pass, which is
+          # the failure this whole file exists to prevent.
+          total="$(grep -c '^## \[' CHANGELOG.md || true)"
+          if [ "$total" -lt 2 ]; then
+            echo "CHANGELOG.md has $total '## [' headings. The parse below would"
+            echo "be comparing against nothing, so this fails rather than passes."
+            exit 1
+          fi
+          if ! grep -q '^## \[Unreleased\]' CHANGELOG.md; then
+            echo "CHANGELOG.md has no '## [Unreleased]' section, so the next"
+            echo "entry has nowhere to go and will be filed under a released"
+            echo "version instead."
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "vulkane/Cargo.toml declares $version and CHANGELOG.md has no"
+            echo "'## [$version]' section."
+            echo
+            echo "If $version is published, the repository is denying the"
+            echo "existence of a version that is on crates.io. Stamp a dated"
+            echo "header beneath an empty '## [Unreleased]' -- see the Release"
+            echo "Process in CONTRIBUTING.md, step 3."
+            exit 1
+          fi
+          echo "CHANGELOG.md names $version, and [Unreleased] is present"
+          echo "($total released sections total)."
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest

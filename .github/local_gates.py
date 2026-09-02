@@ -144,6 +144,9 @@ POLICIES = [
     ("--test shaderc_test", SKIP,
      "needs a system libshaderc or a source build of glslang"),
     ("--test slang_test", SKIP, "needs the Slang toolchain"),
+    ("CHANGELOG.md", RUN,
+     "reads two local files and runs no build; the version-vs-changelog" +
+     " disagreement it catches is exactly as real locally as on a runner"),
     ("cargo package --list", RUN,
      "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),
