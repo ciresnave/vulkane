@@ -128,10 +128,99 @@ jobs:
           # Verify the loader can find the ICD
           vulkaninfo --summary || true
 
-      # vk.xml is downloaded automatically via the fetch-spec feature on CI
-      # so we don't need to vendor a copy of the spec.
-      - name: Build (default features)
-        run: cargo build -p vulkane --features fetch-spec
+      # THE ROUTE EVERY DEPENDENT TAKES -- and until now no job ran it.
+      #
+      # This step was named `Build (default features)` while passing
+      # `--features fetch-spec`, which is NOT a default feature
+      # (`default = ["build-support"]`). It was named for a configuration it did
+      # not build, which is worse than an absent step: it occupies the slot where
+      # the real check would be noticed missing. The comment it carried -- "we
+      # don't need to vendor a copy of the spec" -- was written before the crate
+      # vendored one, and stopped being true without anything failing.
+      #
+      # Every cargo invocation in this workflow passed `fetch-spec`, and
+      # `spec/registry/` is not in this repository. So deleting `vulkane/vk.xml`
+      # would leave route 1 unset, route 2a gone and route 2b absent, and every
+      # leg would quietly DOWNLOAD a spec and stay green -- while
+      # `cargo add vulkane` offline broke for every dependent, which is the
+      # guarantee `vulkane/src/lib.rs` states on the docs.rs front page. That
+      # guarantee was held by nothing but nobody having deleted the file.
+      #
+      # It now builds what its name says, so resolution MUST come from the
+      # bundled copy.
+      - name: Build (default features, resolving via the bundled vk.xml)
+        run: cargo build -p vulkane
+
+      # Building in a CHECKOUT proves the bundled copy resolves here. It does
+      # not prove the file survives PACKAGING, and that is the claim dependents
+      # actually rest on -- a stray `exclude` would satisfy the step above and
+      # still ship a crate that cannot build offline.
+      - name: The bundled vk.xml is in the published package
+        shell: bash
+        run: |
+          list=$(cargo package --list -p vulkane --allow-dirty)
+          # Positive control first: a scan that matches nothing must FAIL rather
+          # than pass. Without this, a cargo change that emits an empty or
+          # differently-shaped list turns the real assertion below into a green
+          # that compared two absences.
+          echo "$list" | grep -qx 'Cargo.toml' || {
+            echo 'cargo package --list produced no recognisable file list.'
+            echo 'This check compared nothing -- failing rather than passing.'
+            exit 1
+          }
+          echo "$list" | grep -qx 'vk.xml' || {
+            echo 'vk.xml is NOT in the published package.'
+            echo 'Dependents resolve the spec from the bundled copy. Without it,'
+            echo 'cargo add vulkane cannot build offline and docs.rs cannot build'
+            echo 'at all, however green this workflow looks.'
+            exit 1
+          }
+          echo "vk.xml is packaged ($(echo "$list" | wc -l) entries listed)"
+
+      # The no-source diagnostic is unreachable in a normal run: vk.xml is
+      # present, so the branch that renders it never executes. COMPILING that
+      # branch is not the same claim as RENDERING it, and the message was
+      # rewritten in #40 specifically for dependents who will only ever see it
+      # if it is correct. This moves the file aside and asserts the build FAILS
+      # with that message -- which is also the born-red proof for the two steps
+      # above: it demonstrates what a missing bundled copy actually does.
+      - name: The no-source error renders, and the build FAILS without a spec
+        shell: bash
+        run: |
+          stash="${RUNNER_TEMP:-/tmp}/vk.xml.stashed"
+          mv vulkane/vk.xml "$stash"
+          set +e
+          out=$(cargo build -p vulkane 2>&1)
+          code=$?
+          set -e
+          mv "$stash" vulkane/vk.xml
+          if [ "$code" -eq 0 ]; then
+            echo 'The build SUCCEEDED with no bundled vk.xml and no fetch-spec.'
+            echo 'Something supplied a spec silently, which is exactly the'
+            echo 'failure this job exists to make impossible.'
+            exit 1
+          fi
+          echo "$out" | grep -q 'A copy normally ships inside this crate' || {
+            echo 'The build failed, but not with the dependent-facing message.'
+            echo 'Last 20 lines:'
+            echo "$out" | tail -20
+            exit 1
+          }
+          # PRESENT is not the same claim as LEGIBLE, and the substring above
+          # cannot tell them apart. `fn main() -> Result<_, E>` reports with
+          # `{:?}`, so a Box<dyn Error> built from a String arrives quoted with
+          # every newline escaped -- the whole message on one line, passing the
+          # grep above while being unreadable. This asserts the numbered option
+          # occupies a line of its own, which is only true if the newlines are
+          # real.
+          echo "$out" | grep -qE '^ *2\. Add the fetch-spec feature' || {
+            echo 'The message is present but is NOT rendering as separate lines.'
+            echo 'It has most likely regressed to Debug formatting, which escapes'
+            echo 'every newline and delivers the whole diagnostic as one line.'
+            echo 'See PlainError in vulkane/build.rs.'
+            exit 1
+          }
+          echo 'Build failed as required, with a legible dependent-facing diagnostic.'
 
       # Tested, not merely built. Building proves the cfg gates compile;
       # running proves the crate still behaves without `build-support`, which
