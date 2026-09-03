@@ -61,8 +61,12 @@ float compute(uint op, float x, float y) {
         case OP_SUB: return x - y;
         case OP_MUL: return x * y;
         case OP_DIV: return x / y;
-        case OP_MAX: return max(x, y);
-        case OP_MIN: return min(x, y);
+        // KISS §6.13, NaN half only: propagate a-first (see binary.slang; bf16 is
+        // unpacked to float here). The ±0 a-bias half is not fixable — the driver
+        // re-fuses any select into a canonicalizing FMNMX (measured) — so max/min
+        // keep the canonical ±0.
+        case OP_MAX: return isnan(x) ? x : (isnan(y) ? y : max(x, y));
+        case OP_MIN: return isnan(x) ? x : (isnan(y) ? y : min(x, y));
         default:     return x;
     }
 }

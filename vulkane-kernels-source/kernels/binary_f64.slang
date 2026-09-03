@@ -60,8 +60,11 @@ void main(uint3 gid : SV_DispatchThreadID)
         case OP_SUB: z = x - y; break;
         case OP_MUL: z = x * y; break;
         case OP_DIV: z = x / y; break;
-        case OP_MAX: z = max(x, y); break;
-        case OP_MIN: z = min(x, y); break;
+        // KISS §6.13, NaN half only: propagate a-first (see binary.slang). The ±0
+        // a-bias half is not fixable here — the driver re-fuses any select into a
+        // canonicalizing FMNMX (measured) — so max/min keep the canonical ±0.
+        case OP_MAX: z = isnan(x) ? x : (isnan(y) ? y : max(x, y)); break;
+        case OP_MIN: z = isnan(x) ? x : (isnan(y) ? y : min(x, y)); break;
         default:     z = x; break;
     }
 

@@ -81,8 +81,16 @@ void main(uint3 gid : SV_DispatchThreadID)
         case OP_SUB: z = x - y; break;
         case OP_MUL: z = x * y; break;
         case OP_DIV: z = x / y; break;
-        case OP_MAX: z = max(x, y); break;
-        case OP_MIN: z = min(x, y); break;
+        // KISS §6.13, NaN half only: propagate a-first (isnan(x)?x : isnan(y)?y),
+        // matching CPU #67 / CUDA — Vulkan's FMax/FMin DROP NaN otherwise. The
+        // ±0 a-bias half is NOT fixable at source level here: the NVIDIA driver
+        // re-fuses ANY select — a plain `x>=y?x:y` AND a bit-cast select, BOTH
+        // measured on the RTX 4070 — back into a hardware FMNMX that
+        // canonicalizes ±0 (max->+0, min->-0). So max/min keep the driver's
+        // canonical ±0; a portable a-bias needs the SignedZeroInfNanPreserve
+        // execution mode (a per-device capability). See the Vulkan ±0 gap.
+        case OP_MAX: z = isnan(x) ? x : (isnan(y) ? y : max(x, y)); break;
+        case OP_MIN: z = isnan(x) ? x : (isnan(y) ? y : min(x, y)); break;
         default:     z = x; break;
     }
 
