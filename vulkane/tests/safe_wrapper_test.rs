@@ -2278,19 +2278,31 @@ fn test_memory_budget_query_succeeds_or_skips() {
 
 #[test]
 fn test_device_identity_query_succeeds_or_skips() {
-    let Some((_inst, physical, _device, _q, _qf)) = compute_or_skip() else {
-        return;
+    // ⚠️ This deliberately does NOT use the shared `compute_or_skip` bootstrap,
+    // which creates a **V1_0** instance. `VkPhysicalDeviceIDProperties` is 1.1
+    // core, so on a V1_0 instance `device_identity()` correctly declines --
+    // and before that gate existed this test ran against the zeroed struct we
+    // had allocated, printing an all-zero UUID as though a driver had answered.
+    // It passed for exactly as long as it was testing nothing.
+    let (_inst, devices) = match common::instance_and_devices("identity", ApiVersion::V1_1) {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
+    };
+    let Some(physical) = devices.into_iter().next() else {
+        return common::skip(common::Missing::device("no physical devices"));
     };
     let Some(identity) = physical.device_identity() else {
         common::skipped_unsupported(
-            "vkGetPhysicalDeviceProperties2 (Vulkan 1.1 / VK_KHR_get_physical_device_properties2)",
+            "a Vulkan 1.1+ device (device_identity needs VkPhysicalDeviceIDProperties, 1.1 core)",
         );
         return;
     };
-    // device_uuid is always populated on a props2-capable loader (1.1
-    // core). We can't assert a specific value, but a real device never
-    // reports the all-zero UUID; software rasterizers may, so we only
-    // print rather than assert on it.
+    // We still cannot assert the UUID's *content*: a software rasterizer may
+    // legitimately report all zeros, and Lavapipe is what Linux CI runs. The
+    // structural claim -- that a V1_0 instance declines rather than answering
+    // with the zeroed struct -- is asserted in
+    // `a_one_zero_instance_declines_the_join_key_rather_than_reporting_zeros`,
+    // which is driver-independent for that reason.
     let uuid_hex: String = identity
         .device_uuid
         .iter()
@@ -2301,15 +2313,75 @@ fn test_device_identity_query_succeeds_or_skips() {
         identity.device_luid.is_some(),
         identity.pci,
     );
-    // LUID, when present, pairs with the node mask; PCI is Some only with
-    // VK_EXT_pci_bus_info. These are all honest-None when unavailable, so
-    // the only structural invariant to check is that the call returned.
     if let Some(pci) = identity.pci {
         println!(
             "PCI {:04x}:{:02x}:{:02x}.{:x}",
             pci.domain, pci.bus, pci.device, pci.function
         );
     }
+}
+
+/// A 1.0-created instance must DECLINE the identity rather than hand back the
+/// zeroed struct it allocated.
+///
+/// `VkPhysicalDeviceIDProperties` is Vulkan 1.1 core. A 1.0 implementation
+/// skips the unrecognized chained struct and leaves it untouched, but
+/// `PNextChain::get` still finds it -- so before the gate this returned
+/// `Some` with an all-zero `device_uuid`.
+///
+/// ⚠️ That is not a conservative reading. `device_uuid` is documented as the
+/// JOIN KEY for correlating a `VkPhysicalDevice` with NVML/CUDA/OpenGL, and an
+/// all-zero UUID is a *valid-looking* one that EVERY device shares. Measured
+/// 2026-09-03 on one machine with two GPUs: at `V1_0` an AMD Radeon 610M and
+/// an NVIDIA RTX 4070 both reported all-zero, so they compared **equal**; at
+/// `V1_1` they are distinct. A caller matching by UUID would have picked the
+/// wrong GPU, or all of them.
+///
+/// The previous test for this surface named the exact signature -- "a real
+/// device never reports the all-zero UUID" -- and then declined to assert it
+/// because a software rasterizer legitimately may, ending with "the only
+/// structural invariant to check is that the call returned". So this test
+/// deliberately asserts the GATE, not the UUID's content: it is independent of
+/// what any particular driver reports, and Lavapipe cannot make it flaky.
+#[test]
+fn a_one_zero_instance_declines_the_join_key_rather_than_reporting_zeros() {
+    let (_inst, devices) = match common::instance_and_devices("uuid gate", ApiVersion::V1_0) {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
+    };
+
+    // The control comes FIRST, because without it the assertion below passes
+    // on a machine with no devices, or one where identity is broken for an
+    // unrelated reason -- a null that reports as success.
+    let (_c_inst, c_devices) = match common::instance_and_devices("uuid gate ctl", ApiVersion::V1_1)
+    {
+        Ok(v) => v,
+        Err(cause) => return common::skip(cause),
+    };
+    let control_answers = c_devices.iter().filter_map(|p| p.device_identity()).count();
+    if control_answers == 0 {
+        // Nothing here supports 1.1, so the contract is not exercisable on
+        // this machine. Say so rather than passing vacuously.
+        return common::skip(common::Missing::capability(
+            "a Vulkan 1.1+ device (the V1_1 control produced no identity, so a V1_0 null proves nothing)",
+        ));
+    }
+
+    for p in &devices {
+        let name = p.properties().device_name().to_string();
+        assert!(
+            p.device_identity().is_none(),
+            "{name}: device_identity() answered on a V1_0 instance, where \
+             VkPhysicalDeviceIDProperties (1.1 core) is left untouched -- the \
+             UUID it returned is the zeroed struct we allocated, not a driver \
+             answer, and it compares equal across every device",
+        );
+    }
+    println!(
+        "V1_0 declined on all {} device(s); V1_1 control answered for {}",
+        devices.len(),
+        control_answers
+    );
 }
 
 // `cooperative_matrix_properties()` used to be untestable at runtime:

@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `device_identity()` returned a zeroed join key that made every device compare equal
+
+⚠️ **Behaviour change, and it is a breaking one for a caller on a 1.0 instance.**
+`PhysicalDevice::device_identity()` now returns `None` when
+`effective_api_version()` is below 1.1, where it previously returned `Some`.
+
+`VkPhysicalDeviceIDProperties` is Vulkan 1.1 core. On a 1.0 implementation the
+driver skips the unrecognized chained struct and leaves it exactly as we
+allocated it — all zeros — and `PNextChain::get` hands that back
+indistinguishably from a driver answer. Since
+`InstanceCreateInfo::api_version` **defaults to `V1_0`**, this was the default
+path, not an exotic one.
+
+**An all-zero UUID is not a conservative reading of a join key.** The
+documentation calls `device_uuid` the join key for correlating a
+`VkPhysicalDevice` with NVML / CUDA / OpenGL, and zeros are a *valid-looking*
+UUID that every device shares. Measured on one machine with two GPUs
+(2026-09-03): on a `V1_0` instance an AMD Radeon 610M and an NVIDIA RTX 4070
+**both** reported `00000000000000000000000000000000`, so they compared
+**equal**; at `V1_1` they are distinct. A caller matching by UUID would have
+selected the wrong GPU, or matched all of them.
+
+Callers who need the identity should raise `InstanceCreateInfo::api_version`
+to `V1_1` or higher — the same remedy `subgroup_properties()`,
+`driver_properties()` and `shader_arithmetic_features()` already document,
+each of which gates on the effective version for exactly this reason. This
+method did not, and was the only one of the five that didn't.
+
+Two details worth recording, because neither is visible from the fix:
+
+- **The hazard was already understood three lines above the unguarded read.**
+  `VK_EXT_pci_bus_info` is deliberately not chained unless the device
+  advertises it, with a comment saying an unimplemented extension "leaves the
+  struct untouched, so chaining it unconditionally would report a bogus
+  `0000:00:00.0` instead of an honest `None`." The same reasoning, by the same
+  hand, applied to the optional field and missed on the mandatory one.
+- **The existing test named the exact failure signature and declined to assert
+  it.** Its comment read "a real device never reports the all-zero UUID;
+  software rasterizers may, so we only print rather than assert on it," and it
+  ended "the only structural invariant to check is that the call returned." It
+  also ran on the shared `V1_0` bootstrap, so it had been printing the zeroed
+  struct as a result. It now builds a `V1_1` instance and actually exercises
+  the surface.
+
+The new regression test asserts the **gate**, not the UUID's content, so it is
+independent of what any driver reports and a software rasterizer cannot make it
+flaky. It carries its own positive control: a `V1_1` instance must produce at
+least one identity, or the `V1_0` null proves nothing and the test skips
+instead of passing.
 ## [0.14.1] — 2026-09-03
 
 A patch release for one reason: **0.14.0's changelog describes a repair its

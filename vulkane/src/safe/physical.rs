@@ -445,15 +445,47 @@ impl PhysicalDevice {
     /// [`memory_budget`](Self::memory_budget) — identity is the hook that
     /// lets a caller go ask the right vendor/OS source out of band.
     ///
-    /// Returns `None` only when `vkGetPhysicalDeviceProperties2` is
-    /// unavailable (Vulkan 1.0 with no
-    /// `VK_KHR_get_physical_device_properties2`). Otherwise the UUID
-    /// fields are always populated; [`device_luid`](DeviceIdentity::device_luid)
-    /// is `Some` only when the platform reports it valid (Windows), and
+    /// Returns `None` when `vkGetPhysicalDeviceProperties2` is unavailable
+    /// (Vulkan 1.0 with no `VK_KHR_get_physical_device_properties2`), **or
+    /// when the [`effective_api_version`](Self::effective_api_version) is
+    /// below 1.1** — `VkPhysicalDeviceIDProperties` is 1.1 core, and a 1.0
+    /// implementation leaves the chained struct untouched. That is the same
+    /// reasoning applied to `VK_EXT_pci_bus_info` a few lines below, and it
+    /// matters more here: a zeroed *optional* field reads as "absent", but a
+    /// zeroed **join key** reads as a valid UUID that every device shares.
+    ///
+    /// Measured on one machine with two GPUs (2026-09-03): before this gate,
+    /// a `V1_0` instance — the [`InstanceCreateInfo::api_version`](super::InstanceCreateInfo::api_version)
+    /// **default** — reported `device_uuid` as all-zero for *both* an AMD
+    /// Radeon 610M and an NVIDIA RTX 4070, so the two compared **equal**. At
+    /// `V1_1` they are distinct. A caller correlating with NVML/CUDA would
+    /// have matched the wrong GPU, or all of them.
+    ///
+    /// So raise [`InstanceCreateInfo::api_version`](super::InstanceCreateInfo::api_version)
+    /// to 1.1 or higher if this returns `None` unexpectedly, as with
+    /// [`subgroup_properties`](Self::subgroup_properties).
+    ///
+    /// Otherwise the UUID fields are populated;
+    /// [`device_luid`](DeviceIdentity::device_luid) is `Some` only when the
+    /// platform reports it valid (Windows), and
     /// [`pci`](DeviceIdentity::pci) is `Some` only when the device
     /// advertises `VK_EXT_pci_bus_info`.
     pub fn device_identity(&self) -> Option<DeviceIdentity> {
         let get2 = self.instance.dispatch.vkGetPhysicalDeviceProperties2?;
+
+        // `VkPhysicalDeviceIDProperties` is Vulkan 1.1 core. On a 1.0
+        // implementation the driver skips the unrecognized chained struct
+        // and leaves it as we allocated it -- all zeros -- and `chain.get()`
+        // hands that back indistinguishably from a real answer. Decline
+        // instead: an all-zero UUID is not a conservative reading of a join
+        // key, it is a value that makes every device compare equal.
+        if (
+            self.effective_api_version().major(),
+            self.effective_api_version().minor(),
+        ) < (1, 1)
+        {
+            return None;
+        }
 
         // Only chain the PCI-bus-info struct when the device actually
         // advertises the extension. A driver that doesn't implement it
