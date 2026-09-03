@@ -150,6 +150,54 @@ these produced a wrong number first:
   would make them examine zero files — just not labelled. A naming convention is
   followed by the people who adopted it, never by everyone.
 
+### And the trap that does not announce itself: clearing for a false reason
+
+The three above all make a sweep report **too much**. You notice, because you
+have to read the extra candidates. **The dangerous direction is the other one.**
+
+    UNDER-clears -> false positives -> noise you triage away.  YOU SEE THEM.
+    OVER-clears  -> false negatives -> removed from the population, and
+                                       nothing ever mentions them again.
+
+**You cannot triage a candidate you were never shown**, and a null result cannot
+report an over-clear: *"0 found"* and *"the clearer removed them"* are the same
+output.
+
+**So audit the clearer's REASON, not its output.** The check that feels
+sufficient — go through the cleared set and confirm none is a true positive —
+**passes in exactly the case that matters**, because a clear can be correct for
+a reason that is not the one you used.
+
+A worked example from this repository. A sweep for tests that pass without
+asserting cleared 113 on the rule *"it calls a declaring skip helper, so its
+non-assertion is deliberate."* **That rule is false.** The skip sits on the path
+where the device is ABSENT; it says nothing about what the test checks when the
+device is PRESENT. A test that skips without a GPU and asserts nothing with one
+satisfies it perfectly.
+
+Nine of the 113 had no runtime assertion at all. **All nine were fine — and each
+for a different reason than the rule gave:**
+
+- one returns `common::skipped` on an *empty device list*, so its loop cannot run
+  zero times — someone had already reasoned about empty-corpus vacuity, in that
+  file, years before this section existed
+- three end `let result = …; drop(result);` — the check is *"does not panic"*,
+  stated in the body
+- one is `if let Ok(_inst) = Instance::new(…) { } else { skipped(…) }`, where
+  reaching the success branch **is** the assertion
+
+**Nine correct clears, and the predicate had checked none of the things that
+made them correct.**
+
+⚠️ **A related failure is worth its own line, because it is easy to repeat:**
+upgrading the instrument HALFWAY. Extracting each test body by brace-matching
+fixed *which text belongs to this test*; the predicates applied to that text
+stayed line-oriented and shape-specific, and every remaining error lived there.
+The strongest test in `vulkane/src/tests.rs` — it pins about fifteen generated
+function-pointer fields and fails to compile if the generator drops one — was
+classified as having no assertion at all, because it binds `entry` rather than
+`_entry`.
+
 ### What the answer legitimately is
 
 **"Nothing, and here are the documents I read" is a complete answer**, and a
