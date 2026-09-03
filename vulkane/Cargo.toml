@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.14.1"
+version = "0.15.0"
 edition = "2024"
 # 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
 # and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
