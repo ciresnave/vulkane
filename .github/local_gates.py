@@ -65,6 +65,7 @@ status of whatever you piped into.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -92,6 +93,9 @@ MSRV = "msrv"
 # line-ending bug a captured toolchain: a real non-zero wearing the wrong
 # cause's name.
 EX_TEMPFAIL = 75
+
+# Set by main() from probe_bash(). Never guessed: see probe_bash's docstring.
+BASH = None
 
 # (substring, policy, reason). First match wins; order matters.
 #
@@ -314,6 +318,144 @@ def msrv_invocations(command):
     return expanded
 
 
+BASH_ENV = "LOCAL_GATES_BASH"
+BASH_MARKER = "__local_gates_bash_answered__"
+
+
+def _git_bash():
+    """Git's own bash, derived from wherever `git` actually is.
+
+    Not hardcoded to `C:/Program Files/Git`: a portable or scooped install lives
+    elsewhere, and a path that is right on one box and absent on another is the
+    kind of check that passes for its author and nobody else.
+    """
+    git = shutil.which("git")
+    if not git:
+        return None
+    # <root>/cmd/git.exe and <root>/bin/git.exe both yield <root>/bin/bash.exe.
+    root = Path(git).resolve().parent.parent
+    candidate = root / "bin" / ("bash.exe" if os.name == "nt" else "bash")
+    return str(candidate) if candidate.exists() else None
+
+
+def _looks_like_wsl_bash(path):
+    r"""Does this PATH SHAPE name `C:/WINDOWS/system32/bash.exe`?
+
+    Split out from [`_is_wsl_launcher`] purely so it can be tested off Windows.
+    The platform check lives in the caller; this is string logic, and STRING
+    LOGIC IS WHERE THE BUG WAS: the first version compared against a non-raw
+    "\system32\bash.exe", in which Python reads `\b` as BACKSPACE, so it could
+    never match anything.
+
+    ⚠️ That bug is platform-INDEPENDENT while the guard it lives in is
+    Windows-only, and CI's `local-gates` job is `runs-on: ubuntu-latest`. Tests
+    behind an `os.name == "nt"` check would therefore never have run in CI at
+    all -- the guard protecting Windows developers, verified only where it
+    cannot execute. Keeping the comparison here makes it testable everywhere.
+    """
+    p = str(path).lower().replace(chr(92), "/")
+    return p.endswith("/system32/bash.exe") or "/windows/system32/" in p
+
+
+def _is_wsl_launcher(path):
+    r"""`C:/WINDOWS/system32/bash.exe` is the WSL launcher, not a POSIX bash.
+
+    Rejected even when it ANSWERS. On a box with a working distro it runs the
+    gates inside Linux -- a different cargo, a different target dir, a different
+    toolchain set -- and reports the result as though it were this machine's.
+    A harness that silently tests somewhere else is worse than one that stops.
+    """
+    return os.name == "nt" and _looks_like_wsl_bash(path)
+
+
+def bash_candidates():
+    """Where to look for a usable bash, most explicit first.
+
+    Git Bash is preferred over ambient `bash` ON WINDOWS ON PURPOSE, and not as a
+    workaround: GitHub's Windows runners execute `shell: bash` steps with Git
+    Bash, so it is the shell whose behaviour this harness is trying to predict.
+    Ambient `bash` is what the LAUNCHER happened to put on PATH, which is how a
+    developer running this from PowerShell gets the WSL launcher.
+    """
+    override = os.environ.get(BASH_ENV)
+    if override:
+        return [(override, "$" + BASH_ENV)]
+    found = []
+    if os.name == "nt":
+        gb = _git_bash()
+        if gb:
+            found.append((gb, "git's bash (what CI's windows runner uses)"))
+    ambient = shutil.which("bash")
+    if ambient:
+        found.append((ambient, "`bash` on PATH"))
+    return found
+
+
+def probe_bash():
+    """Return (path, origin) for a bash that ANSWERS, or None.
+
+    ⚠️ This exists because the harness reported **29 gate failures** on a tree
+    whose gates all pass. Launched from PowerShell, `bash` resolved to the WSL
+    launcher, every `subprocess.run(["bash", ...])` returned 1 without executing
+    anything, and each was recorded as a failing gate. Measured 2026-09-03:
+
+        run from Bash        29 invocations, 0 failed
+        run from PowerShell  29 invocations, 29 failed
+        the actual error     WSL (9 - Relay) ERROR: CreateProcessCommon:818:
+                             execvpe(/bin/bash) failed: No such file or directory
+
+    **Twenty-nine commands that never ran, reported as twenty-nine failed gates.**
+    A count is the worst possible shape for that failure: `0` invites suspicion,
+    but "29 failed" reads as a real and urgent result, and sends the reader
+    hunting for gate problems that do not exist.
+
+    This is the same discipline the workflow already applies to cargo -- "The
+    toolchain must answer before its result means anything" -- turned on the
+    harness's own shell, which it had never checked.
+    """
+    for path, origin in bash_candidates():
+        if _is_wsl_launcher(path):
+            continue
+        try:
+            out = run_bash(
+                path, "echo " + BASH_MARKER,
+                capture_output=True, text=True, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        # The MARKER, not the exit code: a shell that starts and fails is still
+        # unusable, and one that exits 0 having printed nothing never ran the -c.
+        if BASH_MARKER in (out.stdout or ""):
+            return path, origin
+    return None
+
+
+def run_bash(bash, command, **kwargs):
+    """The ONLY place this harness starts a process.
+
+    Consolidated deliberately. Both callers -- the shell probe and the gate
+    runner -- pass a bash path and a command string, and a static analyser
+    flags each such call site separately: two sites meant the same
+    trust-boundary argument had to be made twice and could drift apart. One
+    site means one place to read, one place to justify, and one place to change
+    if the invocation ever needs to be constrained.
+
+    `command` is not a literal, and a security scan is right to say so. It comes
+    from `.github/workflows/ci.yml` -- the workflow CI already executes with more
+    privilege than the developer running this. On a branch you trust that is not
+    an escalation; on a branch you do not, it is arbitrary code execution, and so
+    is `cargo test` running that branch's `build.rs`.
+
+    NOT suppressed, because it cannot be: `# nosemgrep` was tried both on the
+    preceding line and on the matched line, and Sourcery honours neither. A
+    directive that does nothing is worse than none -- it reads as though the
+    finding were handled. So the finding stands, red, correct, and answered
+    here and in the PR thread. The full argument is in the module docstring
+    under "the trust boundary".
+    """
+    return subprocess.run([bash, "-lc", command], **kwargs)
+
+
 def shell(command, env):
     """Run one workflow command through bash, as `shell: bash` steps do.
 
@@ -329,15 +471,36 @@ def shell(command, env):
     somewhere else is one the next reader has to take on trust; the full argument
     is in the module docstring under "the trust boundary".
     """
-    # NOT suppressed, because it cannot be: `# nosemgrep` was tried both on the
-    # preceding line and on the matched line, and Sourcery honours neither. A
-    # directive that does nothing is worse than none -- it reads as though the
-    # finding were handled. So the finding stands, red, correct, and answered in
-    # the docstring above and in the PR thread.
-    return subprocess.run(["bash", "-lc", command], cwd=REPO, env=env).returncode
+    return run_bash(BASH, command, cwd=REPO, env=env).returncode
 
 
 def main():
+    # ⚠️ BEFORE ANYTHING ELSE. Every gate below runs through bash, so a bash that
+    # cannot start turns each one into a non-zero exit and this harness reports a
+    # tally of failed GATES for commands that never executed. That is not
+    # hypothetical: it reported 29 of 29 failing on a tree whose gates all pass.
+    global BASH
+    resolved = probe_bash()
+    if resolved is None:
+        tried = bash_candidates()
+        sys.exit(
+            "error: no usable bash, so no gate could run.\n\n"
+            + ("  tried: " + ", ".join(p + "  (" + o + ")" for p, o in tried) + "\n"
+               if tried else "  tried: nothing -- no bash on PATH and no git to derive one from\n")
+            + "\nOn Windows this usually means the shell you launched from resolves\n"
+              "`bash` to C:/WINDOWS/system32/bash.exe -- the WSL launcher, not a\n"
+              "POSIX bash. Run this from Git Bash, or point " + BASH_ENV + " at a\n"
+              "bash (e.g. \"C:/Program Files/Git/bin/bash.exe\").\n\n"
+            "Refusing to continue: running the gates through a shell that cannot\n"
+            "start would report every one of them as a failure."
+        )
+    BASH, origin = resolved
+    # Printed on every run, not only on failure. The shell is an input to the
+    # result, and a run that does not say which one it used cannot be compared
+    # with another run that used a different one -- which is exactly the
+    # confusion that hid this defect.
+    print("  bash: " + BASH + "  (" + origin + ")")
+
     collected = steps()
 
     # An empty extraction is indistinguishable from a passing run. If the parse
@@ -475,6 +638,54 @@ def self_test():
     unclassified = [c for _, _, c, _ in collected if classify(c)[0] is None]
     check("every current CI command is classified", not unclassified)
     check("the workflow parse found commands at all", len(collected) > 0)
+
+    # 1c. the shell this harness runs every gate through
+    #
+    # ⚠️ These exist because the harness reported 29 failing GATES for 29
+    # commands that never ran: launched from PowerShell, `bash` resolved to the
+    # WSL launcher and every subprocess returned 1 without executing anything.
+    # A tally is the worst shape for that failure -- "29 failed" reads as a real
+    # result and sends the reader hunting for gate problems that do not exist.
+    # The PATH-SHAPE check runs on EVERY platform, deliberately. The bug it
+    # guards against was a string comparison that could never match, which is
+    # platform-independent -- and CI's local-gates job is ubuntu-latest, so
+    # anything behind `os.name == "nt"` would never run there.
+    check("a WSL path is recognised (backslashes)",
+          _looks_like_wsl_bash("C:" + chr(92) + "WINDOWS" + chr(92) + "system32"
+                               + chr(92) + "bash.exe"))
+    check("a WSL path is recognised (forward slashes)",
+          _looks_like_wsl_bash("C:/Windows/System32/bash.exe"))
+    check("git's bash is NOT mistaken for the WSL launcher",
+          not _looks_like_wsl_bash("C:/Program Files/Git/bin/bash.exe"))
+    check("a path merely containing 'bash.exe' is not matched",
+          not _looks_like_wsl_bash("D:/tools/bash.exe"))
+    check("a POSIX bash path is not matched",
+          not _looks_like_wsl_bash("/usr/bin/bash"))
+
+    # probe_bash must return something that ANSWERS, not merely something that
+    # exists -- the whole defect was a bash that existed and could not start.
+    resolved = probe_bash()
+    check("a usable bash was found and answered", resolved is not None)
+    if resolved:
+        check("the resolved bash is not the WSL launcher",
+              not _is_wsl_launcher(resolved[0]))
+
+    # And the refusal path: an override that cannot answer must yield None
+    # rather than being handed to 29 gates. Restores the environment after.
+    _saved = os.environ.get(BASH_ENV)
+    os.environ[BASH_ENV] = str(REPO / "definitely-not-a-bash-xyzzy")
+    try:
+        check("an unusable bash resolves to None rather than being used",
+              probe_bash() is None)
+    finally:
+        if _saved is None:
+            os.environ.pop(BASH_ENV, None)
+        else:
+            os.environ[BASH_ENV] = _saved
+    # Control: with the override removed, resolution works again -- otherwise
+    # the None above could be this test having broken resolution permanently.
+    check("resolution recovers once the bad override is removed",
+          probe_bash() is not None)
 
     # 1b. every POLICIES row is shaped (pattern, action, reason).
     #
