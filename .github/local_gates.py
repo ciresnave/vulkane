@@ -474,6 +474,76 @@ def shell(command, env):
     return run_bash(BASH, command, cwd=REPO, env=env).returncode
 
 
+def tree_state(bash):
+    """`git status --porcelain` as a set of lines, or None if it could not run.
+
+    None is NOT "clean". A check that could not run must not read as a pass --
+    the caller says so explicitly rather than treating the empty case as good
+    news, which is the failure this whole function exists to prevent one
+    instance of.
+    """
+    try:
+        out = run_bash(bash, "git status --porcelain",
+                       capture_output=True, text=True, cwd=REPO, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return set(line for line in (out.stdout or "").splitlines() if line.strip())
+
+
+# NOTE: printed output here is ASCII-only, deliberately. A `print` carrying a
+# non-cp1252 character raises UnicodeEncodeError on a default Windows console,
+# and this function only prints WHEN IT HAS FOUND SOMETHING -- so the warning
+# would have crashed the run at exactly the moment it had something to say,
+# with a traceback instead of the finding. Caught by the self-test that
+# exercises the detecting branch; a test that only checked the quiet path
+# would have shipped it. Comments and docstrings are not printed and keep
+# their marks.
+def report_mutation(before, after):
+    """Did the gates change the tree they were verifying? Returns True if so.
+
+    ⚠️ This exists because a green local run hid a release defect. Cutting
+    0.15.0, the manifest was bumped without `Cargo.lock`; CI builds the MSRV
+    legs with `--locked` and failed all four, while this harness reported
+    **0 failed**. Most gate commands do not pass `--locked`, so the run's first
+    cargo invocation silently REWROTE `Cargo.lock` -- and every gate after it
+    verified a tree that no longer matched the commit.
+
+    **The gate repaired the exact condition CI checks, then reported success on
+    the repaired tree.** The only trace was `M Cargo.lock` in `git status`
+    afterwards, and nothing here read it.
+
+    The general form: **any verification that CAN write to its subject must
+    report whether it DID.** An exit code that cannot distinguish "the tree
+    passed" from "the tree passes now, because I changed it" is reporting on an
+    artefact that did not exist when the run began.
+
+    Compares BEFORE against AFTER rather than asking "is the tree dirty" --
+    running the gates over work in progress is normal and must not fail here.
+    Only a change caused BY the run counts.
+    """
+    if before is None or after is None:
+        print("\n  !!  could not read `git status`, so whether these gates modified\n"
+              "      the tree is UNKNOWN. That is not the same as unmodified.")
+        return False
+    changed = sorted((after - before) | (before - after))
+    if not changed:
+        return False
+    print("\n  !!  THESE GATES MODIFIED THE TREE THEY WERE VERIFYING:\n")
+    for line in changed:
+        print("        " + line)
+    print("\n      So the result above is about a tree that did not exist when the\n"
+          "      run began, and is NOT about what you have committed. The usual\n"
+          "      cause is a manifest version bumped without its `Cargo.lock`: most\n"
+          "      gate commands do not pass `--locked`, so cargo rewrites the lock\n"
+          "      and every later gate passes on the repaired tree -- while CI's\n"
+          "      MSRV legs, which DO pass `--locked`, fail.\n"
+          "\n      Commit the change and re-run, or revert it and find out why it\n"
+          "      appeared.")
+    return True
+
+
 def main():
     # ⚠️ BEFORE ANYTHING ELSE. Every gate below runs through bash, so a bash that
     # cannot start turns each one into a non-zero exit and this harness reports a
@@ -500,6 +570,11 @@ def main():
     # with another run that used a different one -- which is exactly the
     # confusion that hid this defect.
     print("  bash: " + BASH + "  (" + origin + ")")
+
+    # Snapshotted BEFORE any gate runs, so the comparison afterwards asks
+    # `did THIS RUN change the tree`, not `is the tree dirty` -- running the
+    # gates over work in progress is normal and must not fail here.
+    before = tree_state(BASH)
 
     collected = steps()
 
@@ -605,6 +680,8 @@ def main():
     # invocation per declared floor, exactly as CI fans it out over the matrix.
     print("\n  %d workflow steps -> %d invocations, %d skipped, %d failed"
           % (len(collected), ran, skipped, len(failures)))
+
+    mutated = report_mutation(before, tree_state(BASH))
     if unavailable:
         print("\n  GPU lock unavailable -- these did not run, and did not fail:")
         for u in unavailable:
@@ -615,6 +692,9 @@ def main():
         for f in failures:
             print("  " + f, file=sys.stderr)
         sys.exit(1)
+    if mutated:
+        sys.exit("refusing to report success: the gates passed on a tree they "
+                 "modified, which is not the tree you have committed. See above.")
     print("  all gates that run on this box passed")
 
 
@@ -661,6 +741,34 @@ def self_test():
           not _looks_like_wsl_bash("D:/tools/bash.exe"))
     check("a POSIX bash path is not matched",
           not _looks_like_wsl_bash("/usr/bin/bash"))
+
+    # 1d. does this harness notice when it CHANGES the tree it is verifying?
+    #
+    # ⚠️ These exist because a green local run hid a release defect: cutting
+    # 0.15.0, the first cargo invocation silently rewrote `Cargo.lock`, every
+    # later gate passed on the repaired tree, and CI's --locked MSRV legs failed
+    # all four. The gate repaired the exact condition CI checks, then reported
+    # success. A red starts an investigation; a green ends one.
+    check("an unchanged tree is not reported as mutated",
+          not report_mutation(set(), set()))
+    # THE ONE THAT MUST NOT FIRE: running the gates over work in progress is
+    # normal. Dirty before and identically dirty after is not a mutation, and a
+    # check that fails here would be switched off within a day.
+    check("a tree dirty BEFORE and unchanged BY the run is not a mutation",
+          not report_mutation({" M src/lib.rs"}, {" M src/lib.rs"}))
+    # The real case, verbatim.
+    check("a file the run modified IS reported",
+          report_mutation(set(), {" M Cargo.lock"}))
+    check("a file that STOPPED being modified is also a change",
+          report_mutation({" M Cargo.lock"}, set()))
+    # An unreadable status is UNKNOWN, and unknown must not read as clean --
+    # which is the same mistake in miniature as the one above.
+    check("an unreadable git status does not silently pass as unmodified",
+          not report_mutation(None, set()))
+    # Control: the reader actually works here, so the Nones above are the
+    # function's behaviour and not a broken probe.
+    check("tree_state reads this repo (so the None cases are behaviour, not breakage)",
+          tree_state(probe_bash()[0]) is not None)
 
     # probe_bash must return something that ANSWERS, not merely something that
     # exists -- the whole defect was a bash that existed and could not start.
