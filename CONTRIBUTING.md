@@ -489,6 +489,26 @@ Note that a dependency already satisfied by a PUBLISHED version does not force a
 republish. `vulkane` requires `vulkane_derive = "0.1"`, which `0.1.0` satisfied;
 `0.1.1` still had to go first if it was going at all, but it was not blocking.
 
+⚠️ **Update `Cargo.lock` and COMMIT it in the same change as the manifest.**
+
+    cargo check -p <crate>     # rewrites the lock's version entry
+    git add Cargo.lock
+
+The MSRV jobs build with `--locked`, so a manifest bumped without its lock fails
+all four of them with:
+
+    error: the lock file Cargo.lock needs to be updated but --locked was passed
+
+⚠️ **And a LOCAL gate run will not catch this, because it CAUSES it to pass.**
+Measured cutting 0.15.0: the local harness went green while CI went red on all
+four MSRV legs. Most gate commands do not pass `--locked`, so the first cargo
+invocation of the run silently rewrote `Cargo.lock` — **the harness repaired the
+exact condition CI checks, then reported success.** `git status` after a gate run
+showed `M Cargo.lock`: the tree that passed was not the tree that was committed.
+
+So: **after any local gate run, check `git status` before believing the result.**
+A verification that modifies its subject has verified something you did not ship.
+
 ### 3. Stamp the changelog
 
 Not "update" -- **stamp**. Add a dated release header beneath an empty
