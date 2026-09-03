@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-09-03
+
+**If you call `device_identity()` and match on `device_uuid`, read this one.**
+A minor bump rather than a patch, deliberately: the callers most likely to exist
+are the ones correlating by UUID, and that is exactly the population the defect
+hurt. A patch release would have fixed it and hidden the fix from them.
+
+⚠️ **The symptom was a wrong answer, not a missing one.** On any instance below
+Vulkan 1.1 — including the `api_version` **default** — the call returned
+`Some(...)` with an all-zero `device_uuid`, which is not an obvious absence but
+a valid-looking value that **every device shares**. Two physically different
+GPUs compared **equal**. Live from 0.8.3 through 0.14.1.
+
+So a caller who saw `Some(...)` and matched on it did not get a failure to
+correlate; they got a correlation to the wrong device, or to all of them. If
+that is your code, the thing to audit is your GPU selection, not your error
+handling.
 ### Fixed — `device_identity()` returned a zeroed join key that made every device compare equal
 
 ⚠️ **Behaviour change, and it is a breaking one for a caller on a 1.0 instance.**
