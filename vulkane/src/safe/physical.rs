@@ -848,6 +848,31 @@ impl PhysicalDevice {
     /// Returns `None` if `vkGetPhysicalDeviceProperties2` is not
     /// available; returns a struct with all-zero values on a driver
     /// that doesn't implement the extension.
+    ///
+    /// ⚠️ **An all-zero reading here is NOT the safe default it is for a
+    /// capability struct, and the difference is the field's KIND.**
+    ///
+    /// [`Self::shader_integer_dot_product_properties`] returns booleans, so
+    /// all-false reads as *"this device accelerates none of these"* — true, and
+    /// useful. **These are LIMITS.** All-zero reads as
+    /// `shader_group_handle_size: 0` and `shader_group_base_alignment: 0`,
+    /// which is not "no ray tracing" — it is a shader binding table with
+    /// zero-sized handles and zero alignment. A caller who lays out an SBT from
+    /// it gets a zero-stride table rather than an error.
+    ///
+    /// **So check the extension is present before believing these numbers.**
+    /// `enumerate_extension_properties` is the check; this method deliberately
+    /// does not perform it, because doing so would make an absent extension and
+    /// a driver that reports zeros indistinguishable — and only the caller
+    /// knows which of those matters to them.
+    ///
+    /// Observed rather than reasoned, on one machine with two GPUs
+    /// (2026-09-03): `VK_EXT_shader_long_vector` is present on the RTX 4070 and
+    /// absent on the integrated Radeon 610M. Its limit,
+    /// `maxVectorComponents`, reads 1024 on the first and — through an ungated
+    /// `pNext` query — zero on the second. **Zero components is a plausible
+    /// number and a false one.** The same shape applies to every limit-valued
+    /// property in this file.
     pub fn ray_tracing_pipeline_properties(
         &self,
     ) -> Option<super::ray_tracing_pipeline::RayTracingPipelineProperties> {
