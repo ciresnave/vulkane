@@ -508,6 +508,19 @@ said it did not exist.
 
 Runs what CI runs, read out of `ci.yml` rather than from a list that can drift.
 
+Its first line names the shell it used, e.g.
+
+    bash: C:\Program Files\Git\bin\bash.exe  (git's bash (what CI's windows runner uses))
+
+**That line is not decoration.** Every gate runs through that shell, so it is an
+input to the result: two runs that do not say which one they used cannot be
+compared. On Windows, launching from PowerShell resolves `bash` to
+`C:/WINDOWS/system32/bash.exe` — the WSL launcher, not a POSIX bash — and before
+the harness checked, that made every command return non-zero without executing,
+which it reported as **29 failing gates**. It now refuses to start instead, and
+prefers git's bash because that is what CI's Windows runner uses for
+`shell: bash`. Override with `LOCAL_GATES_BASH` if you need a specific one.
+
 ### 5. Publish, in the order from step 2
 
     cargo publish -p <crate> --dry-run
