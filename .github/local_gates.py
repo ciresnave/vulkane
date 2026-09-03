@@ -417,8 +417,8 @@ def probe_bash():
         if _is_wsl_launcher(path):
             continue
         try:
-            out = subprocess.run(
-                [path, "-lc", "echo " + BASH_MARKER],
+            out = run_bash(
+                path, "echo " + BASH_MARKER,
                 capture_output=True, text=True, timeout=60,
             )
         except (OSError, subprocess.SubprocessError):
@@ -428,6 +428,32 @@ def probe_bash():
         if BASH_MARKER in (out.stdout or ""):
             return path, origin
     return None
+
+
+def run_bash(bash, command, **kwargs):
+    """The ONLY place this harness starts a process.
+
+    Consolidated deliberately. Both callers -- the shell probe and the gate
+    runner -- pass a bash path and a command string, and a static analyser
+    flags each such call site separately: two sites meant the same
+    trust-boundary argument had to be made twice and could drift apart. One
+    site means one place to read, one place to justify, and one place to change
+    if the invocation ever needs to be constrained.
+
+    `command` is not a literal, and a security scan is right to say so. It comes
+    from `.github/workflows/ci.yml` -- the workflow CI already executes with more
+    privilege than the developer running this. On a branch you trust that is not
+    an escalation; on a branch you do not, it is arbitrary code execution, and so
+    is `cargo test` running that branch's `build.rs`.
+
+    NOT suppressed, because it cannot be: `# nosemgrep` was tried both on the
+    preceding line and on the matched line, and Sourcery honours neither. A
+    directive that does nothing is worse than none -- it reads as though the
+    finding were handled. So the finding stands, red, correct, and answered
+    here and in the PR thread. The full argument is in the module docstring
+    under "the trust boundary".
+    """
+    return subprocess.run([bash, "-lc", command], **kwargs)
 
 
 def shell(command, env):
@@ -445,12 +471,7 @@ def shell(command, env):
     somewhere else is one the next reader has to take on trust; the full argument
     is in the module docstring under "the trust boundary".
     """
-    # NOT suppressed, because it cannot be: `# nosemgrep` was tried both on the
-    # preceding line and on the matched line, and Sourcery honours neither. A
-    # directive that does nothing is worse than none -- it reads as though the
-    # finding were handled. So the finding stands, red, correct, and answered in
-    # the docstring above and in the PR thread.
-    return subprocess.run([BASH, "-lc", command], cwd=REPO, env=env).returncode
+    return run_bash(BASH, command, cwd=REPO, env=env).returncode
 
 
 def main():
