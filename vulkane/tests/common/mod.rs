@@ -77,7 +77,35 @@ pub const REQUIRE_DEVICE: &str = "VULKANE_REQUIRE_DEVICE";
 /// Whether skips are currently fatal.
 #[allow(dead_code)]
 pub fn skips_are_fatal() -> bool {
-    std::env::var_os(REQUIRE_DEVICE).is_some_and(|v| !v.is_empty())
+    armed_by(std::env::var_os(REQUIRE_DEVICE).as_deref())
+}
+
+/// The arming decision, separated from where the value comes from.
+///
+/// Lifted out so it can be tested WITHOUT mutating the environment: this crate
+/// is edition 2024, where `set_var` is `unsafe`, and a test that sets a process
+/// -global variable races every other test in the binary. A pure function over
+/// the value has neither problem.
+///
+/// **The empty string must not arm, and that is not a detail.** CI sets this
+/// with a ternary — `runner.os == 'Linux' && '1' || ''` — and a GitHub Actions
+/// ternary cannot UNSET a variable, only set it to nothing. So on macOS and
+/// Windows the variable EXISTS AND IS EMPTY. An existence test (`is_some`,
+/// or `env::var(..).is_ok()`) reads that as armed and turns every legitimate
+/// skip on a runner with no device into a hard failure.
+///
+/// A sibling project hit exactly that and now has a regression test citing this
+/// crate's ternary by name. Ours was correct already — but it was correct
+/// because somebody decided it, and a decision survives only while it is
+/// remembered. These tests make it survive a simplification.
+///
+/// **`"0"` and `"false"` DO arm**, per the documented contract on
+/// [`REQUIRE_DEVICE`]: *any non-empty value*. That is the ordinary Unix
+/// convention for a presence flag, and it is deliberate rather than an
+/// oversight — the sibling project chose the opposite for its own variable.
+/// Recorded here so the difference reads as two decisions rather than one bug.
+fn armed_by(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|v| !v.is_empty())
 }
 
 /// What a test needed and did not get — carrying **which class of skip it is**,
@@ -564,4 +592,43 @@ mod lock_witness_tests {
         assert!(!lockfile_names_pid(r#"{"project":"vulkane"}"#, "123"));
         assert!(!lockfile_names_pid(r#"{"pid":}"#, "123"));
     }
+}
+
+#[test]
+fn an_unset_variable_does_not_arm() {
+    assert!(
+        !armed_by(None),
+        "with the variable unset, a device-gated skip must stay a pass"
+    );
+}
+
+#[test]
+fn the_empty_string_does_not_arm() {
+    // The case CI actually produces on macOS and Windows. `is_some()` here
+    // would make every skip fatal on a runner that was never meant to have a
+    // device.
+    assert!(
+        !armed_by(Some(std::ffi::OsStr::new(""))),
+        "an EMPTY value must not arm -- CI's `runner.os == 'Linux' && '1' || ''` \
+         sets this variable to the empty string on every non-Linux runner, so \
+         arming on mere existence turns legitimate skips into hard failures"
+    );
+}
+
+#[test]
+fn a_non_empty_value_arms() {
+    assert!(
+        armed_by(Some(std::ffi::OsStr::new("1"))),
+        "'1' is what CI sets on Linux, where Lavapipe guarantees a device"
+    );
+}
+
+#[test]
+fn zero_and_false_arm_because_the_contract_is_any_non_empty_value() {
+    // Pinning the documented contract rather than the intuitive reading. If
+    // this is ever changed to treat "0"/"false" as off, this test should be
+    // changed WITH it and the doc on REQUIRE_DEVICE updated in the same edit --
+    // the point is that the two cannot drift apart silently.
+    assert!(armed_by(Some(std::ffi::OsStr::new("0"))));
+    assert!(armed_by(Some(std::ffi::OsStr::new("false"))));
 }
