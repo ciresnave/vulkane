@@ -7,18 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-*Entries here are changes that will be in the next published crate. Work that
-never reaches one — CI, the local gate harness, manifest comments that cargo
-normalises away — is in [Repository log](#repository-log) at the end of this
-file instead. An `[Unreleased]` entry that cannot be released is a promise with
-a delivery date that nobody is tracking.*
+## [0.14.1] — 2026-09-03
+
+A patch release for one reason: **0.14.0's changelog describes a repair its
+published artifact does not contain.** A consumer whose build hits the
+no-spec path on 0.14.0 gets an unreadable error and a changelog telling them it
+is fixed. That is a defect in the record as much as in the code, and it costs
+one patch release to remove.
 
 ### Fixed — the build-failure message reached dependents as one escaped line
-
-**Not yet in any published version. Tracked as #47.** `vulkane 0.14.0` on crates.io
-still renders this message in the escaped form; the fix ships with the next release
-that has its own reason to exist. A consumer reading "fixed" here and seeing the old
-behaviour should find the explanation in that issue rather than re-deriving it.
 
 Found by running the error path rather than reading it. `fn main() -> Result<_, E>` reports with
 `{:?}`, and a `Box<dyn Error>` built from a `String` debug-prints it **quoted, with every newline
@@ -30,7 +27,21 @@ A `PlainError` newtype whose `Debug` is its `Display` restores it: 18 lines inst
 
 **A substring check cannot see this bug** — the text is present either way. The CI assertion
 therefore requires the numbered option to occupy a line of its own, which is only true when the
-newlines are real.
+newlines are real, and the path is now executed rather than merely compiled.
+
+### Changed (no behaviour) — `slang.rs` uses `as_chunks` instead of `chunks_exact`
+
+Converting a SPIR-V byte blob to words now uses `as_chunks::<4>` rather than `chunks_exact(4)`
+with `c[0]..c[3]` indexing. **The output is byte-identical** — verified across five inputs
+including the SPIR-V magic word, an empty blob and a 64-byte run — so nothing a consumer can
+observe changes. Recorded because it is a change to a shipped file, and a reader diffing
+0.14.0 against 0.14.1 would otherwise find it unexplained.
+
+⚠️ **One consequence is worth knowing if you reason about our MSRV.** `slice::as_chunks` was
+stabilised in **1.88**, so it is now an independent driver of this crate's declared floor
+alongside the let-chains and `libloading 0.9`. Anyone who concluded from the let-chains alone that
+1.88 could be lowered by rewriting them now has a wrong model. The floor is unchanged at 1.88 and
+the `msrv-minimality` job continues to require this crate to *fail* to compile on 1.87.
 
 ## [0.14.0] — 2026-09-02
 
