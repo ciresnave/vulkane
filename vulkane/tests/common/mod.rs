@@ -639,6 +639,98 @@ mod lock_witness_tests {
     }
 }
 
+/// The doc on [`REQUIRE_DEVICE`] must name every value the predicate accepts.
+///
+/// ⚠️ Built because the gap it closes bit two repos in one hour. This const's
+/// doc said *"Set this to any non-empty value"* for the entire life of the
+/// `!v.is_empty()` predicate and was still saying it after the behaviour
+/// changed; lightbulb's module doc said *"when the named variable is set to
+/// `1`"* and had the same drift. **Both sat in the same file as the tests that
+/// pin the behaviour, and neither was caught by anything except reading.**
+///
+/// A test suite proves the CODE does what it does. Nothing proved the PROSE
+/// still described it, so the doc kept asserting a contract the tests
+/// disproved one screen below.
+///
+/// This reads the predicate's own match arms and requires each accepted
+/// spelling to appear in the const's doc block. Adding a word to the predicate
+/// without documenting it fails here.
+#[test]
+fn the_doc_names_every_value_the_predicate_accepts() {
+    let src = include_str!("mod.rs");
+
+    // The words the PREDICATE accepts, taken from its match arms rather than
+    // from a list kept here -- a second list would drift exactly as the prose
+    // did, which is the defect this test exists for.
+    let arms: Vec<&str> = src
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.ends_with("=> false,") || l.ends_with("=> true,"))
+        .collect();
+    assert_eq!(
+        arms.len(),
+        2,
+        "expected exactly the two allowlist arms; found {arms:?}. If the \
+         predicate was restructured, this gate needs restructuring WITH it \
+         rather than deleting -- an unfindable arm list makes this vacuous."
+    );
+
+    let words: Vec<String> = arms
+        .iter()
+        .flat_map(|l| l.split('"').skip(1).step_by(2))
+        .filter(|w| !w.is_empty()) // the empty string has no spelling to document
+        .map(str::to_owned)
+        .collect();
+    // Positive control: the extraction must actually have found the words. A
+    // parser that silently matched nothing would pass every assertion below.
+    assert!(
+        words.len() >= 8,
+        "extracted only {} accepted spellings ({words:?}); the arms parsed as \
+         {arms:?}. Too few means the parser broke, not that the predicate shrank.",
+        words.len()
+    );
+    assert!(
+        words.iter().any(|w| w == "1") && words.iter().any(|w| w == "off"),
+        "control: expected to find both '1' and 'off' among {words:?}"
+    );
+
+    // The doc block: the `///` run immediately above the const.
+    let doc: String = src
+        .lines()
+        .take_while(|l| !l.contains("pub const REQUIRE_DEVICE"))
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .take_while(|l| l.trim_start().starts_with("///"))
+        .map(|l| l.trim_start().trim_start_matches("///").trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        doc.len() > 40,
+        "no doc block found above REQUIRE_DEVICE (got {doc:?}); without it every \
+         check below would pass by finding nothing to contradict"
+    );
+
+    // ⚠️ Matched as `` `word` ``, NOT as a substring. A plain `contains` passes
+    // trivially for the short spellings: the previous doc contained "no hardware
+    // here", so `"no"` was reported as documented while it was not mentioned at
+    // all -- and `"on"` occurs inside half the prose in this file. Caught by
+    // reading which words the born-red run listed as missing: it named six of
+    // seven, and the absent one was the short word.
+    let missing: Vec<&String> = words
+        .iter()
+        .filter(|w| !doc.contains(&format!("`{w}`")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the predicate accepts {missing:?} but the doc on REQUIRE_DEVICE does not \
+         mention them.\n\ndoc: {doc}\n\nA reader takes the doc as the contract. \
+         When the two disagree the doc is what gets believed, because it is what \
+         gets read -- this const claimed 'any non-empty value' while the tests one \
+         screen below proved otherwise."
+    );
+}
+
 #[test]
 fn the_off_list_does_not_arm() {
     // Unset and empty are the two CI actually produces: GitHub's ternary
