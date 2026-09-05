@@ -66,7 +66,9 @@
 //! thing that makes a skip impossible to miss is [`REQUIRE_DEVICE`] turning it
 //! into a failure; the printed line is for a human reading a local run.
 
-/// Set this to any non-empty value to turn a device-gated skip into a failure.
+/// Set this to `1`, `true`, `yes` or `on` to turn a device-gated skip into a
+/// failure. `0`, `false`, `no`, `off`, empty and unset all leave skips as
+/// skips; anything else is a hard error rather than a guess.
 ///
 /// Intended for environments where a device is guaranteed — a machine with a
 /// real GPU, or a CI job with a software Vulkan implementation installed. In
@@ -77,35 +79,78 @@ pub const REQUIRE_DEVICE: &str = "VULKANE_REQUIRE_DEVICE";
 /// Whether skips are currently fatal.
 #[allow(dead_code)]
 pub fn skips_are_fatal() -> bool {
-    armed_by(std::env::var_os(REQUIRE_DEVICE).as_deref())
+    armed(REQUIRE_DEVICE)
 }
 
 /// The arming decision, separated from where the value comes from.
 ///
-/// Lifted out so it can be tested WITHOUT mutating the environment: this crate
-/// is edition 2024, where `set_var` is `unsafe`, and a test that sets a process
-/// -global variable races every other test in the binary. A pure function over
-/// the value has neither problem.
+/// Pure over the VALUE so it is testable WITHOUT mutating the environment:
+/// `set_var` is `unsafe` in edition 2024 and races every other test in the
+/// binary.
+///
+///   on:  1 true yes on      (trimmed, ASCII-case-insensitive)
+///   off: 0 false no off, unset, or empty
+///   anything else: panic
+///
+/// A REQUIRE gate that silently fails to arm turns every skip back into a
+/// pass, and a typo is how that happens. Silence in EITHER direction is the
+/// failure.
 ///
 /// **The empty string must not arm, and that is not a detail.** CI sets this
 /// with a ternary — `runner.os == 'Linux' && '1' || ''` — and a GitHub Actions
 /// ternary cannot UNSET a variable, only set it to nothing. So on macOS and
-/// Windows the variable EXISTS AND IS EMPTY. An existence test (`is_some`,
-/// or `env::var(..).is_ok()`) reads that as armed and turns every legitimate
-/// skip on a runner with no device into a hard failure.
+/// Windows the variable EXISTS AND IS EMPTY. An existence test (`is_some`, or
+/// `env::var(..).is_ok()`) reads that as armed and turns every legitimate skip
+/// on a runner with no device into a hard failure.
 ///
-/// A sibling project hit exactly that and now has a regression test citing this
-/// crate's ternary by name. Ours was correct already — but it was correct
-/// because somebody decided it, and a decision survives only while it is
-/// remembered. These tests make it survive a simplification.
+/// The OFF list is explicit rather than "anything not on the ON list", because
+/// the fourth arm is the point: a catch-all off-arm silently swallows every
+/// typo.
 ///
-/// **`"0"` and `"false"` DO arm**, per the documented contract on
-/// [`REQUIRE_DEVICE`]: *any non-empty value*. That is the ordinary Unix
-/// convention for a presence flag, and it is deliberate rather than an
-/// oversight — the sibling project chose the opposite for its own variable.
-/// Recorded here so the difference reads as two decisions rather than one bug.
-fn armed_by(value: Option<&std::ffi::OsStr>) -> bool {
-    value.is_some_and(|v| !v.is_empty())
+/// REJECTED FORMS, recorded so nobody re-derives them:
+///   `!v.is_empty()`              vulkane's, until 2026-09-05 — armed on "0" and "false"
+///   `v != "0" && !v.is_empty()`  mlmf's    — fixes "0" only; false/no/off still arm
+///   `v == "1"`                   lightbulb's — silently ignores true/yes/on
+///
+/// Agreed across vulkane / lightbulb / mlmf on 2026-09-05, at CireSnave's
+/// direction. Shared TEXT, not a shared crate: mlmf's workspace refuses
+/// dev-dependencies, and a crate would put test-only code in a published
+/// artifact. Variable NAMES stay distinct — a shared name would make arming a
+/// device requirement silently arm a corpus requirement, a failure mode
+/// invented by the standardisation itself.
+fn armed_by(var: &str, value: Option<&str>) -> bool {
+    let Some(raw) = value else { return false };
+    // `raw` UNTRIMMED in the message: the reader needs to see the trailing
+    // space that caused it.
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "false" | "no" | "off" => false,
+        "1" | "true" | "yes" | "on" => true,
+        _ => panic!(
+            "{var}={raw:?} is not a recognised on/off value \
+             (on: 1 true yes on; off: 0 false no off; unset or empty = off)"
+        ),
+    }
+}
+
+/// The only caller of [`armed_by`]. `var` is used ONCE, for both the lookup and
+/// the message, so a mismatched variable/value pair is not expressible.
+///
+/// The `NotUnicode` arm is vulkane's addition to the agreed text, not a
+/// divergence from it: [`armed_by`] is unchanged and still takes `Option<&str>`.
+/// Without this arm, `std::env::var(var).ok()` maps a non-UTF-8 value to `None`
+/// and it reads as *unset* — silently OFF, which is the exact failure the
+/// unrecognised-value arm exists to remove, arriving through the type instead
+/// of through the match.
+fn armed(var: &str) -> bool {
+    match std::env::var(var) {
+        Ok(v) => armed_by(var, Some(&v)),
+        Err(std::env::VarError::NotPresent) => armed_by(var, None),
+        Err(std::env::VarError::NotUnicode(raw)) => panic!(
+            "{var}={raw:?} is not valid UTF-8, so it cannot be a recognised \
+             on/off value (on: 1 true yes on; off: 0 false no off; unset or \
+             empty = off)"
+        ),
+    }
 }
 
 /// What a test needed and did not get — carrying **which class of skip it is**,
@@ -595,40 +640,56 @@ mod lock_witness_tests {
 }
 
 #[test]
-fn an_unset_variable_does_not_arm() {
-    assert!(
-        !armed_by(None),
-        "with the variable unset, a device-gated skip must stay a pass"
-    );
+fn the_off_list_does_not_arm() {
+    // Unset and empty are the two CI actually produces: GitHub's ternary
+    // `runner.os == 'Linux' && '1' || ''` cannot UNSET a variable, only set it
+    // to nothing, so on macOS and Windows it EXISTS AND IS EMPTY.
+    assert!(!armed_by(REQUIRE_DEVICE, None), "unset must not arm");
+    for off in ["", "0", "false", "no", "off"] {
+        assert!(
+            !armed_by(REQUIRE_DEVICE, Some(off)),
+            "{off:?} is on the OFF list and must not arm"
+        );
+    }
 }
 
 #[test]
-fn the_empty_string_does_not_arm() {
-    // The case CI actually produces on macOS and Windows. `is_some()` here
-    // would make every skip fatal on a runner that was never meant to have a
-    // device.
-    assert!(
-        !armed_by(Some(std::ffi::OsStr::new(""))),
-        "an EMPTY value must not arm -- CI's `runner.os == 'Linux' && '1' || ''` \
-         sets this variable to the empty string on every non-Linux runner, so \
-         arming on mere existence turns legitimate skips into hard failures"
-    );
+fn the_on_list_arms_in_any_case_or_padding() {
+    for on in ["1", "true", "yes", "on", "TRUE", "On", "  1  ", "\tyes\n"] {
+        assert!(
+            armed_by(REQUIRE_DEVICE, Some(on)),
+            "{on:?} is on the ON list and must arm"
+        );
+    }
 }
 
 #[test]
-fn a_non_empty_value_arms() {
-    assert!(
-        armed_by(Some(std::ffi::OsStr::new("1"))),
-        "'1' is what CI sets on Linux, where Lavapipe guarantees a device"
-    );
+#[should_panic(expected = "is not a recognised on/off value")]
+fn an_unrecognised_value_panics_rather_than_silently_disarming() {
+    // ⚠️ THE ARM THIS WHOLE AGREEMENT EXISTS FOR, and the one nothing tested
+    // in any of the three repos before today. A REQUIRE gate that silently
+    // fails to arm turns every skip back into a pass, and `=ture` is how that
+    // happens. Asserted as a PANIC, not as "does not arm" -- the two are
+    // indistinguishable from a `bool` and only one of them is loud.
+    //
+    // Born red: under the previous `!v.is_empty()` this returned `true`, so
+    // the test failed for want of a panic rather than passing by accident.
+    let _ = armed_by(REQUIRE_DEVICE, Some("ture"));
 }
 
 #[test]
-fn zero_and_false_arm_because_the_contract_is_any_non_empty_value() {
-    // Pinning the documented contract rather than the intuitive reading. If
-    // this is ever changed to treat "0"/"false" as off, this test should be
-    // changed WITH it and the doc on REQUIRE_DEVICE updated in the same edit --
-    // the point is that the two cannot drift apart silently.
-    assert!(armed_by(Some(std::ffi::OsStr::new("0"))));
-    assert!(armed_by(Some(std::ffi::OsStr::new("false"))));
+fn the_reader_pairs_the_variable_with_its_own_value() {
+    // The env-level case lightbulb asked to keep. `armed_by` decides, but
+    // `armed` is what reaches the environment, and an `armed` that mishandled
+    // NotPresent would not be caught by any `armed_by` case above.
+    //
+    // What this does NOT cover, stated rather than implied: the `Ok` and
+    // `NotUnicode` arms of `armed`. Both need a process-global mutation --
+    // `set_var` is `unsafe` in edition 2024 and races every other test in this
+    // binary -- which is precisely the cost the by-value split exists to avoid.
+    // Naming the gap here so the passing test is not read as covering it.
+    assert!(
+        !armed("VULKANE_A_VARIABLE_NOBODY_SETS_XYZZY"),
+        "a variable nobody sets must reach the NotPresent arm and read as off"
+    );
 }
