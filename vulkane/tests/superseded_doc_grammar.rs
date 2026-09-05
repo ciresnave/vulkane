@@ -134,3 +134,110 @@ fn the_extractors_return_none_rather_than_a_false_match() {
         "and the happy path must still work, or the None cases prove nothing"
     );
 }
+
+/// The document's **live body** — every line that is not inside a blockquote.
+///
+/// The header warning and the discharged-status note are blockquotes, and both
+/// deliberately *quote* the false sentences they retire — a retraction that cannot
+/// name what it retracts is a weak retraction. So a whole-document scan for those
+/// sentences would fire on the retraction itself, and could be satisfied only by
+/// deleting the history. The body is what a reader takes as current; the body is
+/// what these tests pin.
+fn live_body(doc: &str) -> String {
+    doc.lines()
+        .filter(|l| !l.trim_start().starts_with('>'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The `**Status: …**` line from the live body — the field a reader trusts first.
+///
+/// `None` when there is no such line, so a caller fails rather than passing on an
+/// absence: a renamed or deleted status line must not read as a clean result.
+fn status_line(doc: &str) -> Option<String> {
+    live_body(doc)
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("**Status:"))
+        .map(str::to_string)
+}
+
+/// The status line must not still announce an open proposal.
+///
+/// This document was granted, filed, and revised four times. Until 2026-09-05 its
+/// status line read *"Status: PROPOSAL — opening a design thread"* anyway — and the
+/// header immediately above it already said otherwise, **and even listed the
+/// neighbouring sentence among the statements now false**. The correction was
+/// present, accurate, and positioned where it could not defend the field a reader
+/// reads first.
+///
+/// A status line is the highest-authority text in a document. A reader who notices
+/// the contradiction resolves it in favour of whatever is labelled authoritative,
+/// so a stale value there does not merely survive next to the correction — it
+/// outranks it.
+#[test]
+fn the_status_line_does_not_still_claim_an_open_proposal() {
+    let doc = repo_file("docs/kiss-vulkan-namespace-proposal.md");
+    let status = status_line(&doc)
+        .expect("no `**Status:` line in the live body — this test checked nothing");
+
+    for banned in ["PROPOSAL", "opening a design thread"] {
+        assert!(
+            !status.contains(banned),
+            "the status line claims an open proposal again: {status}\n\n\
+             This document is SUPERSEDED — the namespace was granted, filed and \
+             revised four times. Quoting the old wording inside the blockquote note \
+             is intended; asserting it as the document's current status is not."
+        );
+    }
+}
+
+/// The same, for the sentence the header itself flags as false.
+///
+/// The header lists *"asks four questions before anything is filed"* among the
+/// statements that were true on 2026-07-31 and are false now — and the sentence
+/// nevertheless stood in the body, in the present tense, for the entire time that
+/// list existed. Naming a falsehood is not replacing it.
+#[test]
+fn the_body_does_not_still_ask_the_four_questions_in_the_present_tense() {
+    let doc = repo_file("docs/kiss-vulkan-namespace-proposal.md");
+    let body = live_body(&doc);
+
+    // Positive control: the body must still look like this document, or the
+    // assertion below is satisfied by having read nothing.
+    assert!(
+        body.contains("target_capability"),
+        "live_body() returned text that does not look like this document — the \
+         blockquote filter has eaten the body and these checks are vacuous"
+    );
+
+    assert!(
+        !body.contains("asks four questions"),
+        "the body asks the four questions in the present tense again. All four were \
+         answered and the namespace was filed; the header has said so since \
+         supersession."
+    );
+}
+
+/// The extractors must be able to return nothing, and must not mistake quoted
+/// history for a live claim. Without this, both tests above could be green while
+/// checking an empty string.
+#[test]
+fn the_body_filter_distinguishes_quoted_history_from_live_text() {
+    // A blockquote quoting the retired wording is history, not the status.
+    assert_eq!(
+        status_line("> **Status: PROPOSAL — opening a design thread.**\n\nbody"),
+        None,
+        "a status line inside a blockquote must not be read as the document's status"
+    );
+
+    // ... and a live one must be found, or the None case above proves nothing.
+    assert_eq!(
+        status_line("**Status: SUPERSEDED — sent 2026-07-31.** rest").as_deref(),
+        Some("**Status: SUPERSEDED — sent 2026-07-31.** rest"),
+    );
+
+    assert_eq!(status_line("no status line at all"), None);
+    assert_eq!(live_body("> quoted\n> more").trim(), "");
+    assert_eq!(live_body("> quoted\nlive").trim(), "live");
+}

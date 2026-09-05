@@ -46,13 +46,23 @@
 
 # To the KISS steward — claiming the `vulkan:` `target_capability` namespace
 
-**Status: PROPOSAL — opening a design thread.** From Vulkane (the `vk.xml`-generated safe
-Rust Vulkan wrapper that `fuel-vulkan-backend` sits on) to the KISS steward, re
-KISS-Classify §6.8. Copied to kiss-ref and to Fuel.
+**Status: SUPERSEDED — sent 2026-07-31; granted, filed, and revised four times since.**
+From Vulkane (the `vk.xml`-generated safe Rust Vulkan wrapper that `fuel-vulkan-backend` sits
+on) to the KISS steward, re KISS-Classify §6.8. Copied to kiss-ref and to Fuel.
 
-**Ask:** register `vulkan` as a `target_capability` namespace per §6.8-0003, with Vulkane as
-the maintainer that owns its capability-set vocabulary per §6.8-0004. This document proposes
-that vocabulary and asks four questions before anything is filed.
+> ⚠ **DISCHARGED 2026-09-05.** This line read *“Status: PROPOSAL — opening a design thread.”*
+> until today, and the sentence below it read *“asks four questions before anything is
+> filed.”* The header has recorded since supersession that the namespace was granted and all
+> four questions answered — it even lists that second sentence among the statements now
+> false — but the **status line itself was never changed**, so the document's most
+> authoritative field went on announcing an open design thread to anyone who read it before
+> scrolling. Replaced rather than annotated; `vulkane/tests/superseded_doc_grammar.rs` now
+> fails if either sentence returns.
+
+**Ask, as it stood when this was sent — all three were granted; see the header:** register
+`vulkan` as a `target_capability` namespace per §6.8-0003, with Vulkane as the maintainer
+that owns its capability-set vocabulary per §6.8-0004. This document proposed that vocabulary
+and asked four questions before anything was filed.
 
 ---
 
