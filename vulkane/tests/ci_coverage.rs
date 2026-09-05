@@ -335,8 +335,8 @@ fn the_parser_actually_finds_the_features_it_claims_to() {
     let restricted: Vec<&TestLeg> = legs.iter().filter(|leg| !leg.only.is_empty()).collect();
     assert!(
         !restricted.is_empty(),
-        "expected at least one `--test <target>` leg (the shaderc and slang \
-         jobs are both restricted); the `--test` parser is not populating"
+        "expected at least one `--test <target>` leg (the shaderc job is \
+         restricted); the `--test` parser is not populating"
     );
     for leg in restricted {
         assert!(

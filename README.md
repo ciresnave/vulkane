@@ -359,69 +359,6 @@ want to build from source, use the `naga` feature instead.
 Both features can be enabled simultaneously — pick per shader at the
 call site.
 
-### `slang` — Khronos Slang (modules, generics, autodiff)
-
-[Slang](https://shader-slang.com/) is Khronos's modern shading language.
-Pick it when you need:
-
-- **Modules, generics, and interfaces** — real code reuse in shaders.
-- **Automatic differentiation** — tag a function `[Differentiable]` and
-  the compiler generates forward (`__fwd_diff`) and backward
-  (`__bwd_diff`) variants. A single kernel definition yields both the
-  forward and backward SPIR-V, which is a game-changer for ML compute
-  on Vulkan.
-- **Explicit entry points** — one `.slang` file can expose many compute
-  / vertex / fragment entry points; compile each to its own SPIR-V blob
-  from the same parsed module.
-
-```toml
-vulkane = { version = "0.4", features = ["slang"] }
-```
-
-Slang compilation is stateful — a session holds the SPIR-V target and
-search paths, modules are loaded by name through those paths, and each
-entry point is compiled on demand:
-
-```rust
-use vulkane::safe::slang::SlangSession;
-
-// Given kernels/autodiff.slang with [Differentiable] functions and
-// both `forward` and `backward` compute entry points:
-let session = SlangSession::with_search_paths(&["kernels"])?;
-let module  = session.load_file("autodiff")?;                // parses once
-let fwd     = module.compile_entry_point("forward")?;        // Vec<u32> SPIR-V
-let bwd     = module.compile_entry_point("backward")?;       // Vec<u32> SPIR-V
-```
-
-Or for a one-off compile:
-
-```rust
-use vulkane::safe::slang::compile_slang_file;
-
-let spirv = compile_slang_file("kernels", "trivial", "main")?;
-```
-
-#### Build requirements for `slang`
-
-`shader-slang` locates the Slang compiler via:
-
-1. **`VULKAN_SDK`** env var — the LunarG Vulkan SDK ships `slangc` and
-   the Slang runtime library. **Easiest path** (same as `shaderc`).
-2. **`SLANG_DIR`** env var — a standalone Slang install from
-   [shader-slang/slang releases](https://github.com/shader-slang/slang/releases).
-3. **`SLANG_INCLUDE_DIR`** + **`SLANG_LIB_DIR`** — split paths.
-
-At runtime, `slang.dll` / `libslang.so` / `libslang.dylib` must be
-discoverable (same directory as the executable, or on the library
-search path).
-
-#### Current limitation
-
-`shader-slang` 0.1.0 on crates.io only supports loading Slang modules
-from disk (via search-path resolution). Inline source strings will be
-supported once a newer `shader-slang` release exposes them; until then,
-keep your Slang code in `.slang` files.
-
 ## Why Vulkane over ash?
 
 | Aspect | Vulkane | ash |
@@ -433,7 +370,7 @@ keep your Slang code in `.slang` files.
 | Vertex layout | `#[derive(Vertex)]` | Manual |
 | Pipeline builder | Depth bias, CompareOp, multi-attach, dynamic viewport | N/A (raw structs) |
 | Allocation helpers | `Buffer::new_bound`, `Queue::upload_buffer<T>` | N/A |
-| GLSL/WGSL→SPIR-V | Optional `naga` (pure Rust), `shaderc` (glslang), or `slang` (Slang + autodiff) feature | N/A |
+| GLSL/WGSL→SPIR-V | Optional `naga` (pure Rust) or `shaderc` (glslang) feature | N/A |
 | Raw escape hatch | `device.dispatch()` + `.raw()` | N/A (always raw) |
 | Maturity | New (0.4) | Battle-tested |
 
@@ -445,7 +382,6 @@ keep your Slang code in `.slang` files.
 | `fetch-spec` | Auto-download vk.xml from Khronos GitHub |
 | `naga` | `compile_glsl` + `compile_wgsl` → SPIR-V at runtime (pure Rust) |
 | `shaderc` | `compile_glsl` / `compile_with_options` → SPIR-V via Khronos glslang (full GLSL + HLSL) |
-| `slang` | `SlangSession` / `compile_slang_file` → SPIR-V via Khronos Slang (modules, generics, autodiff) |
 | `derive` | `#[derive(Vertex)]` proc macro for vertex layouts |
 
 ## Providing vk.xml

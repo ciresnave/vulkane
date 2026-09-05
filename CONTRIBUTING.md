@@ -20,7 +20,7 @@ Thank you for your interest in contributing to Vulkane! This document provides g
      and `vulkane_derive` still build on 1.85.
    - Vulkan SDK 1.4.316 or later
    - CMake 3.20 or later and a C++ toolchain — only needed for the `shaderc`
-     and `slang` features, which build their compilers from source. The
+     feature, which builds its compiler from source. The
      examples themselves are pure Rust and need neither.
 
 2. Clone and build:
@@ -39,7 +39,7 @@ Thank you for your interest in contributing to Vulkane! This document provides g
    cargo test --features kiss-target   # KISS `vulkan:` token derivation
    ```
 
-   `cargo test --all-features` also works but pulls in `shaderc` and `slang`,
+   `cargo test --all-features` also works but pulls in `shaderc`,
    so it needs the C++ toolchain above and takes considerably longer.
 
    Note that much of the suite enumerates and runs work on a **real Vulkan

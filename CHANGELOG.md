@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — the `slang` feature, and runtime Slang compilation with it
+
+⚠️ **Breaking for anyone enabling `features = ["slang"]`.** The feature, the
+optional `shader-slang` dependency, `safe::slang` (`SlangSession`,
+`SlangModule`, `compile_slang_file`), the `Error::SlangCompile` variant and the
+CI job are all gone. `naga` (WGSL/GLSL) and `shaderc` (GLSL/HLSL) are
+unaffected.
+
+**Vulkane takes SPIR-V. Producing it is somebody else's job**, and that was
+already true of every consumer: measured across the portfolio, **zero** crates
+enabled this feature, against a control of 78 manifests that mention vulkane at
+all. Fuel — the only project shipping Vulkan kernels — says so in its own
+manifest: *"compiled ahead of time … vulkane does NOT need its naga / shaderc /
+slang features at build or run time. Fuel stays toolchain-free for downstream
+consumers."*
+
+**The ecosystem is not ready and we were carrying the cost of pretending it
+was.** Surveyed 2026-09-05, from the published tarballs rather than from docs,
+because neither `shader-slang` nor `shader-slang-sys` builds on docs.rs at all:
+
+| crate | in-memory source? | needs at runtime |
+|---|---|---|
+| `shader-slang` 0.1.0 | **no** — `load_module` only | `slang.dll` |
+| `shader-slang-sys` 0.1.0 | raw C API, docs build fails | `slang.dll` |
+| `slang` 0.0.2 | has it, but **not `pub`** | `slang-sys` |
+| `minislang` 0.4.0 | **no** — writes a `TempDir`, compiles by path | `slang.dll` |
+| `concinnity-slang` 0.19.1 | n/a — `slangc` subprocess | `slangc` |
+
+The upstream repo's `main` DOES have `load_module_from_source_string`, so the
+limitation this crate documented was **unreleased, not unimplemented** —
+verified in the published 0.1.0 source: `load_module` 1, source-string variants
+0. Reaching it needs a git dependency, which crates.io forbids for a published
+crate, or vendoring.
+
+**And the alternative was never a different crate.** Unpopped, the kernel IR
+hub, intakes Slang (tree-sitter frontend), optimizes, and emits Slang — but its
+artifact type is SOURCE TEXT, recorded as an open gap in its own
+`docs/deferred.md`, and its test that checks the emitted Slang compiles shells
+out to `slangc`. Every route ends at the same CLI, which is where Fuel already
+is.
+
+`Shader::from_spirv` and the rest of the SPIR-V surface are unchanged; the
+`shader` module already told callers to *"use any other SPIR-V producer
+(rust-gpu, slang, etc.) — vulkane takes SPIR-V"*, and that sentence is now the
+whole story rather than one option among three.
+
 ## [0.15.0] — 2026-09-03
 
 **If you call `device_identity()` and match on `device_uuid`, read this one.**
