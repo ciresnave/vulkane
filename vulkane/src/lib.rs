@@ -187,7 +187,6 @@
 //! | `fetch-spec` | Auto-download vk.xml from the Khronos GitHub repository |
 //! | `naga` | `compile_glsl` + `compile_wgsl` for runtime GLSL/WGSL → SPIR-V |
 //! | `shaderc` | GLSL/HLSL → SPIR-V via shaderc (glslang) |
-//! | `slang` | Slang → SPIR-V |
 //! | `derive` | `#[derive(Vertex)]` for automatic vertex input layout generation |
 //! | `kiss-target` | `vulkane::kiss` — derive KISS-Classify §6.8 `vulkan:` target tokens from a device |
 //!

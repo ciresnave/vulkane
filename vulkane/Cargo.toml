@@ -44,13 +44,6 @@ naga = ["dep:naga"]
 # Requires either the Vulkan SDK (setting VULKAN_SDK) or a C++ build
 # toolchain (CMake, Python, a C++ compiler) at build time.
 shaderc = ["dep:shaderc"]
-# Enable runtime Slang -> SPIR-V compilation via the `shader-slang` crate.
-# Adds `vulkane::safe::slang::{SlangSession, SlangModule, compile_slang}`.
-# Slang is Khronos's modern shading language with built-in autodiff —
-# write a `[Differentiable]` function once and request forward / backward
-# entry points from the same module. Requires a Slang install
-# (VULKAN_SDK or SLANG_DIR) at link time.
-slang = ["dep:slang"]
 # Enable #[derive(Vertex)] for automatic vertex input layout generation.
 derive = ["dep:vulkane_derive"]
 
@@ -68,10 +61,6 @@ naga = { version = "29", optional = true, default-features = false, features = [
 # Prefers a system libshaderc (Vulkan SDK) and falls back to building
 # glslang from source — see the `shaderc` feature documentation above.
 shaderc = { version = "0.8", optional = true }
-# Optional: Slang -> SPIR-V compilation via the `shader-slang` crate.
-# Renamed to `slang` locally so our code matches upstream examples
-# (`use slang::GlobalSession;` etc.).
-slang = { package = "shader-slang", version = "0.1", optional = true }
 # Optional: derive macros for vertex layout generation.
 vulkane_derive = { path = "../vulkane_derive", version = "0.1", optional = true }
 
