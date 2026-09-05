@@ -49,6 +49,54 @@ are holding**, in terms an out-of-band source can match. That shipped:
 
 ### `PhysicalDevice::device_identity() -> Option<DeviceIdentity>` (Vulkane 0.8.3)
 
+> ## ⚠️ CORRECTION, 2026-09-05 — two claims below were false from 0.8.3 to 0.14.1
+>
+> This document is left as sent; the correction is added rather than the text
+> edited, because the reply is a record of what another project was told.
+>
+> **What was false.** The table's `device_uuid` / `driver_uuid` row says
+> *"Populated when: **always** (props2 present)"*, and the prose claims
+> *"honest `None` at every level"*. Neither held.
+> `VkPhysicalDeviceIDProperties` is Vulkan **1.1** core, and
+> `InstanceCreateInfo::api_version` **defaults to `V1_0`**. Below 1.1 the driver
+> skips the unrecognized chained struct and leaves it as allocated — all zeros —
+> and `PNextChain::get` returned that as `Some`. **Not an honest `None`: a
+> valid-looking UUID that every device shares**, so two physically different GPUs
+> compared **equal**. Fixed in **0.15.0**, which returns `None` below 1.1.
+>
+> ### ⚠️ And the sentence offered as verification was the defect, misread
+>
+> > *"(Our CI's software rasterizer returns all-zero UUID, no LUID, no PCI — the
+> > honest-`None` paths verified.)"*
+>
+> **The all-zero UUID was observed, attributed to the software rasterizer, and
+> the attribution written down as verification.** Measured at the tag this
+> document describes (`v0.8.3`, `c6e4236b`): `test_device_identity_query_succeeds_or_skips`
+> ran through `try_init_compute()`, whose instance is `api_version: ApiVersion::V1_0`
+> — still true at `v0.13.0` and until 0.15.0. **On a `V1_0` instance every device
+> returns an all-zero UUID**, so the reading was fully explained by the defect and
+> the rasterizer hypothesis was never needed.
+>
+> Nothing distinguished the two at the time, and the note did not say so. It is
+> not knowable in hindsight whether Lavapipe *also* reports zeros at 1.1+ — but
+> that was never the point: **the observation could not support the conclusion
+> drawn from it, and it was the conclusion that got recorded.**
+>
+> Measured 2026-09-03 on one machine with two GPUs: at `V1_0` an AMD Radeon 610M
+> and an NVIDIA RTX 4070 **both** reported `00000000000000000000000000000000`; at
+> `V1_1` they are distinct. See `vulkane/docs/vector-width-is-a-runtime-count.md`
+> for the same `pNext` trap in its limit-valued form.
+>
+> **Consumer impact, measured rather than assumed:** Fuel's tree contains no call
+> to `PhysicalDevice::device_identity` — its three `device_identity` hits are a
+> same-named local symbol in `fuel-ir/src/dispatch.rs`. Taken at Fuel's working
+> tree `131e8b84`, which may lag `origin/main`, so that is a null at a ref rather
+> than a claim about their current main. **No action is being asked of them.**
+>
+> **Current contract (0.15.0+):** `None` when `vkGetPhysicalDeviceProperties2` is
+> unavailable **or** when `effective_api_version()` is below 1.1. Raise
+> `InstanceCreateInfo::api_version` to `V1_1` to get an identity.
+
 *(Unreleased when this reply was written; released as 0.8.3 on 2026-06-28.)*
 
 One `vkGetPhysicalDeviceProperties2` call returning:
