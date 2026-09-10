@@ -30,7 +30,8 @@ WHAT THIS REFUSES TO DO, AND WHY EACH ONE IS DELIBERATE:
 from __future__ import annotations
 
 import pathlib
-import subprocess
+import shutil
+import subprocess  # noqa: S404 - fixed argv, no shell, no caller input
 import sys
 
 LICENCE = "MIT OR Apache-2.0"
@@ -97,15 +98,61 @@ def declared(text: str) -> str | None:
 
 
 def tracked_sources(root: pathlib.Path) -> list[str]:
-    proc = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--", *(f"*{e}" for e in EXTENSIONS)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    # ⚠️ RESOLVED ABSOLUTE, NOT "git". A bare name is looked up through PATH at
+    # call time, so what runs depends on the environment rather than on this
+    # file. The argv is fixed, there is no shell, and nothing here comes from a
+    # caller - `root` is this script's own parent directory.
+    git = shutil.which("git")
+    if git is None:
+        print("FAIL: no `git` on PATH. This gate reads the tracked file list,",
+              file=sys.stderr)
+        print("      and cannot distinguish 'no files' from 'no git'.", file=sys.stderr)
+        return []
+    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [git, "-C", str(root), "ls-files", "--", *(f"*{e}" for e in EXTENSIONS)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        shell=False, check=False)
     if proc.returncode != 0:
         # ⚠️ stderr is reported, not discarded. `git ls-files` failing and
         # `git ls-files` finding nothing both yield an empty list.
         print(f"git ls-files failed: {(proc.stderr or '').strip()}", file=sys.stderr)
         return []
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def audit(root: pathlib.Path, files: list[str]):
+    """(missing, wrong, unreadable) over `files`, skipping HOLDOUT entries."""
+    missing, wrong, unreadable = [], [], []
+    for rel in files:
+        if rel in HOLDOUT:
+            continue
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            unreadable.append((rel, str(exc)))
+            continue
+        found = declared(text)
+        if found is None:
+            missing.append(rel)
+        elif normalise(found) != normalise(LICENCE):
+            wrong.append((rel, found))
+    return missing, wrong, unreadable
+
+
+def explain(missing: list, wrong: list) -> None:
+    """What to do about each kind of finding. Separate from the finding itself,
+    because the remedies differ in KIND: one is mechanical, one is a decision."""
+    if missing:
+        print()
+        print("Add the header as the FIRST line, above any `//!` inner docs:")
+        print(f"    // {MARKER} {LICENCE}")
+        print("A shebang stays on line 1 and the header goes below it.")
+    if wrong:
+        print()
+        print("A file declaring a DIFFERENT licence is NOT a formatting error.")
+        print("Changing it asserts a grant its author may not have made. Either")
+        print("the declaration is right and the file belongs in HOLDOUT with a")
+        print("reason, or it is wrong and that is a decision for the owner.")
 
 
 def main(argv: list[str]) -> int:
@@ -122,24 +169,10 @@ def main(argv: list[str]) -> int:
         print("      fails here instead. The GLOB is broken, not the tree.")
         return 1
 
-    missing, wrong = [], []
-    for rel in files:
-        if rel in HOLDOUT:
-            continue
-        try:
-            text = (root / rel).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            print(f"FAIL: cannot read {rel}: {exc}")
-            return 1
-        found = declared(text)
-        if found is None:
-            missing.append(rel)
-        elif normalise(found) != normalise(LICENCE):
-            wrong.append((rel, found))
-
+    missing, wrong, unreadable = audit(root, files)
     stale = sorted(set(HOLDOUT) - set(files))
 
-    print(f"{len(files) - len(missing) - len(wrong) - len(HOLDOUT)}/"
+    print(f"{len(files) - len(missing) - len(wrong) - len(unreadable) - len(HOLDOUT)}/"
           f"{len(files)} tracked source files declare {LICENCE!r}"
           + (f"  ({len(HOLDOUT)} held out)" if HOLDOUT else ""))
 
@@ -147,22 +180,13 @@ def main(argv: list[str]) -> int:
         print(f"  MISSING  {rel}")
     for rel, found in wrong:
         print(f"  DIFFERENT  {rel} declares {found!r}")
+    for rel, why in unreadable:
+        print(f"  UNREADABLE  {rel}: {why}")
     for rel in stale:
         print(f"  STALE HOLDOUT  {rel} matches no tracked file - it protects NOTHING")
 
-    if missing:
-        print()
-        print("Add the header as the FIRST line, above any `//!` inner docs:")
-        print(f"    // {MARKER} {LICENCE}")
-        print("A shebang stays on line 1 and the header goes below it.")
-    if wrong:
-        print()
-        print("A file declaring a DIFFERENT licence is NOT a formatting error.")
-        print("Changing it asserts a grant its author may not have made. Either")
-        print("the declaration is right and the file belongs in HOLDOUT with a")
-        print("reason, or it is wrong and that is a decision for the owner.")
-
-    return 1 if (missing or wrong or stale) else 0
+    explain(missing, wrong)
+    return 1 if (missing or wrong or stale or unreadable) else 0
 
 
 def self_test() -> int:
