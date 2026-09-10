@@ -41,7 +41,8 @@ import io
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - the member list and the file list both
+                   # come from running a tool; there is no other source
 import sys
 import urllib.error
 import urllib.request
@@ -54,26 +55,28 @@ UNPARSED = "UNPARSED"
 NEVER_PUBLISHED = "NEVER-PUBLISHED"
 
 
-def cargo_path() -> str:
-    """The absolute path of the cargo that will answer.
+def tool_path(name: str) -> str:
+    """The absolute path of the tool that will answer.
 
-    A bare `cargo` is resolved by PATH at call time, so two runs that disagree
-    cannot say whether they ran the same binary.
+    !! A bare name is resolved by PATH at CALL TIME, so two runs that disagree
+    cannot say whether they ran the same binary. This was applied to `cargo`
+    and not to `git` in the first version of this file -- the same rule, in the
+    same file, applied once.
     """
     import shutil
 
-    found = shutil.which("cargo")
+    found = shutil.which(name)
     if not found:
         raise SystemExit(
-            "cargo is not on PATH, so the member list cannot be built. That is "
-            "a missing toolchain, not an empty workspace.")
+            "%s is not on PATH, so this scan cannot run. That is a missing "
+            "tool, not a clean result." % name)
     return found
 
 
 def workspace_crates(manifest_dir: str) -> set[str]:
     """Every workspace member's name. Citations of anything else are not ours."""
     out = subprocess.run(  # nosec B603 # nosemgrep
-        [cargo_path(), "metadata", "--no-deps", "--format-version", "1"],
+        [tool_path("cargo"), "metadata", "--no-deps", "--format-version", "1"],
         cwd=manifest_dir, capture_output=True, text=True, encoding="utf-8",
     )
     if out.returncode != 0:
@@ -88,8 +91,10 @@ def tracked_files(manifest_dir: str) -> list[str]:
     A walk would pick up `target/` and anything untracked; the question is what
     this REPOSITORY says, not what is lying around.
     """
+    # nosemgrep - argv[0] is the absolute path resolved for the literal
+    # "git"; every other element is a literal and there is no shell.
     out = subprocess.run(  # nosec B603 # nosemgrep
-        ["git", "ls-files", "*.md", "*.rs"],
+        [tool_path("git"), "ls-files", "*.md", "*.rs"],
         cwd=manifest_dir, capture_output=True, text=True, encoding="utf-8",
     )
     if out.returncode != 0:
@@ -134,20 +139,27 @@ def citations(manifest_dir: str, crates: set[str]) -> list[tuple]:
         % "|".join(re.escape(c) for c in sorted(crates)))
     found = []
     for rel in tracked_files(manifest_dir):
-        path = os.path.join(manifest_dir, *rel.split("/"))
-        try:
-            raw = io.open(path, "rb").read().decode("utf-8", errors="replace")
-        except OSError:
-            continue
-        lines = raw.splitlines()
-        fenced = toml_fenced_lines(lines, rel.endswith(".rs"))
-        for i, line in enumerate(lines, 1):
-            if i not in fenced:
-                continue
-            m = pattern.search(line)
-            if m:
-                found.append((rel, i, m.group(1), m.group(2) or m.group(3)))
+        found.extend(citations_in_file(manifest_dir, rel, pattern))
     return found
+
+
+def citations_in_file(manifest_dir: str, rel: str, pattern) -> list[tuple]:
+    """Consumption citations in one file: those inside a fenced toml block."""
+    path = os.path.join(manifest_dir, *rel.split("/"))
+    try:
+        raw = io.open(path, "rb").read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    lines = raw.splitlines()
+    fenced = toml_fenced_lines(lines, rel.endswith(".rs"))
+    out = []
+    for i, line in enumerate(lines, 1):
+        if i not in fenced:
+            continue
+        m = pattern.search(line)
+        if m:
+            out.append((rel, i, m.group(1), m.group(2) or m.group(3)))
+    return out
 
 
 def accepts(req: str, version: str) -> bool | None:
@@ -158,25 +170,43 @@ def accepts(req: str, version: str) -> bool | None:
     returned as None rather than guessed -- a matcher that silently mishandles
     a form it does not implement reports clean about a citation it never read.
     """
-    if not re.fullmatch(r"\d+(\.\d+){0,2}", req.strip()):
+    parts = parse_version(req)
+    v = parse_version(version)
+    if parts is None or v is None:
         return None
-    if not re.fullmatch(r"\d+(\.\d+){0,2}", version.strip()):
-        return None
-    r = [int(x) for x in req.strip().split(".")]
-    v = [int(x) for x in version.strip().split(".")]
-    r += [0] * (3 - len(r))
-    v += [0] * (3 - len(v))
+    r = parts + [0] * (3 - len(parts))
+    v = v + [0] * (3 - len(v))
     if v < r:
         return False
-    # The caret's upper bound is set by the leftmost NON-ZERO component of the
-    # requirement as written -- 0.16 bounds at 0.17, 0.0.3 bounds at 0.0.4.
-    parts = [int(x) for x in req.strip().split(".")]
+    return v < caret_upper(parts)
+
+
+def parse_version(s: str) -> list[int] | None:
+    """`"0.16"` -> [0, 16], or None if it is not a bare dotted number.
+
+    None means NOT UNDERSTOOD and is propagated, never coerced -- a matcher
+    that guesses at a form it does not implement reports clean about a
+    citation it never read.
+    """
+    if not re.fullmatch(r"\d+(\.\d+){0,2}", s.strip()):
+        return None
+    return [int(x) for x in s.strip().split(".")]
+
+
+def caret_upper(parts: list[int]) -> list[int]:
+    """The exclusive upper bound of a bare cargo requirement.
+
+    Set by the leftmost NON-ZERO component AS WRITTEN: `0.16` bounds at 0.17.0,
+    `1.2` at 2.0.0, `0.0.3` at 0.0.4. Getting this wrong in the obvious
+    direction -- bumping the major -- makes `0.4` accept `0.16.0`, which is
+    precisely the defect this file exists to catch.
+    """
     idx = next((i for i, x in enumerate(parts) if x != 0), len(parts) - 1)
-    upper = list(r)
+    upper = parts + [0] * (3 - len(parts))
     upper[idx] += 1
     for j in range(idx + 1, 3):
         upper[j] = 0
-    return v < upper
+    return upper
 
 
 def max_stable(name: str) -> str | None:
