@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Device- and instance-level extension enablement builders.
 //!
 //! Vulkan extensions come in two flavours. **Instance extensions**

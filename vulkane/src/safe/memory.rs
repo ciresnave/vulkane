@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkDeviceMemory` and host memory mapping.
 //!
 //! [`DeviceMemory`] represents an allocation of GPU memory. It must be

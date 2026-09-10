@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generator module traits and common types
 //!
 //! This module defines the trait that all generator modules must implement

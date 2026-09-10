@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A simple linear bump allocator over a single device-memory block.
 //!
 //! Useful for stack-like / ring-buffer / single-frame upload patterns where

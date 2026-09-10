@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Run CI's gates locally, extracted from the workflow rather than listed here.
 
 Written because a *list* of local checks is a note, and notes decay silently.
@@ -184,6 +185,20 @@ POLICIES = [
      "queries crates.io and downloads the published tarball of every"
      + " member sitting on a served version; there is no offline form of"
      + " the question, so a local run would depend on the network"),
+    # Both SPDX rows are RUN, and the self-test row must precede the bare one
+    # for the same reason the published_divergence pair does: same script name,
+    # first match wins. Neither reaches the network or a device -- the gate
+    # reads `git ls-files` and the first ten lines of each tracked source file,
+    # so a local run answers exactly the question a runner answers.
+    ("spdx_gate.py --self-test", RUN,
+     "the gate's own positive controls, over string fixtures held in the"
+     + " script; a checker nobody has watched FAIL is a checker nobody has"
+     + " evidence works. MUST precede the row below: same script, first"
+     + " match wins"),
+    ("spdx_gate.py", RUN,
+     "reads the tracked tree and the first ten lines of each source file;"
+     + " offline by construction, and the drift it catches -- a file added"
+     + " without a licence header -- is exactly as real locally as on a runner"),
     ("cargo package --list", RUN,
      "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),

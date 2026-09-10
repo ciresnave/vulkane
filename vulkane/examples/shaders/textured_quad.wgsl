@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Textured quad: a 4-vertex triangle strip with hardcoded positions
 // and UVs. Samples a texture+sampler pair bound at group 0.
 //

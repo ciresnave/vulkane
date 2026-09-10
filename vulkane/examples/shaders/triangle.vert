@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Headless-triangle vertex shader.
 //
 // No vertex buffer needed: gl_VertexIndex picks one of three hardcoded

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! External-memory export end-to-end using the vulkane safe wrappers.
 //!
 //! Demonstrates the full flow for `VK_KHR_external_memory_{win32,fd}` —

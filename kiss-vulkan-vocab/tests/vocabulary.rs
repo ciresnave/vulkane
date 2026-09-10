@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Canonical-spelling, round-trip, and typed-decline tests for the `vulkan:`
 //! capability-set vocabulary.
 //!

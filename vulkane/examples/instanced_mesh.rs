@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Instanced mesh rendering: draw 100 triangles at different positions
 //! using per-instance vertex attributes and instanced draw calls.
 //!

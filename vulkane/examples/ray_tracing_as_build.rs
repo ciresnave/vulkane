@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! End-to-end `VK_KHR_acceleration_structure` build using the vulkane
 //! safe wrappers.
 //!

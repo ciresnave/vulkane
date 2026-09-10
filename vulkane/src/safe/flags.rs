@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Typed pipeline stage and access mask constants for synchronization.
 //!
 //! These types wrap the raw `VK_PIPELINE_STAGE_*` and `VK_ACCESS_*` bit

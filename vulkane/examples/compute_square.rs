@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! End-to-end compute shader example using the vulkane safe wrapper.
 //!
 //! This example:

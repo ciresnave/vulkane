@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Struct generator module
 //!
 //! Generates Rust struct definitions from structs.json intermediate file

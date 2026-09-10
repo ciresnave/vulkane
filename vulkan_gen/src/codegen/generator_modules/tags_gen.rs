@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tags generator module
 //!
 //! Generates Rust tag definitions from tags.json intermediate file

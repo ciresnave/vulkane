@@ -1,6 +1,6 @@
 [package]
 name = "vulkane_derive"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 # 1.85 is edition 2024's own floor, not a choice -- cargo below it cannot
 # read this manifest at all. Minimal by construction: there is no lower

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vulkan version utilities
 //!
 //! Version constants (VK_API_VERSION_1_0, etc.) and version manipulation

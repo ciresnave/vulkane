@@ -633,6 +633,38 @@ jobs:
           set -euo pipefail
           python3 .github/published_divergence.py --gate
 
+  # A SWEEP DOES NOT FIX A PROPERTY THAT REGROWS. `fuel` stamped 795 files on
+  # 2026-08-19 and had drifted to 823/833 by 2026-09-10 -- nothing was undone,
+  # ten files were simply added afterwards and nothing was watching. The sweep
+  # that put headers on this workspace is a one-off; this job is the part that
+  # lasts, and without it the sweep decays from the day it lands.
+  #
+  # A SEPARATE JOB RATHER THAN A STEP IN `local-gates`, DELIBERATELY. A job that
+  # dies in an earlier step asserts nothing about the steps below it, and its
+  # name goes on claiming otherwise -- `local-gates` installs pyyaml first, so a
+  # provisioning failure there would leave this gate unrun and unmentioned.
+  #
+  # Verified against the DEFECT rather than against the fix, as everything else
+  # in this file is. On the swept tree, with each defect introduced in turn:
+  #
+  #   a tracked .rs file with no header          -> exit 1, names the file
+  #   a file declaring `GPL-3.0-only`            -> exit 1, refuses to rewrite
+  #   a file declaring `Apache-2.0 OR MIT`       -> exit 0, the SAME grant
+  #   the extension glob matching nothing        -> exit 1, NOT 100% of zero
+  #   a holdout entry naming a renamed file      -> exit 1, it protected nothing
+  spdx:
+    name: Every source file declares the licence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # The gate's own controls run FIRST. A checker nobody has watched fail is
+      # a checker nobody has evidence works, and a gate whose parser silently
+      # broke would report a clean tree rather than an error.
+      - name: Self-test the SPDX gate
+        run: python3 .github/spdx_gate.py --self-test
+      - name: Every tracked source file declares the workspace licence
+        run: python3 .github/spdx_gate.py
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest

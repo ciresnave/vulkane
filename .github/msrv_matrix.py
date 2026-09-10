@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Emit the MSRV job's matrix by reading each crate's declared floor.
 
 The declared `rust-version` is a promise to consumers, and this script exists so

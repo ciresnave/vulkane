@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 pub mod codegen;
 pub mod parser;
 pub mod vulkan_spec_parser;

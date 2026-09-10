@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkPhysicalDevice` — a GPU discovered by the
 //! Vulkan loader.
 //!

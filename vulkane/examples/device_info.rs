@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vulkane example: enumerate Vulkan devices and print detailed information.
 //!
 //! Run with: `cargo run --example device_info -p vulkane --features fetch-spec`

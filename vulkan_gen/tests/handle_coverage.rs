@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every Vulkan handle type must have a *decided* fate.
 //!
 //! `safe_handles_gen` wraps the handles whose create/destroy commands fit a

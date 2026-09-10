@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Demonstrates mixing safe wrapper types with raw Vulkan API calls.
 //!
 //! Creates an instance and device using the safe RAII wrapper, then

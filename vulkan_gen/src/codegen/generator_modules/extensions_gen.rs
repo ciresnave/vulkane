@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Extensions generator module
 //!
 //! Generates Rust extension handling code from extensions.json intermediate file

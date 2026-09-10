@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Simple logging utilities for the code generator
 
 pub fn log_info(msg: &str) {

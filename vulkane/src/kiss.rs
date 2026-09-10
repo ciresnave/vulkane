@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Derive KISS-Classify §6.8 `vulkan:` `target_capability` tokens from a live
 //! physical device.
 //!

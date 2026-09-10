@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vulkan Specification Parser
 //!
 //! Parses vk.xml and writes intermediate JSON files for the code generator.

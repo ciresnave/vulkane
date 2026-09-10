@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VK_KHR_acceleration_structure`.
 //!
 //! An *acceleration structure* (AS) is a BVH-shaped spatial index built

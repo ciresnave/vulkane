@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The emitted vocabulary must match the **registered** `vulkan:` namespace.
 //!
 //! Vulkane owns the content of KISS-Classify §6.8's `vulkan:` namespace, and

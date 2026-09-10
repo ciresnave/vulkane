@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // 2D storage-image compute shader: invert each pixel of an RGBA8 image.
 //
 // Reads each pixel via imageLoad, replaces it with (255 - R, 255 - G,

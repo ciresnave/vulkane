@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ergonomic wrappers for `VK_KHR_external_semaphore_{win32,fd}`.
 //!
 //! These extensions let you share semaphore payloads across API

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Does a crate this workspace PUBLISHES sit on a version string the registry
 already serves, while its content differs from what was served?
 

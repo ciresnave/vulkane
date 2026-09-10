@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `#[derive(Vertex)]` layout tests — CPU only, no Vulkan device required.
 //!
 //! These assert the *format mapping* the derive picks, not just that it

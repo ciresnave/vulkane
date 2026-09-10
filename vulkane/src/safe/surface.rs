@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkSurfaceKHR` — the link between Vulkan and a
 //! platform window system.
 //!

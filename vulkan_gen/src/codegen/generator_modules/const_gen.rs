@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Constants generator module
 //!
 //! Generates Rust constants from constants.json intermediate file

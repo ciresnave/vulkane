@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Live-device tests for `PhysicalDevice::cooperative_vector_properties`.
 //!
 //! # Why this query exists separately from cooperative matrix

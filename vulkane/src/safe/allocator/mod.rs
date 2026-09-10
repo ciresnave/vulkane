@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! VMA-style sub-allocator for Vulkan device memory.
 //!
 //! Real Vulkan applications allocate thousands of buffers and images. The

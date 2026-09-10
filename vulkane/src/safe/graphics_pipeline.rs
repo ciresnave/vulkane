@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper around `VkPipeline` for graphics pipelines.
 //!
 //! Graphics pipelines bundle every piece of fixed-function state plus

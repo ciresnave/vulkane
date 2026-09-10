@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot helper that compiles every GLSL file under
 //! `examples/shaders/` to its matching `*.spv` SPIR-V binary using the
 //! optional `naga` feature. The extension determines the shader stage:

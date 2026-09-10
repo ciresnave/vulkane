@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Simplest possible "put data on the GPU" example.
 //!
 //! Shows the [`Queue::one_shot`] helper for staging-buffer uploads:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkQueryPool` — timestamp and pipeline-statistics queries.
 //!
 //! Query pools are how you measure GPU-side timing and statistics. The

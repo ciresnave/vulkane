@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for `VkRenderPass` and `VkFramebuffer`.
 //!
 //! A render pass describes the *structure* of a graphics-pipeline

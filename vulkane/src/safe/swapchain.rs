@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkSwapchainKHR` and the present loop.
 //!
 //! A swapchain is a queue of presentable images managed by the

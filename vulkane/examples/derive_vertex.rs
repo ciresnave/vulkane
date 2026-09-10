@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Demonstrates `#[derive(Vertex)]` for automatic vertex input layout.
 //!
 //! Instead of manually declaring `VertexInputBinding` and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Derive macros for the `vulkane` Vulkan bindings crate.
 //!
 //! # `#[derive(Vertex)]`

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration module for shared intermediate types
 //!
 //! This module ensures that all parsing and generation modules use the same

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Depth prepass: two-pass rendering demonstrating depth-only rendering
 //! followed by a color pass that uses the depth buffer for early-Z rejection.
 //!

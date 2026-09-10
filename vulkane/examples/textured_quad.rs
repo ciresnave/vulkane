@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Headless textured quad: build a 4x4 RGBA8 checkerboard, upload it
 //! into a sampled image, render a 4-vertex triangle-strip quad that
 //! samples that texture, then read back the framebuffer and verify

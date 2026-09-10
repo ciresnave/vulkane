@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Features generator module
 //!
 //! Generates Rust feature definitions from features.json intermediate file

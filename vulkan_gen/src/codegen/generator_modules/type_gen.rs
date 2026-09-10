@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Type generator module
 //!
 //! Generates Rust type aliases from types.json intermediate file

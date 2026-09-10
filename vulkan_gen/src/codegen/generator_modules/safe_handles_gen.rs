@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generator for the safe auto-RAII layer.
 //!
 //! Emits one typed handle wrapper per Vulkan handle type that is

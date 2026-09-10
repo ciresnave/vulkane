@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Same workflow as `compute_square` but using the [`Allocator`] for
 //! buffer creation — 2 lines instead of 5 per buffer.
 //!

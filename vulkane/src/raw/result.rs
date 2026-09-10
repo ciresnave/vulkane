@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ergonomic conversion of `VkResult` into Rust's `Result` type.
 //!
 //! Vulkan functions return a `VkResult` enum where:

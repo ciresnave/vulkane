@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for `VkPipelineLayout` and `VkPipeline` (compute).
 //!
 //! A [`PipelineLayout`] describes the descriptor set layouts and push

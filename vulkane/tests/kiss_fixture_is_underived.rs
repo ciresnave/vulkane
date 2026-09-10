@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The committed device fixture must contain **no part of the answer**.
 //!
 //! `examples/kiss_device_fixture.rs` states that rule in prose. Prose carries no

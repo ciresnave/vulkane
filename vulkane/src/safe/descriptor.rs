@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for descriptor sets, layouts, and pools.
 //!
 //! In Vulkan, descriptor sets are how shaders access resources (buffers,

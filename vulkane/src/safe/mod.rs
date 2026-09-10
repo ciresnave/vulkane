@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A safe, RAII-based Rust API over the raw Vulkan bindings.
 //!
 //! This module wraps every Vulkan handle in a Rust type with automatic

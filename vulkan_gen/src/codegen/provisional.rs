@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Utilities for emitting provisional (stub) types during code generation.
 
 use std::fs::OpenOptions;

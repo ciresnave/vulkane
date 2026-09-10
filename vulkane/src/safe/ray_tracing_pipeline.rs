@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for `VK_KHR_ray_tracing_pipeline`.
 //!
 //! A ray-tracing pipeline pairs five shader stages — ray-generation

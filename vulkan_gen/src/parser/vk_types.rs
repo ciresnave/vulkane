@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vulkan specification data types
 //!
 //! These types represent parsed Vulkan XML data. They are populated by
