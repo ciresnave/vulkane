@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [vulkane_derive 0.1.2] — unreleased
+
+### Changed — bumped because the licence sweep edits PACKAGED source
+
+`vulkane_derive 0.1.1` is served by crates.io, and this PR adds an
+`SPDX-License-Identifier` line to `src/lib.rs`, which ships in the package.
+Leaving the version alone would put changed content under a string the
+registry already serves: one version string naming two artifacts.
+
+⚠️ **The collision would exist from the MERGE, not from the next publish.**
+The divergence gate armed in #91 runs on main, so the sweep landing without
+this bump would turn main red and block every subsequent PR.
+
+Found by that gate on this PR — the first time it fired on an input nobody
+wrote it for. `vulkane_derive` was deliberately left on its served string in
+#89, on the reasoning that the armed probe guards the moment it starts to
+matter rather than a preemptive bump having to be remembered. It did.
+
+The other three members needed nothing: all were already on unpublished
+versions after #89.
+
 ## [kiss-vulkan-vocab 0.4.9] — unreleased
 
 ### Changed — bumped immediately AFTER publishing 0.4.8, which is the point
