@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Depth prepass + color pass shaders.
 //
 // vs_main: hardcoded triangle vertices, pass-through position.

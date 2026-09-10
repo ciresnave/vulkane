@@ -34,7 +34,15 @@ import subprocess
 import sys
 
 LICENCE = "MIT OR Apache-2.0"
-EXTENSIONS = (".rs", ".py")
+# ⚠️ AN EXTENSION THIS TUPLE OMITS IS A POPULATION THE GATE NEVER COUNTED, and
+# the omission shows up as a CLEANER number rather than a smaller one. The first
+# version listed only .rs and .py and reported 120/120 at 100% while nine shader
+# sources carried no header at all - not wrong, just never asked about.
+#
+# The shaders are safe to stamp, and that is measured rather than reasoned from
+# the GLSL spec: all nine ALREADY opened with a `//` comment line before this
+# gate existed, and they compile in the `shaderc` and naga jobs today.
+EXTENSIONS = (".rs", ".py", ".wgsl", ".comp", ".vert", ".frag", ".glsl")
 
 #: How far into a file the header may sit. Measured, not guessed: across 2,100
 #: real .rs files in this portfolio (fuel, kiss-ref, lightbulb, synapse), 851
@@ -45,7 +53,7 @@ HEADER_WINDOW = 10
 #: the query is broken rather than the tree suddenly minimal. Set below the
 #: real count on purpose: this catches a glob that matches nothing or almost
 #: nothing, not ordinary deletion.
-MINIMUM_FILES = 60
+MINIMUM_FILES = 100
 
 #: ⚠️ Paths this gate must NOT require a header on, each with the reason it is
 #: here. Empty today, and that is a measurement: `git grep -l -i copyright`

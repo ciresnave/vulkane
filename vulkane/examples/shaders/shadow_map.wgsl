@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Shadow map shaders.
 //
 // vs_depth + fs_depth: depth-only pass from the light's perspective.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Instanced mesh shaders.
 //
 // vs_main: per-vertex position (binding 0) + per-instance offset (binding 1).

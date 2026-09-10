@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Headless-triangle fragment shader. Just emits the interpolated
 // per-vertex color.
 

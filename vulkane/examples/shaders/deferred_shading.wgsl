@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Deferred shading: G-buffer pass + lighting pass.
 //
 // G-buffer pass writes to 3 color attachments:
