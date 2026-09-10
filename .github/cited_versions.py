@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Does every version this repo cites FOR CONSUMPTION still resolve to what the
 registry currently serves?
 
