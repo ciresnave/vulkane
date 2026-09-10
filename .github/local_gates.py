@@ -157,6 +157,13 @@ POLICIES = [
     ("CHANGELOG.md", RUN,
      "reads two local files and runs no build; the version-vs-changelog" +
      " disagreement it catches is exactly as real locally as on a runner"),
+    ("cited_versions.py --self-test", RUN,
+     "offline -- a caret matcher, a fence tracker and fabricated rows; no"
+     + " registry and no network. MUST precede the row below: both commands"
+     + " name the same script and the first match wins"),
+    ("cited_versions.py", SKIP,
+     "reads crates.io for each cited crate's max_stable_version; the REGISTRY"
+     + " is its subject, so there is no offline form of the question"),
     ("published_divergence.py --self-test", RUN,
      "offline by construction -- fabricated rows and temp directories, no"
      + " registry and no network -- so it runs here exactly as it does on"

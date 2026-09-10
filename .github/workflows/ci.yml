@@ -522,6 +522,48 @@ jobs:
           echo "CHANGELOG.md names all $found publishable versions, and"
           echo "[Unreleased] is present ($total released sections total)."
 
+      # A version cited FOR CONSUMPTION must accept what the registry
+      # serves NOW; a version citing THIS TREE must be the tree's own. One
+      # string does both jobs only while the two coincide, and post-publish
+      # bumping breaks that coincidence permanently and by design.
+      #
+      # Measured on this repo before #87 fixed it: seven sites said
+      # `vulkane = "0.4"` or `"0.10"` while crates.io served 0.16.0.
+      # ⚠️ EVERY ONE OF THEM RESOLVED -- `cargo add` SUCCEEDED and handed a
+      # stranger a years-old release with feature flags documented against
+      # 0.16. A requirement that fails to resolve at least tells the user
+      # something; one that resolves to the wrong thing has no complainant.
+      # So the test is not "does it resolve" but "does it accept what is
+      # served now".
+      #
+      # ⚠️ CITATION vs HISTORY is decided STRUCTURALLY: a mention inside a
+      # fenced `toml` block is an instruction to copy into a manifest; one in
+      # prose is a record, and CHANGELOG.md describing what a past release
+      # required must NOT be rewritten. A path allowlist would name the
+      # category; the fence names the property.
+      #
+      # ⚠️ ARMED ON ARRIVAL, deliberately, unlike the divergence gate. That
+      # one landed unarmed so its first run would exhibit a live finding;
+      # there is none here, so report mode would be green either way and
+      # would differ only by letting a broken gate MERGE. This PR's own run
+      # is the environment check, and the born-red is the substitute for the
+      # live finding: `vulkane = "0.4"` restored to README.md makes it exit 1
+      # naming STALE.
+      - name: Every version cited for consumption resolves to what is served
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/cited_versions.py --gate
+
+      # Its guards, offline: the caret matcher against the real historical
+      # requirement, the fence discriminator, and the anti-vacuous path that
+      # a healthy repo can never reach.
+      - name: The citation probe can still fail its own guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/cited_versions.py --self-test
+
       # The probe's own guards, offline. Its vacuous path -- "the scan
       # matched nothing" -- cannot be reached by a healthy workspace, so
       # nothing else will ever exercise it, and a guard that has only ever
