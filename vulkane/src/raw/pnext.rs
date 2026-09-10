@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The [`PNextChainable`] trait — generated implementations of this trait
 //! identify every Vulkan struct that can be linked into a `pNext` chain.
 //!

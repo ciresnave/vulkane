@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! # Vulkane — Vulkan API Bindings + Safe Wrapper for Rust
 //!
 //! Vulkane generates complete Vulkan API bindings from the official

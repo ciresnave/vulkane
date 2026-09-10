@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Profile v1 conformance — the Kernel-Seam Interop Contract named surface.
 //!
 //! Vulkane's role in Fuel's kernel-seam contract (Profile v1, ratified

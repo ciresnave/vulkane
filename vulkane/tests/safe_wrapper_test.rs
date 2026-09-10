@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration test for the safe wrapper module.
 //!
 //! Validates the entire safe API end-to-end against a real Vulkan driver.

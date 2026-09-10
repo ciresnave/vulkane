@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tests for the optional `naga` GLSL -> SPIR-V compilation feature.
 //!
 //! Only compiled when the `naga` feature is enabled. With the feature off,

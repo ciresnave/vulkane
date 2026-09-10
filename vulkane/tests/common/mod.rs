@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Shared test helpers. Currently: making a skipped test say so.
 //!
 //! # Why this exists

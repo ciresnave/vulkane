@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Platforms generator module
 //!
 //! Generates Rust platform-specific code from platforms.json intermediate file

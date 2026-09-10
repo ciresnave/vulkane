@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! [`PNextChain`] — a safe, ordered builder for Vulkan `pNext` chains.
 //!
 //! Vulkan extends many create-info and query structs by letting callers

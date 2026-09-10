@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration tests for the vulkane Vulkan bindings
 //!
 //! These tests verify that the generated bindings from vk.xml are correct

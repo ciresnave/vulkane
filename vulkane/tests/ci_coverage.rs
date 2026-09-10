@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every test file and every example must be compiled by some CI leg.
 //!
 //! # The gap this closes

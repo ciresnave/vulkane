@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tests for the optional `shaderc` GLSL -> SPIR-V compilation feature.
 //!
 //! Only compiled when the `shaderc` feature is enabled.

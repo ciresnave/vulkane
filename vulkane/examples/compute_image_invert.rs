@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! End-to-end 2D storage-image compute example.
 //!
 //! This example demonstrates the entire image-on-compute path of the safe

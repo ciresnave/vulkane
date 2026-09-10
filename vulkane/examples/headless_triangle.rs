@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Headless triangle: render a colored RGB triangle to a 256x256 R8G8B8A8
 //! image using a real graphics pipeline, then read the pixels back via a
 //! staging buffer and verify the centre pixel is non-black.

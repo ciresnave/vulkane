@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vulkane example: end-to-end GPU work using the safe wrapper.
 //!
 //! This example uses [`vulkane::safe`] to:

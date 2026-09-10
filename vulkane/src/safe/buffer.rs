@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkBuffer`.
 //!
 //! Buffers are linear arrays of bytes on the GPU used for vertex data,

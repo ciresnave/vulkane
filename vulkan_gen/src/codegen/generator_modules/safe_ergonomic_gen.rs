@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Phase-3 generator: *ergonomic-signature* safe wrappers per Vulkan
 //! command.
 //!

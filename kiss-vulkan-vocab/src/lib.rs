@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The `vulkan:` capability-set vocabulary for KISS-Classify §6.8
 //! `target_capability` tokens.
 //!

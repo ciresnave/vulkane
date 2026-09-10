@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generator for Phase 2 of the auto-safe layer: one safe wrapper
 //! method per Vulkan command, grouped into ext traits by the command's
 //! dispatch target.

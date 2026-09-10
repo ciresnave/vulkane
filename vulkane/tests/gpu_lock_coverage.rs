@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A live-device test must acquire its device through a guarded helper.
 //!
 //! # Why a source scan rather than only a runtime check

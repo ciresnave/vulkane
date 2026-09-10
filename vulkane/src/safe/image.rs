@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for `VkImage` and `VkImageView` — currently focused on
 //! 2D storage images for compute. Sampler and graphics-only image flows
 //! will land alongside the graphics path.

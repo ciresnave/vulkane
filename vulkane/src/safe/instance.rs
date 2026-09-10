@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkInstance` — the root of every Vulkan session.
 //!
 //! An [`Instance`] is the first object you create and the last one

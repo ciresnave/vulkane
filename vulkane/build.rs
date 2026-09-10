@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Build script for Vulkane - generates Vulkan bindings from vk.xml specification
 //!
 //! vk.xml resolution order — FOUR routes, and this list used to name three.

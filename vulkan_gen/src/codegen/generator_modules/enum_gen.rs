@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Enum generator module
 //!
 //! Generates Rust enums from enums.json intermediate file

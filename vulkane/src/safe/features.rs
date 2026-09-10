@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Device feature enable lists.
 //!
 //! Vulkan exposes optional functionality via "feature" booleans —

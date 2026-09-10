@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Enforces KISS-CLASSIFY-6.9-0003 structurally rather than by intention.
 //!
 //! The clause requires that producing, serializing, or parsing a

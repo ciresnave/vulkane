@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The committed §6.8-0008 manifest must be what this crate emits today, and
 //! must satisfy the envelope KISS pins.
 //!

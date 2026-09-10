@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Live-device exercises of the Phase-3 generated ergonomic safe
 //! traits (`DeviceSafeExt`, `InstanceSafeExt`, `PhysicalDeviceSafeExt`,
 //! `QueueSafeExt`). The earlier `safe::auto::tests` module proves the

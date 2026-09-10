@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration tests for `VK_KHR_acceleration_structure` and
 //! `VK_KHR_ray_tracing_pipeline` safe wrappers.
 //!

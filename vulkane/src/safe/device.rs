@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkDevice` and `VkQueue`.
 //!
 //! A [`Device`] is the logical connection to a GPU — all resources

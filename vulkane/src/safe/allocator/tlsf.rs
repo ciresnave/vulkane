@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Two-Level Segregated Fit (TLSF) free-list allocator for one
 //! `VkDeviceMemory` block.
 //!

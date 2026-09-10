@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper around `VK_EXT_debug_utils` — validation layer messages.
 //!
 //! When the `VK_EXT_debug_utils` instance extension is enabled (typically

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Macros generator module (FIXED VERSION)
 //!
 //! Generates Rust macro definitions from macros.json intermediate file

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The grammar quoted in the superseded namespace proposal must be byte-identical
 //! to the manifest's `grammar` field.
 //!

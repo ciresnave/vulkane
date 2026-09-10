@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Emit the KISS-CLASSIFY §6.8-0008 vocabulary manifest for the `vulkan:`
 //! namespace, as JSON on stdout.
 //!

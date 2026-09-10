@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Run CI's gates locally, extracted from the workflow rather than listed here.
 
 Written because a *list* of local checks is a note, and notes decay silently.

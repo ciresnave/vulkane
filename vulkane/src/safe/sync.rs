@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrappers for Vulkan synchronization primitives.
 //!
 //! - [`Fence`] — CPU↔GPU sync. Use to wait on the host for a queue

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tree-based XML parser for the Vulkan specification
 //!
 //! Uses `roxmltree` for DOM-based parsing, which correctly handles

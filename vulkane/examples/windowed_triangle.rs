@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Windowed triangle: opens a real OS window via winit and renders the
 //! same RGB triangle as `headless_triangle.rs` but to a swapchain
 //! image instead of an offscreen attachment.

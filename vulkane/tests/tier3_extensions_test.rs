@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration tests for Tier-3 extension wrappers:
 //!
 //! - `VK_EXT_subgroup_size_control` —

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Deferred shading: two-pass rendering with a G-buffer pass writing
 //! world position, normal, and albedo to 3 separate color attachments,
 //! followed by a fullscreen lighting pass that reads the G-buffer as

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Code assembler for Vulkan bindings
 //!
 //! This module handles the final assembly of all generated code fragments

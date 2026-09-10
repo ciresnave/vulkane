@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generator for the safe-layer `DeviceFeatures` builder.
 //!
 //! Emits one `with_<snake_feature_name>()` method per unique boolean

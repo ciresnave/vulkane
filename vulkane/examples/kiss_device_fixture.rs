@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Emit a **raw device-property fixture** for the KISS `vulkan:` namespace, as
 //! JSON on stdout.
 //!

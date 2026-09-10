@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tests for the shader registry (embedded + env-override lookup).
 //!
 //! Does not exercise `load_module`, which needs a live `Device` — that

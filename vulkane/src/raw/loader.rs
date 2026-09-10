@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Runtime loader for the Vulkan shared library and per-scope dispatch tables.
 //!
 //! Vulkan function pointers are not statically linked. Instead, an application

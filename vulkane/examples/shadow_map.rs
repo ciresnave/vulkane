@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Shadow mapping: two-pass rendering with a depth-only shadow pass from
 //! the light's perspective, followed by a main color pass that samples
 //! the shadow map to determine lit vs. shadowed regions.

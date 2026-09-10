@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Includes generator module
 //!
 //! Generates Rust include handling code from includes.json intermediate file

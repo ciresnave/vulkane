@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Optional GLSL/HLSL -> SPIR-V compilation via the [`shaderc`] crate
 //! (Khronos reference glslang).
 //!

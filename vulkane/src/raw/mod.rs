@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Raw Vulkan bindings and loader functionality
 //!
 //! This module provides direct access to Vulkan functions and types.

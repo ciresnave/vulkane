@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 pub mod assembler;
 pub mod generator_modules;
 pub mod logging;

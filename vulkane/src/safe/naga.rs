@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Optional GLSL -> SPIR-V compilation via the [`naga`] crate.
 //!
 //! This module is only compiled when the `naga` Cargo feature is enabled:

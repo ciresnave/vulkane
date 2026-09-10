@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Function generator module
 //!
 //! Generates Rust function signatures from functions.json intermediate file

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Registry for precompiled SPIR-V shader modules.
 //!
 //! Applications that ship their shaders as precompiled `.spv` artifacts

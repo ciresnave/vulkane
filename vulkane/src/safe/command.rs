@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safe wrapper for `VkCommandPool` and `VkCommandBuffer`.
 //!
 //! All GPU work in Vulkan is recorded into command buffers before

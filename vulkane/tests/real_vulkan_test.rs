@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration test that exercises the loader against a real Vulkan driver.
 //!
 //! This test:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Integration test verifying that the generated bindings work correctly
 //! regardless of vk.xml source (local file or auto-downloaded).
 //!

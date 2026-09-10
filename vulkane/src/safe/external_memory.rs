@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ergonomic wrappers for `VK_KHR_external_memory_{win32,fd}`.
 //!
 //! These extensions let you export an allocation's platform-native handle
