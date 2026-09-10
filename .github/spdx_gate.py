@@ -139,6 +139,22 @@ def audit(root: pathlib.Path, files: list[str]):
     return missing, wrong, unreadable
 
 
+def report(files: list, missing: list, wrong: list, unreadable: list,
+           stale: list) -> None:
+    """Print the findings. Separated from deciding them so that changing how
+    this reads cannot change what it concluded."""
+    clean = len(files) - len(missing) - len(wrong) - len(unreadable) - len(HOLDOUT)
+    print(f"{clean}/{len(files)} tracked source files declare {LICENCE!r}"
+          + (f"  ({len(HOLDOUT)} held out)" if HOLDOUT else ""))
+    rows = ([("MISSING", rel, "") for rel in missing]
+            + [("DIFFERENT", rel, f" declares {found!r}") for rel, found in wrong]
+            + [("UNREADABLE", rel, f": {why}") for rel, why in unreadable]
+            + [("STALE HOLDOUT", rel,
+                " matches no tracked file - it protects NOTHING") for rel in stale])
+    for label, rel, suffix in rows:
+        print(f"  {label}  {rel}{suffix}")
+
+
 def explain(missing: list, wrong: list) -> None:
     """What to do about each kind of finding. Separate from the finding itself,
     because the remedies differ in KIND: one is mechanical, one is a decision."""
@@ -171,20 +187,7 @@ def main(argv: list[str]) -> int:
 
     missing, wrong, unreadable = audit(root, files)
     stale = sorted(set(HOLDOUT) - set(files))
-
-    print(f"{len(files) - len(missing) - len(wrong) - len(unreadable) - len(HOLDOUT)}/"
-          f"{len(files)} tracked source files declare {LICENCE!r}"
-          + (f"  ({len(HOLDOUT)} held out)" if HOLDOUT else ""))
-
-    for rel in missing:
-        print(f"  MISSING  {rel}")
-    for rel, found in wrong:
-        print(f"  DIFFERENT  {rel} declares {found!r}")
-    for rel, why in unreadable:
-        print(f"  UNREADABLE  {rel}: {why}")
-    for rel in stale:
-        print(f"  STALE HOLDOUT  {rel} matches no tracked file - it protects NOTHING")
-
+    report(files, missing, wrong, unreadable, stale)
     explain(missing, wrong)
     return 1 if (missing or wrong or stale or unreadable) else 0
 
