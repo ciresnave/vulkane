@@ -56,12 +56,37 @@ HEADER_WINDOW = 10
 #: nothing, not ordinary deletion.
 MINIMUM_FILES = 100
 
-#: ⚠️ Paths this gate must NOT require a header on, each with the reason it is
-#: here. Empty today, and that is a measurement: `git grep -l -i copyright`
-#: returns zero hits across this workspace, so no file here carries somebody
-#: else's copyright notice. An entry that matches no file is an ERROR below --
-#: a holdout that protects nothing reads exactly like one with nothing to
-#: protect, right up until the file it named is renamed and then stamped.
+#: Paths this gate must NOT require a header on, each with the reason it is here.
+#:
+#: 🔴 THIS COMMENT USED TO SAY `git grep -l -i copyright` RETURNS ZERO HITS HERE.
+#: IT RETURNS TWELVE. I wrote the unscoped query in the comment and ran a scoped
+#: one -- the pre-flight's source-extension globs, which contain no `.xml`:
+#:
+#:     git grep -l -i copyright                     -> 12 files
+#:       11 x LICENSE-APACHE / LICENSE-MIT             ours, expected
+#:        1 x vulkane/vk.xml   Copyright 2015-2026 The Khronos Group Inc.
+#:     git grep -l -i copyright -- '*.rs' '*.py'    ->  1 file
+#:     control: the same grep for SPDX-License-Identifier -> 133 files
+#:
+#: ⚠️ THE EMPTY HOLDOUT IS STILL CORRECT, AND THAT IS THE DANGEROUS PART.
+#: `.xml` is not in EXTENSIONS, so `vk.xml` is never scanned and never stamped -
+#: its `SPDX-License-Identifier: Apache-2.0 OR MIT` on line 6 is KHRONOS'S OWN
+#: upstream line, present since the file was bundled and untouched by any sweep.
+#: The conclusion is right; the stated reason was false.
+#:
+#: ⚠️ A RIGHT ANSWER RESTING ON A FALSE REASON IS WORSE THAN A WRONG ONE,
+#: because nothing will ever fail in a way that reveals it. The moment `.xml`
+#: enters EXTENSIONS - plausible for a repo that bundles a registry XML - this
+#: gate demands a header on `vk.xml`, and the old comment told whoever added it
+#: that there was nothing here to protect.
+#:
+#: SO: IF `.xml` IS EVER ADDED TO EXTENSIONS, `vulkane/vk.xml` NEEDS AN ENTRY
+#: HERE FIRST. It is a third-party registry file carrying Khronos's copyright,
+#: and it is not ours to relicense.
+#:
+#: An entry that matches no file is an ERROR below -- a holdout that protects
+#: nothing reads exactly like one with nothing to protect, right up until the
+#: file it named is renamed and then stamped.
 HOLDOUT: dict[str, str] = {}
 
 MARKER = "SPDX-License-Identifier:"
