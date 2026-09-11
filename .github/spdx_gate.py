@@ -156,6 +156,93 @@ def tracked_sources(root: pathlib.Path) -> list[str]:
     return [n for n in text.split(chr(0)) if n]
 
 
+#: Files allowed to contain the word "copyright". ⚠️ A PATTERN, NOT A COUNT.
+#: Licence texts contain it by definition; a changelog records licence changes;
+#: this script discusses copyright in its own comments and so matches itself.
+#: ⚠️ MATCHED ON THE BASENAME, NOT THE PATH. A substring test over the whole
+#: path exempts anything beneath a directory whose name contains one of these -
+#: `vendor/LICENSE-deps/foo.rs` would pass unexamined. Contrived here, where
+#: nothing is vendored; not contrived in the three repos this gate also runs in,
+#: two of which vendor third-party source.
+COPYRIGHT_EXPECTED = ("LICENSE", "LICENCE", "COPYING", "CHANGELOG",
+                      "spdx_gate.py", "NOTICE")
+
+
+#: 🔴 THIRD-PARTY NOTICES THAT HAVE BEEN LOOKED AT AND RULED ON. Distinct from
+#: `COPYRIGHT_EXPECTED`, which says "this file contains the word for a boring
+#: reason". This says "this file carries SOMEBODY ELSE'S COPYRIGHT, we know, and
+#: here is the decision" - a record, not an exemption from scanning.
+#:
+#: ⚠️ AND THE FIRST ENTRY IS THE ONE MY PROSE SAID DID NOT EXIST. The holdout
+#: comment in #94 claimed `git grep -l -i copyright` returned zero hits here; it
+#: returns twelve, one of them `vk.xml`. That comment was corrected, and then
+#: this check found the file in its first run - which is the whole argument for
+#: asserting a property over writing a sentence.
+COPYRIGHT_ACKNOWLEDGED = {
+    "vulkane/vk.xml":
+        "the Vulkan registry, Copyright 2015-2026 The Khronos Group Inc., "
+        "bundled verbatim so docs.rs can build. It carries Khronos's OWN "
+        "`SPDX-License-Identifier: Apache-2.0 OR MIT` on line 6. `.xml` is not "
+        "in EXTENSIONS so it is never stamped - and if `.xml` is ever added, "
+        "this file needs a HOLDOUT entry FIRST. It is not ours to relicense.",
+}
+
+
+def _expected(path: str) -> bool:
+    base = path.rsplit("/", 1)[-1]
+    return any(tag in base for tag in COPYRIGHT_EXPECTED)
+
+
+def survey_copyright(root: pathlib.Path) -> list[str]:
+    """Tracked files carrying a copyright notice that are NOT expected to, or
+    None if the survey COULD NOT RUN.
+
+    ⚠️ `None` AND `[]` ARE DIFFERENT ANSWERS AND THE DIFFERENCE IS THE POINT.
+    An empty list is the PASS condition here, so a survey that failed to run
+    returning `[]` would be indistinguishable from a clean tree - and this
+    gate's entire justification is that the holdout is CHECKED rather than
+    asserted. A CHECK THAT SILENTLY NO-OPS ON FAILURE IS AN ASSERTION WITH A
+    FUNCTION WRAPPED AROUND IT.
+
+    ⚠️ THIS IS THE HOLDOUT'S JUSTIFICATION, MOVED OUT OF A COMMENT AND INTO CI.
+    The comment used to state a COUNT: `-> 0` with a control of `-> 8`. That
+    count drifted TWICE IN FOUR DAYS from two unrelated PRs, with neither author
+    doing anything wrong - a changelog gained the word, then this script did.
+
+    ⚠️ A COUNT CANNOT SURVIVE TREE GROWTH; A PROPERTY CAN. The thing the count
+    was standing in for is "every -i copyright hit is a licence file or this
+    script", and that is assertable. A COMMENT CANNOT GUARD - demonstrated twice
+    inside this one file, first by the stale figure and then by the correction
+    that vouched for it.
+
+    ⚠️ AND IT FIRES EXACTLY WHERE THE HOLDOUT WOULD BE NEEDED. A new file
+    carrying somebody else's copyright notice is precisely the case where a
+    blanket sweep asserts a licence grant nobody made - `bs1770.rs` in `fuel`,
+    Khronos's `vk.xml` in `vulkane`, Apple's kernels in `fuel`'s .metal files.
+    """
+    git = shutil.which("git")
+    if git is None:
+        print("FAIL: no `git` on PATH; the copyright survey could not run.",
+              file=sys.stderr)
+        return None
+    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [git, "-C", str(root), "grep", "-l", "-i", "-z", "copyright"],
+        capture_output=True, encoding=None, shell=False, check=False)
+    if proc.returncode not in (0, 1):
+        # ⚠️ REPORTED AND REFUSED, NOT SWALLOWED. `git grep` exits 1 for "no
+        # matches" and 128 for "not a repository", and an empty list cannot tell
+        # them apart - see `tracked_sources` fifteen lines above, whose comment
+        # says exactly this about `ls-files`. I wrote that comment and then
+        # shipped this defect beneath it.
+        print("FAIL: the copyright survey could not run: "
+              + proc.stderr.decode("utf-8", "replace").strip()[:200],
+              file=sys.stderr)
+        return None
+    names = [n for n in proc.stdout.decode("utf-8", "replace").split(chr(0)) if n]
+    return sorted(n for n in names
+                  if not _expected(n) and n not in COPYRIGHT_ACKNOWLEDGED)
+
+
 def audit(root: pathlib.Path, files: list[str]):
     """(missing, wrong, unreadable) over `files`, skipping HOLDOUT entries."""
     expected = normalise(LICENCE)
@@ -224,9 +311,39 @@ def main(argv: list[str]) -> int:
 
     missing, wrong, unreadable = audit(root, files)
     stale = sorted(set(HOLDOUT) - set(files))
+    # ⚠️ THE HOLDOUT'S JUSTIFICATION, CHECKED RATHER THAN ASSERTED IN PROSE.
+    surveyed = survey_copyright(root)
+    if surveyed is None:
+        # ⚠️ The survey could not run. Refusing is the only honest outcome: a
+        # clean report here would be a claim nobody measured.
+        return 1
+    unexpected = [n for n in surveyed if n not in HOLDOUT]
+    # ⚠️ AN ACKNOWLEDGEMENT THAT NAMES NO FILE IS A RECORD OF A DECISION ABOUT
+    # SOMETHING THAT NO LONGER EXISTS - the same defect as a stale holdout, and
+    # it fails the same way: silently, while looking like diligence.
+    tracked_all = set()
+    proc_git = shutil.which("git")
+    if proc_git:
+        out = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+            [proc_git, "-C", str(root), "ls-files", "-z"],
+            capture_output=True, encoding=None, shell=False, check=False)
+        tracked_all = {n for n in out.stdout.decode("utf-8", "replace").split(chr(0)) if n}
+    stale_ack = sorted(set(COPYRIGHT_ACKNOWLEDGED) - tracked_all) if tracked_all else []
+    for rel in stale_ack:
+        print(f"  STALE ACKNOWLEDGEMENT  {rel} matches no tracked file")
+    if stale_ack:
+        unexpected = unexpected + stale_ack
     report(files, missing, wrong, unreadable, stale)
     explain(missing, wrong)
-    return 1 if (missing or wrong or stale or unreadable) else 0
+    for rel in unexpected:
+        print(f"  COPYRIGHT NOTICE  {rel} is not a licence file and is not "
+              f"in HOLDOUT")
+    if unexpected:
+        print()
+        print("A file carrying somebody else's copyright notice may not be")
+        print("ours to license. Decide, then add it to HOLDOUT with the")
+        print("reason, or to COPYRIGHT_EXPECTED if the match is incidental.")
+    return 1 if (missing or wrong or stale or unreadable or unexpected) else 0
 
 
 def self_test() -> int:
@@ -254,6 +371,30 @@ def self_test() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}: {got!r}"
               + ("" if ok else f"  expected {expected!r}"))
 
+    # ⚠️ CONTROLS FOR THE COPYRIGHT SURVEY'S CLASSIFIER. Needs no git: the part
+    # that can silently rot is the PREDICATE, and `COPYRIGHT_EXPECTED` is a list
+    # somebody will extend. A manual both-arms run proves the checker worked
+    # that afternoon; nothing re-runs it when the list gains an entry.
+    classifications = [
+        ("LICENSE-MIT", True),
+        ("crates/kiss-ref-core/LICENSE-APACHE", True),
+        ("CHANGELOG.md", True),
+        (".github/spdx_gate.py", True),
+        ("src/lib.rs", False),
+        ("crates/kiss-ops-vocab/src/lib.rs", False),
+        # ⚠️ THE ONE THAT MATTERS, and it failed before basename anchoring: a
+        # substring test over the whole PATH exempts everything beneath a
+        # directory whose name contains a tag.
+        ("vendor/LICENSE-deps/foo.rs", False),
+        ("third_party/NOTICE-files/kernel.cu", False),
+    ]
+    for path, expected in classifications:
+        got = _expected(path)
+        ok = got == expected
+        failures += not ok
+        verb = "exempt" if expected else "examined"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {path} is {verb}")
+
     equivalences = [("MIT OR Apache-2.0", "Apache-2.0 OR MIT", True),
                     ("Apache-2.0", "MIT OR Apache-2.0", False),
                     ("MIT", "MIT OR Apache-2.0", False)]
@@ -262,8 +403,12 @@ def self_test() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  {a!r} {'==' if same else '!='} {b!r}")
 
-    print(f"\n{'PASS' if not failures else 'FAIL'}: {len(cases) + len(equivalences)} "
-          f"controls, {failures} failed")
+    # ⚠️ SUMMED, NOT WRITTEN DOWN. This line said "10 controls" while 18 ran,
+    # for one commit - a stale count inside the run whose entire purpose is to
+    # kill stale counts. A COUNT CANNOT SURVIVE ITS OWN LIST GROWING.
+    total = len(cases) + len(equivalences) + len(classifications)
+    print(f"{chr(10)}{'PASS' if not failures else 'FAIL'}: {total} controls, "
+          f"{failures} failed")
     return 1 if failures else 0
 
 
