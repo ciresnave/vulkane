@@ -165,38 +165,66 @@ def declared(text: str) -> str | None:
     return None
 
 
+def _git_z(root: pathlib.Path, *args: str, ok_codes=(0,)):
+    """Run one git command with NUL-separated output. Returns (ok, names).
+
+    ⚠️ ONE CALL SITE, BECAUSE COPIES OF AN INVOCATION ARE WHAT DRIFT. This file
+    had three, and two of them disagreed with each other twice over:
+
+      · `tools/spdx.py` used `-z` and this gate did not, so the SWEEPER and its
+        own CHECKER read the same list two ways. A filename with a non-ASCII
+        character came back quoted and octal-escaped, which is not a path that
+        exists, and a perfectly good file reported as UNREADABLE.
+      · `_git_z_all` accepted exit code 1 from `ls-files`, copied from the grep
+        wrapper where 1 means "no matches". `ls-files` never returns 1.
+
+    ⚠️ `ok_codes` IS EXPLICIT AT THE CALL SITE RATHER THAN HIDDEN HERE, because
+    the two conventions are exactly what drifted. Measured, not assumed:
+
+        git ls-files  with / without matches -> 0 ;  outside a repo -> 128
+        git grep      no matches             -> 1 ;  with matches   -> 0
+
+    So `ls-files` passes `ok_codes=(0,)` and `grep` passes `(0, 1)`, and a
+    reader sees which convention a caller means without leaving the line.
+
+    ⚠️ `ok=False` IS NOT AN EMPTY RESULT. Callers that treat an empty list as a
+    PASS must be able to tell "ran, found nothing" from "could not run", and
+    they could not when each site decided for itself.
+
+    `git` is resolved with `shutil.which` rather than looked up through PATH at
+    call time, so what runs depends on this file and not on the environment. The
+    argv is fixed, `shell=False` is explicit, and the only interpolated value is
+    this script's own parent directory.
+    """
+    git = shutil.which("git")
+    if git is None:
+        print("FAIL: no `git` on PATH.", file=sys.stderr)
+        return False, []
+    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False, see docstring
+        [git, "-C", str(root), *args],
+        capture_output=True, encoding=None, shell=False, check=False)
+    if proc.returncode not in ok_codes:
+        # ⚠️ stderr is REPORTED, never discarded. A failing git call and a git
+        # call that found nothing both yield an empty list, and only one of them
+        # should ever be reportable as a clean result.
+        print(f"FAIL: git {args[0]}: "
+              f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}",
+              file=sys.stderr)
+        return False, []
+    text = proc.stdout.decode("utf-8", "replace")
+    return True, [n for n in text.split(chr(0)) if n]
+
+
 def tracked_sources(root: pathlib.Path) -> list[str]:
     # ⚠️ RESOLVED ABSOLUTE, NOT "git". A bare name is looked up through PATH at
     # call time, so what runs depends on the environment rather than on this
     # file. The argv is fixed, there is no shell, and nothing here comes from a
     # caller - `root` is this script's own parent directory.
-    git = shutil.which("git")
-    if git is None:
-        print("FAIL: no `git` on PATH. This gate reads the tracked file list,",
-              file=sys.stderr)
-        print("      and cannot distinguish 'no files' from 'no git'.", file=sys.stderr)
-        return []
-    # ⚠️ `-z`, AND THAT IS NOT A STYLE CHOICE. Without it `git ls-files` QUOTES
-    # any path containing a non-ASCII or special character, emitting
-    # `"src/naÃ¯ve.rs"` - octal escapes, wrapped in literal quotes, and
-    # THAT STRING IS NOT A PATH THAT EXISTS. The gate would report a perfectly
-    # good file as UNREADABLE, or - before unreadable files were collected
-    # rather than fatal - fail the whole run on one accented filename.
-    #
-    # Caught by a reviewer on kiss-ref#43. `tools/spdx.py` already used `-z`;
-    # this did not. ⚠️ THE SWEEPER AND ITS GATE DISAGREED ABOUT HOW TO READ THE
-    # SAME LIST, which is the divergence this project keeps finding in itself.
-    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "-C", str(root), "ls-files", "-z", "--",
-         *(f"*{e}" for e in EXTENSIONS)],
-        capture_output=True, encoding=None, shell=False, check=False)
-    if proc.returncode != 0:
-        # ⚠️ stderr is reported, not discarded. `git ls-files` failing and
-        # `git ls-files` finding nothing both yield an empty list.
-        print(f"git ls-files failed: {(proc.stderr or '').strip()}", file=sys.stderr)
-        return []
-    text = proc.stdout.decode("utf-8", "replace")
-    return [n for n in text.split(chr(0)) if n]
+    ok, names = _git_z(root, "ls-files", "-z", "--",
+                       *(f"*{e}" for e in EXTENSIONS), ok_codes=(0,))
+    # ⚠️ An empty list from a FAILED call would read as "no source files",
+    # which the MINIMUM_FILES floor would then blame on a broken glob.
+    return names if ok else []
 
 
 #: Files allowed to contain the word "copyright". ⚠️ A PATTERN, NOT A COUNT.
@@ -284,33 +312,9 @@ def uncovered_extensions(root: pathlib.Path):
 
 def _git_z_all(root: pathlib.Path):
     """Every tracked path. Separate from `tracked_sources`, which is scoped."""
-    git = shutil.which("git")
-    if git is None:
-        print("FAIL: no `git` on PATH.", file=sys.stderr)
-        return False, []
-    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "-C", str(root), "ls-files", "-z"],
-        capture_output=True, encoding=None, shell=False, check=False)
-    # ⚠️ `!= 0`, NOT `not in (0, 1)`. MEASURED, not reasoned:
-    #
-    #     git ls-files  with matches     -> 0
-    #     git ls-files  NO matches       -> 0        <- never 1
-    #     git ls-files  outside a repo   -> 128
-    #     git grep      NO matches       -> 1        <- the helper this was copied from
-    #
-    # The `(0, 1)` form came from the grep wrapper, where 1 genuinely means "no
-    # matches". Here it accepted an exit code `ls-files` cannot produce.
-    #
-    # ⚠️ INERT TODAY - no input reaches the gap - AND THE SAME PROVENANCE DEFECT
-    # AS A BAD PORT: a predicate carried from the call it was written for to a
-    # call with different exit semantics. The moment someone copies this to wrap
-    # a command that DOES use 1 as a signal, the gap opens and nothing says so.
-    # Found by an analyser reading the code against the PR's own prose.
-    if proc.returncode != 0:
-        print("FAIL: git ls-files: "
-              + proc.stderr.decode("utf-8", "replace").strip()[:200], file=sys.stderr)
-        return False, []
-    return True, [n for n in proc.stdout.decode("utf-8", "replace").split(chr(0)) if n]
+    # ⚠️ `ok_codes=(0,)` - `ls-files` NEVER exits 1. The `(0, 1)` this used to
+    # carry was copied from the grep wrapper, where 1 means "no matches".
+    return _git_z(root, "ls-files", "-z", ok_codes=(0,))
 
 
 def _expected(path: str) -> bool:
@@ -345,25 +349,15 @@ def survey_copyright(root: pathlib.Path) -> list[str]:
     blanket sweep asserts a licence grant nobody made - `bs1770.rs` in `fuel`,
     Khronos's `vk.xml` in `vulkane`, Apple's kernels in `fuel`'s .metal files.
     """
-    git = shutil.which("git")
-    if git is None:
-        print("FAIL: no `git` on PATH; the copyright survey could not run.",
-              file=sys.stderr)
+    # ⚠️ `ok_codes=(0, 1)` HERE, and that is the difference the helper makes
+    # visible: `git grep` exits 1 for "no matches", which is a RESULT and not
+    # a failure. `ls-files` above passes (0,) because it never returns 1.
+    ok, names = _git_z(root, "grep", "-l", "-i", "-z", "copyright",
+                       ok_codes=(0, 1))
+    if not ok:
+        # ⚠️ None, not []. [] is the PASS condition for this check, so a
+        # survey that COULD NOT RUN must not be reportable as a clean tree.
         return None
-    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "-C", str(root), "grep", "-l", "-i", "-z", "copyright"],
-        capture_output=True, encoding=None, shell=False, check=False)
-    if proc.returncode not in (0, 1):
-        # ⚠️ REPORTED AND REFUSED, NOT SWALLOWED. `git grep` exits 1 for "no
-        # matches" and 128 for "not a repository", and an empty list cannot tell
-        # them apart - see `tracked_sources` fifteen lines above, whose comment
-        # says exactly this about `ls-files`. I wrote that comment and then
-        # shipped this defect beneath it.
-        print("FAIL: the copyright survey could not run: "
-              + proc.stderr.decode("utf-8", "replace").strip()[:200],
-              file=sys.stderr)
-        return None
-    names = [n for n in proc.stdout.decode("utf-8", "replace").split(chr(0)) if n]
     return sorted(n for n in names
                   if not _expected(n) and n not in COPYRIGHT_ACKNOWLEDGED)
 
@@ -462,14 +456,19 @@ def main(argv: list[str]) -> int:
     # ⚠️ AN ACKNOWLEDGEMENT THAT NAMES NO FILE IS A RECORD OF A DECISION ABOUT
     # SOMETHING THAT NO LONGER EXISTS - the same defect as a stale holdout, and
     # it fails the same way: silently, while looking like diligence.
-    tracked_all = set()
-    proc_git = shutil.which("git")
-    if proc_git:
-        out = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-            [proc_git, "-C", str(root), "ls-files", "-z"],
-            capture_output=True, encoding=None, shell=False, check=False)
-        tracked_all = {n for n in out.stdout.decode("utf-8", "replace").split(chr(0)) if n}
-    stale_ack = sorted(set(COPYRIGHT_ACKNOWLEDGED) - tracked_all) if tracked_all else []
+    # ⚠️ THROUGH THE SAME HELPER AS EVERY OTHER GIT CALL. This was a fourth,
+    # hand-rolled copy of `_git_z_all` sitting inside `main`.
+    ok_all, all_names = _git_z_all(root)
+    if not ok_all:
+        # ⚠️ AND THE OLD FORM PASSED SILENTLY HERE. `stale_ack = ... if
+        # tracked_all else []` meant a FAILED enumeration produced an empty
+        # set, which produced an empty stale list, which is the PASS
+        # condition - the same vacuity this gate has now fixed three times.
+        print("FAIL: could not enumerate the tree to check "
+              "COPYRIGHT_ACKNOWLEDGED.", file=sys.stderr)
+        return 1
+    tracked_all = set(all_names)
+    stale_ack = sorted(set(COPYRIGHT_ACKNOWLEDGED) - tracked_all)
     for rel in stale_ack:
         print(f"  STALE ACKNOWLEDGEMENT  {rel} matches no tracked file")
     if stale_ack:
