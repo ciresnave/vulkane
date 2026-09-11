@@ -89,6 +89,49 @@ MINIMUM_FILES = 100
 #: file it named is renamed and then stamped.
 HOLDOUT: dict[str, str] = {}
 
+#: 🔴 EXTENSIONS IS ITSELF A POPULATION CLAIM, AND NOTHING USED TO CHECK IT.
+#: Measured at `fuel` d37e446e: its ratchet enumerates `*.rs` and reports
+#: 834/834 forever while 203 tracked source files - 147 `.slang`, 20 `.glsl`,
+#: 19 `.py`, 16 `.metal` - sit outside its population entirely, three of them
+#: carrying Apple and third-party copyright with no SPDX at all.
+#:
+#: ⚠️ A PROPERTY ASSERTED OVER THE WRONG POPULATION IS STILL THE WRONG
+#: POPULATION, and a scoped ratchet's number goes UP as the blind spot grows.
+#:
+#: This repo had the same shape at smaller scale: `.ts` x2 and `.sh` x1 sat
+#: outside a `.py`-only list. So the list is now CHECKED: any tracked extension
+#: that is source must be in EXTENSIONS or declined below, by name, with a
+#: reason.
+#:
+#: ⚠️ IT DOES NOT FULLY CLOSE - `SOURCE_EXTENSIONS` is itself a hand-written
+#: list, which is the defect class this whole gate keeps finding. What it does
+#: is turn a SILENT omission into a LOUD one, which is the whole of the win.
+SOURCE_EXTENSIONS = frozenset({
+    ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".java",
+    ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".swift", ".kt", ".scala", ".php",
+    ".rb", ".pl", ".sh", ".bash", ".ps1", ".sql", ".lua", ".zig", ".dart",
+    ".cu", ".cuh", ".cl", ".comp", ".vert", ".frag", ".geom", ".glsl", ".wgsl",
+    ".hlsl", ".metal", ".slang",
+})
+
+#: Source extensions present in the tree and deliberately NOT stamped, each with
+#: the reason. ⚠️ A DECISION ON THE RECORD, not an omission - and an entry here
+#: naming an extension the tree does not have reds, like every other stale list
+#: in this file.
+NOT_STAMPED: dict[str, str] = {
+    ".spv": "compiled SPIR-V - build OUTPUTS of the .wgsl and .comp sources "
+            "already in EXTENSIONS, not authored files. 🔴 THIS IS THE ONLY "
+            "PRINCIPLED GROUND FOR A DECLINE: 'is it generated from something "
+            "else in this tree?' is a property with a checkable answer, where "
+            "'is it source or an asset?' is a taxonomy argument with no test. "
+            "If a future decline cannot be phrased the first way, it probably "
+            "should not be a decline.",
+    ".xml": "`vulkane/vk.xml` only - the Vulkan registry, Copyright 2015-2026 "
+            "The Khronos Group Inc., bundled verbatim so docs.rs can build. It "
+            "carries KHRONOS'S OWN identifier on line 6 and is not ours to "
+            "relicense. See COPYRIGHT_ACKNOWLEDGED, which records the ruling.",
+}
+
 MARKER = "SPDX-License-Identifier:"
 
 
@@ -186,6 +229,88 @@ COPYRIGHT_ACKNOWLEDGED = {
         "in EXTENSIONS so it is never stamped - and if `.xml` is ever added, "
         "this file needs a HOLDOUT entry FIRST. It is not ours to relicense.",
 }
+
+
+def uncovered_extensions(root: pathlib.Path):
+    """Tracked SOURCE extensions that EXTENSIONS does not cover, and stale
+    NOT_STAMPED entries.
+
+    ⚠️ THE RATCHET'S OWN POPULATION, CHECKED. Without this, adding `.wgsl`
+    tomorrow escapes the gate silently and the pass rate goes UP - because the
+    denominator never learns about the new files. That is how `fuel` reports
+    834/834 while 203 tracked source files sit outside its scan.
+    """
+    ok, names = _git_z_all(root)
+    if not ok:
+        return None, None
+    # ⚠️ `PurePosixPath.suffix`, NOT `rsplit(".")`. Filed as a LOW-RISK style
+    # nitpick and it is a correctness bug - measured on real path shapes:
+    #
+    #     some.dir/file    rsplit -> ".dir/file"   suffix -> none
+    #     a.b.c/README     rsplit -> ".c/readme"   suffix -> none
+    #     .gitignore       rsplit -> ".gitignore"  suffix -> none
+    #
+    # A dot in a DIRECTORY name, or a dotfile with no extension, produced a
+    # fabricated extension.
+    #
+    # ⚠️ `PurePosixPath` RATHER THAN `Path`, AND NOT FOR THE REASON IT LOOKS
+    # LIKE. Measured on win32, where `Path` is `WindowsPath`: the two agree on
+    # ALL 7 real path shapes tested, because WindowsPath accepts "/" happily.
+    # They diverge on exactly one input - a filename containing a BACKSLASH
+    # after a dot:
+    #
+    #     "a.rs" + chr(92) + "b"   WindowsPath -> ""   PurePosixPath -> ".rs\b"
+    #
+    # ⚠️ A BACKSLASH IN A GIT PATH IS PART OF THE FILENAME, NOT A SEPARATOR.
+    # `git ls-files -z` emits POSIX paths raw on every platform, so the POSIX
+    # reading is the correct one and WindowsPath would silently split a name.
+    #
+    # This is a fact about GIT, not about Python - and it is chosen for
+    # correctness of interpretation, NOT because `Path` was observed to fail.
+    # No repo here has such a filename, so the two are equivalent today.
+    present = {pathlib.PurePosixPath(n).suffix.lower() for n in names}
+    present.discard("")
+    source_present = present & SOURCE_EXTENSIONS
+    uncovered = sorted(source_present - set(EXTENSIONS) - set(NOT_STAMPED))
+    # ⚠️ AGAINST EVERY PRESENT EXTENSION, NOT JUST THE SOURCE ONES. NOT_STAMPED
+    # means "present in this tree and deliberately not stamped"; the staleness
+    # question is whether it is STILL PRESENT, not whether it is still
+    # classified as source. Comparing against `source_present` reported
+    # `.spv` and `.xml` as stale while both sit in the tree - a decline of a
+    # non-source extension could never be recorded without redding.
+    stale = sorted(set(NOT_STAMPED) - present)
+    return uncovered, stale
+
+
+def _git_z_all(root: pathlib.Path):
+    """Every tracked path. Separate from `tracked_sources`, which is scoped."""
+    git = shutil.which("git")
+    if git is None:
+        print("FAIL: no `git` on PATH.", file=sys.stderr)
+        return False, []
+    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [git, "-C", str(root), "ls-files", "-z"],
+        capture_output=True, encoding=None, shell=False, check=False)
+    # ⚠️ `!= 0`, NOT `not in (0, 1)`. MEASURED, not reasoned:
+    #
+    #     git ls-files  with matches     -> 0
+    #     git ls-files  NO matches       -> 0        <- never 1
+    #     git ls-files  outside a repo   -> 128
+    #     git grep      NO matches       -> 1        <- the helper this was copied from
+    #
+    # The `(0, 1)` form came from the grep wrapper, where 1 genuinely means "no
+    # matches". Here it accepted an exit code `ls-files` cannot produce.
+    #
+    # ⚠️ INERT TODAY - no input reaches the gap - AND THE SAME PROVENANCE DEFECT
+    # AS A BAD PORT: a predicate carried from the call it was written for to a
+    # call with different exit semantics. The moment someone copies this to wrap
+    # a command that DOES use 1 as a signal, the gap opens and nothing says so.
+    # Found by an analyser reading the code against the PR's own prose.
+    if proc.returncode != 0:
+        print("FAIL: git ls-files: "
+              + proc.stderr.decode("utf-8", "replace").strip()[:200], file=sys.stderr)
+        return False, []
+    return True, [n for n in proc.stdout.decode("utf-8", "replace").split(chr(0)) if n]
 
 
 def _expected(path: str) -> bool:
@@ -312,6 +437,22 @@ def main(argv: list[str]) -> int:
     missing, wrong, unreadable = audit(root, files)
     stale = sorted(set(HOLDOUT) - set(files))
     # ⚠️ THE HOLDOUT'S JUSTIFICATION, CHECKED RATHER THAN ASSERTED IN PROSE.
+    uncovered, stale_ns = uncovered_extensions(root)
+    if uncovered is None:
+        print("FAIL: could not enumerate the tree to check EXTENSIONS.",
+              file=sys.stderr)
+        return 1
+    for ext in uncovered:
+        print(f"  UNCOVERED EXTENSION  {ext} is tracked source and is not in "
+              f"EXTENSIONS or NOT_STAMPED")
+    for ext in stale_ns:
+        print(f"  STALE NOT_STAMPED  {ext} is declined but no longer present")
+    if uncovered:
+        print()
+        print("A source extension outside EXTENSIONS is invisible to this gate,")
+        print("and the pass rate RISES as the blind spot grows. Add it to")
+        print("EXTENSIONS, or to NOT_STAMPED with the reason it is excluded.")
+
     surveyed = survey_copyright(root)
     if surveyed is None:
         # ⚠️ The survey could not run. Refusing is the only honest outcome: a
@@ -343,7 +484,8 @@ def main(argv: list[str]) -> int:
         print("A file carrying somebody else's copyright notice may not be")
         print("ours to license. Decide, then add it to HOLDOUT with the")
         print("reason, or to COPYRIGHT_EXPECTED if the match is incidental.")
-    return 1 if (missing or wrong or stale or unreadable or unexpected) else 0
+    return 1 if (missing or wrong or stale or unreadable or unexpected
+                 or uncovered or stale_ns) else 0
 
 
 def self_test() -> int:
@@ -395,6 +537,51 @@ def self_test() -> int:
         verb = "exempt" if expected else "examined"
         print(f"  {'ok  ' if ok else 'FAIL'}  {path} is {verb}")
 
+    # ⚠️ CONTROLS FOR THE EXTENSION CENSUS. `uncovered_extensions` needs git,
+    # but the part that ROTS is the path->extension derivation and the set
+    # arithmetic, and neither does. A reviewer asked for this and was right:
+    # a manual run proves it worked that afternoon; nothing re-runs it when
+    # SOURCE_EXTENSIONS or NOT_STAMPED grows.
+    #
+    # The first three FAIL against the `rsplit(".")` form this replaced, so
+    # they are controls rather than decoration.
+    suffixes = [
+        ("src/lib.rs", ".rs"),
+        ("some.dir/file", ""),
+        ("a.b.c/README", ""),
+        (".gitignore", ""),
+        ("x/y.tar.gz", ".gz"),
+        ("crates/core/LICENSE-MIT", ""),
+    ]
+    for path, expected in suffixes:
+        got = pathlib.PurePosixPath(path).suffix.lower()
+        ok = got == expected
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  suffix({path!r}) == {got!r}")
+
+    # The census arithmetic, with the tree's extensions supplied directly.
+    census = [
+        ("a source ext outside the list is UNCOVERED",
+         {".rs", ".md"}, (".py",), {}, [".rs"], []),
+        ("a source ext IN the list is covered",
+         {".rs", ".md"}, (".rs",), {}, [], []),
+        ("a source ext DECLINED is covered",
+         {".rs", ".md"}, (".py",), {".rs": "why"}, [], []),
+        # ⚠️ THE CASE THAT WAS BROKEN: declining a PRESENT but NON-SOURCE
+        # extension must not read as stale.
+        ("a present NON-source decline is not stale",
+         {".rs", ".spv"}, (".rs",), {".spv": "generated"}, [], []),
+        ("an ABSENT decline IS stale",
+         {".rs"}, (".rs",), {".slang": "gone"}, [], [".slang"]),
+    ]
+    for name, present, exts, not_stamped, want_unc, want_stale in census:
+        source_present = present & SOURCE_EXTENSIONS
+        unc = sorted(source_present - set(exts) - set(not_stamped))
+        stl = sorted(set(not_stamped) - present)
+        ok = unc == want_unc and stl == want_stale
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+
     equivalences = [("MIT OR Apache-2.0", "Apache-2.0 OR MIT", True),
                     ("Apache-2.0", "MIT OR Apache-2.0", False),
                     ("MIT", "MIT OR Apache-2.0", False)]
@@ -406,7 +593,8 @@ def self_test() -> int:
     # ⚠️ SUMMED, NOT WRITTEN DOWN. This line said "10 controls" while 18 ran,
     # for one commit - a stale count inside the run whose entire purpose is to
     # kill stale counts. A COUNT CANNOT SURVIVE ITS OWN LIST GROWING.
-    total = len(cases) + len(equivalences) + len(classifications)
+    total = (len(cases) + len(equivalences) + len(classifications)
+             + len(suffixes) + len(census))
     print(f"{chr(10)}{'PASS' if not failures else 'FAIL'}: {total} controls, "
           f"{failures} failed")
     return 1 if failures else 0
