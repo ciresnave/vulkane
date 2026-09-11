@@ -251,8 +251,23 @@ def uncovered_extensions(root: pathlib.Path):
     #     .gitignore       rsplit -> ".gitignore"  suffix -> none
     #
     # A dot in a DIRECTORY name, or a dotfile with no extension, produced a
-    # fabricated extension. PurePosixPath because `git ls-files` always
-    # returns forward slashes regardless of platform.
+    # fabricated extension.
+    #
+    # ⚠️ `PurePosixPath` RATHER THAN `Path`, AND NOT FOR THE REASON IT LOOKS
+    # LIKE. Measured on win32, where `Path` is `WindowsPath`: the two agree on
+    # ALL 7 real path shapes tested, because WindowsPath accepts "/" happily.
+    # They diverge on exactly one input - a filename containing a BACKSLASH
+    # after a dot:
+    #
+    #     "a.rs" + chr(92) + "b"   WindowsPath -> ""   PurePosixPath -> ".rs\b"
+    #
+    # ⚠️ A BACKSLASH IN A GIT PATH IS PART OF THE FILENAME, NOT A SEPARATOR.
+    # `git ls-files -z` emits POSIX paths raw on every platform, so the POSIX
+    # reading is the correct one and WindowsPath would silently split a name.
+    #
+    # This is a fact about GIT, not about Python - and it is chosen for
+    # correctness of interpretation, NOT because `Path` was observed to fail.
+    # No repo here has such a filename, so the two are equivalent today.
     present = {pathlib.PurePosixPath(n).suffix.lower() for n in names}
     present.discard("")
     source_present = present & SOURCE_EXTENSIONS
