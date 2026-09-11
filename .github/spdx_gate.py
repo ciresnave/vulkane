@@ -215,16 +215,22 @@ def _git_z(root: pathlib.Path, *args: str, ok_codes=(0,)):
     return True, [n for n in text.split(chr(0)) if n]
 
 
-def tracked_sources(root: pathlib.Path) -> list[str]:
-    # ⚠️ RESOLVED ABSOLUTE, NOT "git". A bare name is looked up through PATH at
-    # call time, so what runs depends on the environment rather than on this
-    # file. The argv is fixed, there is no shell, and nothing here comes from a
-    # caller - `root` is this script's own parent directory.
+def tracked_sources(root: pathlib.Path) -> list[str] | None:
+    """Tracked files matching EXTENSIONS, or None if the listing FAILED.
+
+    ⚠️ `None` AND `[]` ARE DIFFERENT ANSWERS. This returned `[]` on failure,
+    and a caller comparing against MINIMUM_FILES then printed "the GLOB is
+    broken, not the tree" - which is the right VERDICT with the wrong
+    DIAGNOSIS, and sends the next reader to check a glob that is fine.
+
+    ⚠️ I WROTE A COMMENT ACKNOWLEDGING THAT AND CALLING IT TOLERABLE BECAUSE
+    THE FLOOR CATCHES IT. A gate returning the right verdict with the wrong
+    diagnosis is the defect this session has spent all night naming, and a
+    comment conceding a defect is not a fix for it.
+    """
     ok, names = _git_z(root, "ls-files", "-z", "--",
                        *(f"*{e}" for e in EXTENSIONS), ok_codes=(0,))
-    # ⚠️ An empty list from a FAILED call would read as "no source files",
-    # which the MINIMUM_FILES floor would then blame on a broken glob.
-    return names if ok else []
+    return names if ok else None
 
 
 #: Files allowed to contain the word "copyright". ⚠️ A PATTERN, NOT A COUNT.
@@ -322,7 +328,7 @@ def _expected(path: str) -> bool:
     return any(tag in base for tag in COPYRIGHT_EXPECTED)
 
 
-def survey_copyright(root: pathlib.Path) -> list[str]:
+def survey_copyright(root: pathlib.Path) -> list[str] | None:
     """Tracked files carrying a copyright notice that are NOT expected to, or
     None if the survey COULD NOT RUN.
 
@@ -420,6 +426,12 @@ def main(argv: list[str]) -> int:
 
     root = pathlib.Path(__file__).resolve().parent.parent
     files = tracked_sources(root)
+    if files is None:
+        # ⚠️ THE LISTING FAILED - a different fact from "the tree is small",
+        # and saying so is the whole point of returning None rather than [].
+        print("FAIL: could not list the tracked files. This is NOT a claim "
+              "about the tree.", file=sys.stderr)
+        return 1
 
     if len(files) < MINIMUM_FILES:
         print(f"FAIL: found {len(files)} source files, expected at least "
