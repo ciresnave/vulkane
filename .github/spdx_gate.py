@@ -265,7 +265,22 @@ def _git_z_all(root: pathlib.Path):
     proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
         [git, "-C", str(root), "ls-files", "-z"],
         capture_output=True, encoding=None, shell=False, check=False)
-    if proc.returncode not in (0, 1):
+    # ⚠️ `!= 0`, NOT `not in (0, 1)`. MEASURED, not reasoned:
+    #
+    #     git ls-files  with matches     -> 0
+    #     git ls-files  NO matches       -> 0        <- never 1
+    #     git ls-files  outside a repo   -> 128
+    #     git grep      NO matches       -> 1        <- the helper this was copied from
+    #
+    # The `(0, 1)` form came from the grep wrapper, where 1 genuinely means "no
+    # matches". Here it accepted an exit code `ls-files` cannot produce.
+    #
+    # ⚠️ INERT TODAY - no input reaches the gap - AND THE SAME PROVENANCE DEFECT
+    # AS A BAD PORT: a predicate carried from the call it was written for to a
+    # call with different exit semantics. The moment someone copies this to wrap
+    # a command that DOES use 1 as a signal, the gap opens and nothing says so.
+    # Found by an analyser reading the code against the PR's own prose.
+    if proc.returncode != 0:
         print("FAIL: git ls-files: "
               + proc.stderr.decode("utf-8", "replace").strip()[:200], file=sys.stderr)
         return False, []
