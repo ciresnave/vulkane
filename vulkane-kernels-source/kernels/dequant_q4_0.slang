@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Dequantize GGML Q4_0 blocks to f32.
 //
 // Block layout (18 bytes each, 32 elements per block):

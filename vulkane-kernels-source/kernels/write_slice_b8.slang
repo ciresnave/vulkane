@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // In-place rectangular slab assignment for 8-byte elements
 // (covers f64, i64). Same structure as write_slice_b4.slang but
 // accesses each element as a uvec2 (two u32s). One thread per

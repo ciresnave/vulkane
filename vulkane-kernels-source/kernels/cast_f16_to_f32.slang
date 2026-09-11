@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f16 → f32. Unpack 2 f16 per u32 input. One thread per input
 // u32 (pair of output f32s). Uses Slang's `f16tof32` builtin.
 //

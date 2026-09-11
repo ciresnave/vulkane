@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with replicate mode, 8-byte elements (f64, i64). Same as
 // pad_replicate_b4 with uint64_t storage.
 

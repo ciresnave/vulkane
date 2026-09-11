@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise unary ops for f64. Mirrors unary.slang's 13-op
 // surface (op_id 0..12) operating on `double` (shaderFloat64).
 //

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f32 → F8E4M3 (OCP "FN" variant: 1 sign + 4 exp + 3 mantissa,
 // bias 7, no infinity, single NaN at S.1111.111, max normal ±448).
 // Round-to-nearest-even with saturation matches NVIDIA's __nv_cvt_*

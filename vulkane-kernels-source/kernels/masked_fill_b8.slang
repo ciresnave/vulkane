@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // MaskedFill, 8-byte elements (f64, i64). One thread per element.
 
 struct Params {

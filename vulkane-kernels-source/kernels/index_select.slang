@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Row-wise lookup along a specified dim.
 //
 // Semantics (matches fuel-core/candle `index_select`):

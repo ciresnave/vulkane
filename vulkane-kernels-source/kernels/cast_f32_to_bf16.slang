@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f32 → bf16. Pack 2 bf16 per u32 in the output buffer (matches
 // the storage layout that matvec_bf16_b.glsl reads from).
 //

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f32 → f64 (widening, lossless). One thread per element.
 //
 // f32 is exactly representable in f64, so this is a pure widening

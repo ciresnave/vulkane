@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Gather along `dim`, 8-byte elements (f64, i64). Same shape as
 // gather_b4 with uint64_t storage.
 

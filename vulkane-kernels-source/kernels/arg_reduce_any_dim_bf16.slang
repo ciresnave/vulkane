@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along arbitrary dim — bf16. Counterpart to
 // arg_reduce_any_dim_f32; reads packed-u32 input with manual lane
 // select since the reduction direction is strided (stride > 1

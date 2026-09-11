@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Post-process a SPIR-V file from slangc to hoist + dedupe
 OpExtInstImport instructions that ended up inside function bodies
 out to module scope.

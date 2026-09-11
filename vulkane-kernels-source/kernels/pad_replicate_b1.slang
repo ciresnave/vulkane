@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with replicate mode, 1-byte elements (u8, i8). Quad-thread.
 // PRECONDITION: n_out multiple of 4.
 

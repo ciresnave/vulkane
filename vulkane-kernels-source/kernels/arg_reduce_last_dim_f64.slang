@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along the last dimension — f64. Native f64.
 
 struct Params {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // In-place scaled accumulate: dst[i] += src[i] * scale.
 // One thread per element. Reads dst, reads src, writes dst.
 //

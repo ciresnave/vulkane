@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Inclusive prefix sum along a single axis. Rank-N input (padded to
 // rank 4) + per-input strides; output is contig over the input's
 // shape. Sequential per-slice walk — see cumsum_f32.slang for the

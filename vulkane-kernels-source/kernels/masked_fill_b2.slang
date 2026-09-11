@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // MaskedFill, 2-byte elements (f16, bf16, i16, u16). Pair-thread: each
 // thread handles 2 elements (one u32 word). PRECONDITION: element
 // count `n` must be even. Reads 2 mask bytes from `mask` (which is

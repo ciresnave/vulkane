@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Triu / Tril for 4-byte element types (f32, i32, u32).
 //
 // Mask-style op: walk each (i, j) of the [..., rows, cols] tail; per

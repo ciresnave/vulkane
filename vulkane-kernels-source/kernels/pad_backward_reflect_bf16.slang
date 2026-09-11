@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward reflect mode — bf16. grad_out / grad_in are packed
 // two-bf16-per-u32; atomic accumulation uses sub-word CAS (same
 // primitive as scatter_add_bf16).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // IndexAdd — f64 via u64 CAS atomic double-add. Same shape as
 // index_add_f32; wrapper copies base → out before dispatch.
 

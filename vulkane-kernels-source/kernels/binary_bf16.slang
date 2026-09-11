@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise binary ops on bf16. Mirrors binary.slang / binary_f16.slang's
 // 6-op surface (Add/Sub/Mul/Div/Max/Min) and stride-aware param layout
 // — only the bf16<->f32 round-trip differs.

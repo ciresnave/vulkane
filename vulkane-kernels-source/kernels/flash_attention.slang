@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Phase 8 Tier 2: FlashAttention v2 forward in Slang.
 //
 // Tile-based scaled-dot-product attention with online softmax. One

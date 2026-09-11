@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // ScatterAdd along `dim` — f32. Output starts initialized to `base`
 // (copied by the wrapper); then for each src position p, the dst
 // position is the same as p except dim is replaced by indices[p].

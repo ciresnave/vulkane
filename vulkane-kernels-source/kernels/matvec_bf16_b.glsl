@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #extension GL_KHR_shader_subgroup_arithmetic : require
 // Mixed-precision gemv: C = A @ B with M == 1, B stored as bf16.
 // A: [1, K]     row-major f32

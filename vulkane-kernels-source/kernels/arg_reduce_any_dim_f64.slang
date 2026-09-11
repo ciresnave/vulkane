@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along arbitrary dim — f64. See arg_reduce_any_dim_f32
 // for the dispatch shape; differs only in the buffer element type
 // and the f64 identity sentinels.

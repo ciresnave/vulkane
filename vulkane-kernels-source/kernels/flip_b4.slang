@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Flip along a single axis. Rank-N input (padded to rank 4 with
 // leading 1s), per-input strides — output is always contig over the
 // input's shape. 4-byte element variant (f32 / i32 / u32); dtype-

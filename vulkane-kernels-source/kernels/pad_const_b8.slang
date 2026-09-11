@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with constant fill, 8-byte elements (f64, i64, u64). One thread
 // per output element. Storage as uint64_t — Slang's `uint64_t` maps
 // to OpTypeInt 64. Requires shaderInt64 capability (which every

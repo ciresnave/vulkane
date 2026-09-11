@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # Compile every shader source (*.wgsl, *.glsl, *.slang) in this
 # directory to SPIR-V, writing the output to ../../fuel-vulkan-kernels/spv/.
 #

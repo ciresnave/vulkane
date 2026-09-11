@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Naive single-pass attention forward, f32. NOT a tiled
 // FlashAttention-2 — materializes one row of the [Sq, Sk] score
 // matrix in shared memory per workgroup. Suitable for inference

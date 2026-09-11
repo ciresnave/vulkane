@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // LayerNorm last-dim — bf16. Packed-u32 storage with lane-pair reads
 // and pair-thread Phase-3 writes (no race; each lane handles one u32
 // pair per iter). Mixed precision: math in f32.

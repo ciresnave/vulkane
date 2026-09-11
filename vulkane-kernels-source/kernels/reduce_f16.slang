@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Parallel reduction over all elements — f16. One workgroup, tree
 // reduction. Matches reduce.slang's structure but with f16 storage
 // and f32 accumulation.

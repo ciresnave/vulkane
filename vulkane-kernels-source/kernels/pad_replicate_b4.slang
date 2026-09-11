@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with replicate (edge) mode, 4-byte elements (f32, i32, u32).
 // Per-axis mapping: clamp the input coord to [0, in_dim - 1].
 //

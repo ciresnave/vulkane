@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise binary ops on f16. Mirrors binary.slang's 6-op
 // surface (Add/Sub/Mul/Div/Max/Min) and stride-aware param layout
 // exactly; only the buffer element type and inner math differ.

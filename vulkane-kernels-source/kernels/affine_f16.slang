@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Affine: y = x * mul + add. f16 variant of affine.slang. Stride-aware.
 // Math at f32 (matches the half-precision convention; the precision
 // guarantee on the dispatch side already reflects this).

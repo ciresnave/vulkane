@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with constant fill, 2-byte elements (f16, bf16, i16, u16).
 // Storage is packed two-per-u32 (so n_out and the per-dim strides
 // here are still in *element* units, but src/dst are u32 buffers).

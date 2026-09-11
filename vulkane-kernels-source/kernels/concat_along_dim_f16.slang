@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Concat along arbitrary dim — f16.
 // Pure data movement; mirrors concat_along_dim.slang with float16_t
 // storage. Requires VK_KHR_16bit_storage + shaderFloat16.

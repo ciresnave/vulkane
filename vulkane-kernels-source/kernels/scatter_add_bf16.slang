@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // ScatterAdd along `dim` — bf16. Same shape as scatter_add_f32 but
 // each u32 word holds TWO bf16 lanes, so atomic accumulation runs a
 // sub-word CAS: read the full word, replace only the target lane's

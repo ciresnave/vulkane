@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // MaskedFill, 1-byte elements (u8, i8). Quad-thread: each thread
 // handles 4 elements (one u32 word). PRECONDITION: element count `n`
 // must be a multiple of 4. Reads 4 mask bytes (one u32 word) and

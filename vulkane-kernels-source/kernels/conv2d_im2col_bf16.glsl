@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
 // Conv2D im2col — bf16. Rearranges NCHW bf16 input into the patches
 // matrix that matmul_coop_bf16_bf16_bf16 consumes for conv2d output.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Concat along arbitrary dim — f64.
 // Pure data movement; mirrors concat_along_dim.slang with double
 // storage. Requires shaderFloat64.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward (constant mode), 1-byte elements (u8, i8). Quad-thread:
 // each thread handles 4 input elements. PRECONDITION: n_in multiple
 // of 4.

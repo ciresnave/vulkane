@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Parallel reduction: sum, max, min, or mean of all elements → single value.
 // One workgroup, tree reduction.
 //

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // IndexAdd — f32. For each k in [0, n_indices), src[..., k, ...] is
 // added to base[..., indices[k], ...] along the indexed axis. The
 // wrapper copies base → out before dispatch; the kernel atomically

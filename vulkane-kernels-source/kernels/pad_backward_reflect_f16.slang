@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward reflect mode — f16. Sub-word CAS atomic accumulation
 // using f16tof32 / f32tof16.
 

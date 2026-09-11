@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
 // Small-shape bf16 × bf16 → bf16 matmul fallback. Same as
 // matmul_small_bf16_bf16_f32 but the f32 accumulator is downcast

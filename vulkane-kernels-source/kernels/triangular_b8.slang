@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Triu / Tril for 8-byte element types (f64, i64).
 //
 // Treat each element as a (lo, hi) pair of u32. The pair is always

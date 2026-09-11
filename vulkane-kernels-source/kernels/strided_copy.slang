@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Strided copy: read `out_size` elements from `input` using the
 // given source strides + start offset, write contiguously into
 // `output` starting at `dst_offset`.

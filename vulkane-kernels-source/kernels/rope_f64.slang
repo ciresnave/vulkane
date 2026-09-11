@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused rotary position embedding — f64. Native f64 end-to-end.
 // Requires shaderFloat64. Mirrors rope.slang exactly except for the
 // storage type.

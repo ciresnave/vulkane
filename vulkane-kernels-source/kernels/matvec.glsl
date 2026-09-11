@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #extension GL_KHR_shader_subgroup_arithmetic : require
 // Stride-aware gemv: C = A @ B with M == 1.
 // A and B may be non-contiguous (permuted/transposed) — the kernel

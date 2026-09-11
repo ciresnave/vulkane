@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with reflect mode, 4-byte elements (f32, i32, u32).
 //
 // Per-axis mapping (no-repeat reflect, matches PyTorch's "reflect"):

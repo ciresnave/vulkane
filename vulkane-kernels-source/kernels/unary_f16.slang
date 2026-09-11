@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise unary ops for f16 with per-input stride support.
 // Mirrors unary.slang's 13-op surface (op_id 0..12) and stride-aware
 // param layout — only the buffer element type and math precision

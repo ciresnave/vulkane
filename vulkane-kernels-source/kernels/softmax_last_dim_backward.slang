@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused backward for softmax along the last dimension.
 //
 // Forward:  y_j = exp(x_j - max) / sum_i(exp(x_i - max))

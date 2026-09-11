@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with reflect mode, 1-byte elements (u8, i8). Quad-thread layout:
 // each thread handles 4 output elements (one u32 word).
 // PRECONDITION: n_out must be a multiple of 4.

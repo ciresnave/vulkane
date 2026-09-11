@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along arbitrary dim — f16. Mirrors the bf16 path
 // but uses Slang's `f16tof32` half-word builtin for the lane-select
 // conversion.

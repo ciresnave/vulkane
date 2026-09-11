@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along the last dimension — f32. Per-row workgroup,
 // tree reduction in shared memory tracking (val, idx) pairs.
 //

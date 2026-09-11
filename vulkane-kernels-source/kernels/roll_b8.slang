@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cyclic shift along a single axis for 8-byte elements (f64 / i64).
 // Each element is two u32 words; copy lo + hi for each output cell.
 // Rank-N (padded to rank 4) + per-input strides; output is contig

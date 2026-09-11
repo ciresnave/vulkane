@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast bf16 → f32. Unpack 2 bf16 per u32 from the input buffer
 // (same layout matvec_bf16_b.glsl reads from). bf16-to-f32 is an
 // exact bit-shift since bf16 is the upper 16 bits of f32.

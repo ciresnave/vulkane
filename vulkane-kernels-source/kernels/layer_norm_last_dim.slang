@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused layer normalization along the last dimension (f32).
 //
 // Formula:  y[i] = (x[i] - mean) / sqrt(var + eps)

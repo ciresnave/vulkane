@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward (constant mode), 4-byte elements (f32, i32, u32).
 //
 // Forward Pad const copies in[idx] → out[idx + left_pad] (and writes

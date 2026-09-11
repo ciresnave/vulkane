@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Row-wise lookup along a specified dim — f64. Native double; pure
 // data movement. Requires shaderFloat64.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // LayerNorm-last-dim backward — f16. Mixed precision: f16 storage,
 // f32 accumulation in the 4 reductions + per-element compute.
 

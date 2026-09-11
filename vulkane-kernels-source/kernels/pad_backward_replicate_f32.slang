@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward replicate mode — f32. Each output coord clamps to
 // [0, in_dim - 1] per axis; backward atomically accumulates each
 // grad_out value into the corresponding (clamped) grad_in slot.

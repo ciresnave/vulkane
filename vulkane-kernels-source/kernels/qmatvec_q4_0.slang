@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused Q4_0 × F32 gemv.
 //
 // Computes output[n] = sum_k A[k] * dequant(W_block[n, k/32][k%32]) for

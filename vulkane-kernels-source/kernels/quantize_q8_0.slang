@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Quantize an F32 tensor to GGML Q8_0 blocks (byte stream).
 //
 // Q8_0 block (34 bytes, 32 elements):

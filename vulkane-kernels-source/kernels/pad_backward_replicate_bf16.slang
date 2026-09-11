@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward replicate mode — bf16. Sub-word CAS atomic accumulation.
 
 struct Params {

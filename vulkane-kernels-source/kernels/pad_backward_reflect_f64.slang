@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward reflect mode — f64. Mirrors pad_backward_reflect_f32
 // but uses u64 CAS for atomic double-add (same primitive as
 // scatter_add_f64).

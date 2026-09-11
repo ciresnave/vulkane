@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused rotary position embedding (rotate_half convention).
 //
 // x:   [..., seq, head_dim]  (head_dim even; let h = head_dim/2)

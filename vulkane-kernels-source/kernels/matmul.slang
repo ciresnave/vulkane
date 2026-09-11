@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Tiled matrix multiply: C = A @ B
 // A: [M, K], B: [K, N], C: [M, N]  (all row-major f32)
 //

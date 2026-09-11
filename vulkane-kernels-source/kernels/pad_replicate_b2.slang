@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with replicate mode, 2-byte elements (f16, bf16, i16, u16).
 // Pair-thread. PRECONDITION: n_out even.
 

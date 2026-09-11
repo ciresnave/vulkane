@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise unary operations with per-input stride support.
 //
 // Output is always contiguous. The input is read via its own per-dim

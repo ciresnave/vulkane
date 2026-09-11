@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise integer power: y = x^exp.
 //
 // Stride-aware: shares the affine.slang Params shape (1 input,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along the last dimension — f16. Mixed precision:
 // f16 storage, f32 reduction in shared memory (avoids f16 underflow
 // in long-row scans and keeps the tie-break math precise).

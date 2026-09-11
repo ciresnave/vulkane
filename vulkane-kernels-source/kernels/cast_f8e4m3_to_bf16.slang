@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast F8E4M3 → bf16. Reads 4 F8E4M3 per input u32, writes 2 bf16 per
 // output u32. `n` must be a multiple of 4.
 

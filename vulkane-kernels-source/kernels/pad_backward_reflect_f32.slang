@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward reflect mode — f32. Forward reflect can map multiple
 // output positions to the same input position; backward accumulates
 // each grad_out contribution into the corresponding grad_in slot.

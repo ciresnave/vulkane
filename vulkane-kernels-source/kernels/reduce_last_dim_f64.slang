@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Per-row reduction along the last dimension — f64.
 //
 // Input:  [n_rows, n_cols]  contiguous, row-major, double.

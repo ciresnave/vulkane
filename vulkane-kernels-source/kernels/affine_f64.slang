@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Affine: y = x * mul + add. f64 variant of affine.slang. Stride-aware
 // (matches the strided_input KernelCaps gate).
 

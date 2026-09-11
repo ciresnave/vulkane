@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Strided copy with SIGNED strides for 4-byte elements (f32 / i32 /
 // u32). Backs Contiguize on outputs of ops like Flip, Roll, and any
 // layout-on-Node view whose materialized stride is negative — cases

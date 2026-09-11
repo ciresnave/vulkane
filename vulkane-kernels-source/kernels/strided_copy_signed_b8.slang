@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Signed-stride Contiguize for 8-byte elements (f64 / i64). Reads
 // each element as a pair of u32 words; see strided_copy_signed_b4.slang
 // for the algorithm rationale.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along ARBITRARY dim — f32. Slow path counterpart
 // to arg_reduce_last_dim_f32 (which dedicates a workgroup per row
 // and uses a tree reduction). For non-last dims a workgroup-per-row

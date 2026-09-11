@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // In-place rectangular slab assignment for 4-byte elements
 // (covers f32, i32, u32). Reads `n_src` elements from `src` (which
 // is contiguous in its own rank-N shape) and writes them into the

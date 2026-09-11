@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Gather along `dim`, 1-byte elements (u8, i8). Quad-thread: each
 // thread handles 4 output elements (one u32 word).
 //

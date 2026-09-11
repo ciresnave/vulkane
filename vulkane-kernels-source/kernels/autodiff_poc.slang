@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Proof-of-concept for Slang's automatic differentiation.
 //
 // This file is NOT wired into any op. Its purpose is to document

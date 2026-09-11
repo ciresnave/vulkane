@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with constant fill, 1-byte elements (u8, i8). Storage as
 // packed-u32 (4 bytes per u32 word). Quad-thread layout: each thread
 // handles 4 output bytes (one u32 word).

@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // FlashAttention backward — dQ, f32. One workgroup per (b, h_q, q_i)
 // row, mirroring the forward kernel's parallelism. Each workgroup:
 //   1. Recomputes the [Sk] score vector for this row in shared mem.

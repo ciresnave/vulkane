@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Affine: y = x * mul + add. bf16 variant. Pair-thread: each thread
 // handles one u32 word = two bf16 lanes, requires contiguous input.
 // (No strided KernelCaps — Fuel auto-Contiguizes before dispatch.)

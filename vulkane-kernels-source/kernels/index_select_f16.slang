@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Row-wise lookup along a specified dim — f16.
 //
 // Same semantics as index_select.slang; storage is float16_t. Pure

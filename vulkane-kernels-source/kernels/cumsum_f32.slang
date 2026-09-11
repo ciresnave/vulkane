@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Inclusive prefix sum along a single axis. Rank-N input (padded to
 // rank 4 with leading 1s) + per-input strides; output is contig over
 // the input's shape.

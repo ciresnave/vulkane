@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Parallel reduction over all elements — f64. One workgroup, tree
 // reduction. Native f64 end-to-end. Requires shaderFloat64.
 

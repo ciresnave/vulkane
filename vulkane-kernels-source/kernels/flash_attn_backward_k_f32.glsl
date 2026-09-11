@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // FlashAttention backward — dK, f32. One workgroup per (b, h_kv, k_j)
 // output column (same shape as dV). Each workgroup loops over
 // (h_q in group, q_i):

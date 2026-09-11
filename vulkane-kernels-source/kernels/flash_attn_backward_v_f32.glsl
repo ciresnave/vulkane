@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // FlashAttention backward — dV, f32. One workgroup per (b, h_kv, k_j)
 // output column. Each workgroup loops over (h_q in group, q_i),
 // cooperatively recomputing the softmax row and accumulating

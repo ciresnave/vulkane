@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Affine: y = x * mul + add. Handles AddScalar and MulScalar.
 //
 // Replaces affine.wgsl. Written in Slang per the shader policy.

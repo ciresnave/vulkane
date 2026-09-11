@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with constant fill, 4-byte elements (f32, i32, u32). One thread
 // per output element. If the output position maps to a valid input
 // position (after subtracting left-padding), copy from input;

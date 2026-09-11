@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Signed-stride Contiguize for 2-byte elements (f16 / bf16).
 // 16-bit-storage element access; see strided_copy_signed_b4.slang for
 // the algorithm rationale.

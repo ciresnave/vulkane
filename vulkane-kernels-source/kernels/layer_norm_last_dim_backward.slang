@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused backward for layer normalization along the last dimension.
 //
 // Forward:

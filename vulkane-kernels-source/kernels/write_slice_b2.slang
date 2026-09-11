@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // In-place rectangular slab assignment for 2-byte elements
 // (covers f16, bf16). Same structure as write_slice_b4.slang but
 // the source/dest buffers are accessed via `uint` and we pack 2

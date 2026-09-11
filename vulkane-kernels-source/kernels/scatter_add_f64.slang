@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // ScatterAdd along `dim` — f64. Same shape as scatter_add_f32 but
 // uses u64 CAS for atomic double add. Requires shaderFloat64 +
 // shaderInt64 + (Vulkan core 1.2 or VK_KHR_shader_atomic_int64).

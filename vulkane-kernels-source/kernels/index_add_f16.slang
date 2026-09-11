@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // IndexAdd — f16 via sub-word CAS. Same pattern as bf16 but uses
 // Slang's `f16tof32`/`f32tof16` half-word builtins.
 

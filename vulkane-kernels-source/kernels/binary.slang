@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise binary operations with per-operand stride support.
 //
 // Output is always contiguous. Each operand is read via its own

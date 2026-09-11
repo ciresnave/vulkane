@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // In-place rectangular slab assignment for 1-byte elements (u8 / i8 —
 // int8 quant cache and ggml-style activation caches). Mirrors
 // write_slice_b{2,4,8}.slang but with 4 elements packed per u32 word.

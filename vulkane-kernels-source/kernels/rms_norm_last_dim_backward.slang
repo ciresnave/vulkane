@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused backward for `rms_norm_last_dim`.
 //
 // Forward:  y_j = x_j / sqrt(mean(x², last) + eps)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // MaskedFill, 4-byte elements (f32, i32, u32). One thread per element.
 //
 // For element i: if mask[i] != 0 → output = fill_value; else copy input.

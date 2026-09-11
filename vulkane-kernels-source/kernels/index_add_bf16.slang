@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // IndexAdd — bf16 via sub-word CAS atomic add. Each u32 word holds
 // two bf16 lanes; the kernel CAS-replaces only the target half.
 

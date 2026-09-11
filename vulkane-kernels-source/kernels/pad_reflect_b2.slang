@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with reflect mode, 2-byte elements (f16, bf16, i16, u16).
 // Pair-thread layout: each thread handles 2 output elements (one u32
 // word). PRECONDITION: n_out must be even.

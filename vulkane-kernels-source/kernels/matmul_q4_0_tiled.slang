@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused Q4_0 × F32 matmul for M > 1 (prefill path).
 //
 // Computes C[m, n] = sum_k A[m, k] * dequant(W[n, k]) for

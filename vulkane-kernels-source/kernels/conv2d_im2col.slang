@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Conv2D im2col: rearrange NCHW input into the patches matrix that
 // the existing matmul shader can consume to produce conv2d output.
 //

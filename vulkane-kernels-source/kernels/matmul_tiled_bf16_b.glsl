@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Tiled matrix multiply with bf16 weights: C = A @ B
 // A: [M, K]   row-major f32
 // B: [K, N]   row-major bf16 (packed 2-per-u32 in storage)

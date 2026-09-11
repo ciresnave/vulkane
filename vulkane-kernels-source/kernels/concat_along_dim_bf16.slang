@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Concat along arbitrary dim — bf16.
 //
 // Storage: bf16 packed two-per-u32. The challenge for bf16 concat is

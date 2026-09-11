@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward (constant mode), 2-byte elements (f16, bf16, i16, u16).
 // Pair-thread: each thread handles 2 input elements (one u32 word).
 // PRECONDITION: n_in must be even.

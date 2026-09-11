@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f32 → f16. Pack 2 f16 per u32 in the output buffer. One thread
 // per output u32 (pair of f16 elements). f32-to-f16 uses Slang's
 // `f32tof16` builtin (round-to-nearest-even, IEEE-754 half-float).

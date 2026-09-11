@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Parallel reduction over all elements — bf16. One workgroup, tree
 // reduction.
 //

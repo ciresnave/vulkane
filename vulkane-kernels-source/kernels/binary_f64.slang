@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise binary ops on f64 (Add/Sub/Mul/Div/Max/Min). Mirrors
 // binary.slang exactly; only buffer element type changes.
 

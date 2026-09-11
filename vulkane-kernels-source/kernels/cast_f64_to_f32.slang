@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Cast f64 → f32 (narrowing, rounds to nearest-even per IEEE 754).
 // One thread per element. Requires shaderFloat64.
 

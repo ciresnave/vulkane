@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Argmax / Argmin along the last dimension — bf16. Lane-pair reads
 // from packed-u32 input; f32 reductions in shared memory. Tracks
 // the GLOBAL bf16-element index (not the pair index) so the output

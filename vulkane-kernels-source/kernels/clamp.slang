@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise clamp: y = clamp(x, lo, hi). One thread per element.
 //
 // Stride-aware: shares the affine.slang Params shape so the

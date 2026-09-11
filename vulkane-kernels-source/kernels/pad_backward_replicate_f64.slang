@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // PadBackward replicate mode — f64. Mirrors pad_backward_replicate_f32
 // but uses u64 CAS for atomic double-add.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused root-mean-square normalization along the last dimension — f64.
 //
 // Formula:  y = x / sqrt(mean(x², last) + eps)

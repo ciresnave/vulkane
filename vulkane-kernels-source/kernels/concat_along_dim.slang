@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Single-dispatch concat of two tensors along an arbitrary dim, with
 // per-operand stride support so either input may be a lazy view
 // (permute, broadcast, etc.) without needing explicit materialization.

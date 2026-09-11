@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pad with reflect mode, 8-byte elements (f64, i64). Same shape as
 // pad_reflect_b4 with uint64_t storage.
 

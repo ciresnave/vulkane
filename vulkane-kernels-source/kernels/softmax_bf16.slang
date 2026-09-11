@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused softmax along the last dimension — bf16.
 //
 // Formula:  y_j = exp(x_j - max) / sum_i(exp(x_i - max))

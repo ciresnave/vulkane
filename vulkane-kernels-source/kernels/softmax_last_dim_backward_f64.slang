@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Softmax-last-dim backward — f64. Native f64 end-to-end. Requires
 // shaderFloat64 + GroupNonUniformArithmetic.
 

@@ -1,4 +1,5 @@
 #version 450
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
 // FlashAttention forward, f16. Sibling of flash_attn_f32 / _bf16
 // with native float16_t inputs/outputs and f32 accumulators.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Fused rotary position embedding — bf16.
 //
 // Storage: bf16 packed two-per-u32 (lane 0 = low 16 bits). x, cos,

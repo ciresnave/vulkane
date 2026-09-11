@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Element-wise unary ops for bf16. Mirrors unary.slang's 13-op
 // surface (op_id 0..12) but Slang has no native `bfloat16_t` type, so
 // the kernel stores bf16 as packed u16 lanes (two per u32) and does

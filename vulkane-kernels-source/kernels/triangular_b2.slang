@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Triu / Tril for 2-byte element types (f16, bf16).
 //
 // Read storage as `uint` (4 bytes = pair of 2-byte elements); each

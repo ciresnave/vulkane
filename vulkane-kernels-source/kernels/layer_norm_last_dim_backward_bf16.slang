@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // LayerNorm-last-dim backward — bf16. Packed-u32 storage with lane-
 // pair reads in Phase 1 and pair-thread output writes in Phase 3.
 // Math in f32; same 4 reductions as f32.
