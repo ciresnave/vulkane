@@ -195,10 +195,14 @@ def _git_z(root: pathlib.Path, *args: str, ok_codes=(0,)):
     PASS must be able to tell "ran, found nothing" from "could not run", and
     they could not when each site decided for itself.
 
-    `git` is resolved with `shutil.which` rather than looked up through PATH at
-    call time, so what runs depends on this file and not on the environment. The
-    argv is fixed, `shell=False` is explicit, and the only interpolated value is
-    this script's own parent directory.
+    ⚠️ `shutil.which` SEARCHES `PATH`. This docstring claimed it made the binary
+    independent of the environment, and a reviewer caught it on 2026-09-16.
+    Measured: a directory prepended to `PATH` holding a fake `git` wins. So the
+    environment chooses which `git` runs, exactly as it chooses the `python3`
+    that runs this file - a runner with a hostile `PATH` has already lost.
+    What IS fixed here: list-form argv, explicit `shell=False`, and the only
+    interpolated paths are this script's own parent directory or a temporary
+    directory the self-test created.
     """
     git = shutil.which("git")
     if git is None:
@@ -232,8 +236,13 @@ def tracked_sources(root: pathlib.Path) -> list[str] | None:
     diagnosis is the defect this session has spent all night naming, and a
     comment conceding a defect is not a fix for it.
     """
+    # ⚠️ `:(icase)`, BECAUSE A GIT PATHSPEC IS CASE-SENSITIVE EVEN WHERE THE
+    # FILESYSTEM IS NOT. Measured on git 2.55 with `core.ignorecase` unset,
+    # false and true alike: `*.rs` lists `lower.rs` and misses `UPPER.RS`,
+    # while `extensions_of` lowercases - so `UPPER.RS` counted as covered by
+    # the census and was never audited by anything. A reviewer found it.
     ok, names = _git_z(root, "ls-files", "-z", "--",
-                       *(f"*{e}" for e in EXTENSIONS), ok_codes=(0,))
+                       *(f":(icase)*{e}" for e in EXTENSIONS), ok_codes=(0,))
     return names if ok else None
 
 
@@ -559,6 +568,7 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
     probe = f"probe{EXTENSIONS[0]}"
     stray_ext = sorted(SOURCE_EXTENSIONS - set(EXTENSIONS) - set(NOT_STAMPED))[0]
     stray = f"stray{stray_ext}"
+    upper = f"UPPER{EXTENSIONS[0].upper()}"
     saved = os.environ.get("GIT_CEILING_DIRECTORIES")
     with tempfile.TemporaryDirectory() as tmp:
         base = pathlib.Path(tmp)
@@ -570,9 +580,10 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
             (full / probe).write_text("# Copyright 2020 Somebody Else\n",
                                       encoding="utf-8")
             (full / stray).write_text("x = 1\n", encoding="utf-8")
+            (full / upper).write_text("x = 1\n", encoding="utf-8")
             if not (_git_z(empty, "init", "-q")[0]
                     and _git_z(full, "init", "-q")[0]
-                    and _git_z(full, "add", "--", probe, stray)[0]):
+                    and _git_z(full, "add", "--", probe, stray, upper)[0]):
                 return None
             # ⚠️ A FAILURE MUST BE REPORTED AS WELL AS RETURNED - `_git_z`
             # prints stderr rather than discarding it - so capture and count.
@@ -581,6 +592,7 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
                 listed = tracked_sources(outside)
                 surveyed = survey_copyright(outside)
                 censused = uncovered_extensions(outside)
+            full_listing = tracked_sources(full) or []
             return [
                 ("outside a repo: listing is None, not []", listed is None),
                 ("outside a repo: survey is None, not []", surveyed is None),
@@ -595,7 +607,11 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
                 ("empty repo: census ran",
                  uncovered_extensions(empty)[0] == []),
                 ("populated repo: listing finds the probe",
-                 tracked_sources(full) == [probe]),
+                 probe in full_listing),
+                ("populated repo: listing finds an UPPER-CASE extension",
+                 upper in full_listing),
+                ("populated repo: listing is exactly the matching files",
+                 sorted(full_listing) == sorted([probe, upper])),
                 ("populated repo: survey finds the notice",
                  survey_copyright(full) == [probe]),
                 (f"populated repo: census finds {stray_ext}",
@@ -608,9 +624,8 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
                 os.environ["GIT_CEILING_DIRECTORIES"] = saved
 
 
-def self_test() -> int:
-    """⚠️ The gate's own positive controls. A checker nobody has watched FAIL
-    is a checker nobody has evidence works."""
+def _declared_controls() -> list[tuple[str, bool]]:
+    """`declared` against the header shapes found across the portfolio."""
     cases = [
         ("bare header", "// SPDX-License-Identifier: MIT OR Apache-2.0\n", "MIT OR Apache-2.0"),
         ("above inner docs", "// SPDX-License-Identifier: MIT OR Apache-2.0\n//! docs\n", "MIT OR Apache-2.0"),
@@ -625,14 +640,16 @@ def self_test() -> int:
         # scanned the whole file would find the constant too.
         ("beyond the window", "\n" * 12 + "// SPDX-License-Identifier: MIT\n", None),
     ]
-    failures = 0
-    for name, text, expected in cases:
-        got = declared(text)
-        ok = got == expected
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  {name}: {got!r}"
-              + ("" if ok else f"  expected {expected!r}"))
+    out = []
+    for name, sample, expected in cases:
+        got = declared(sample)
+        out.append((f"{name}: {got!r}"
+                    + ("" if got == expected else f"  expected {expected!r}"),
+                    got == expected))
+    return out
 
+
+def _classification_controls() -> list[tuple[str, bool]]:
     # ⚠️ CONTROLS FOR THE COPYRIGHT SURVEY'S CLASSIFIER. Needs no git: the part
     # that can silently rot is the PREDICATE, and `COPYRIGHT_EXPECTED` is a list
     # somebody will extend. A manual both-arms run proves the checker worked
@@ -650,13 +667,12 @@ def self_test() -> int:
         ("vendor/LICENSE-deps/foo.rs", False),
         ("third_party/NOTICE-files/kernel.cu", False),
     ]
-    for path, expected in classifications:
-        got = _expected(path)
-        ok = got == expected
-        failures += not ok
-        verb = "exempt" if expected else "examined"
-        print(f"  {'ok  ' if ok else 'FAIL'}  {path} is {verb}")
+    return [(f"{path} is {'exempt' if expected else 'examined'}",
+             _expected(path) == expected)
+            for path, expected in classifications]
 
+
+def _suffix_controls() -> list[tuple[str, bool]]:
     # ⚠️ CONTROLS FOR THE EXTENSION CENSUS. `uncovered_extensions` needs git,
     # but the part that ROTS is the path->extension derivation and the set
     # arithmetic, and neither does. A reviewer asked for this and was right:
@@ -680,13 +696,15 @@ def self_test() -> int:
         ("x/y.tar.gz", ".gz"),
         ("crates/core/LICENSE-MIT", ""),
     ]
+    out = []
     for path, expected in suffixes:
         got = extensions_of([path])
-        ok = got == {expected} - {""}
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  extensions_of([{path!r}]) == "
-              f"{sorted(got)!r}")
+        out.append((f"extensions_of([{path!r}]) == {sorted(got)!r}",
+                    got == {expected} - {""}))
+    return out
 
+
+def _census_controls() -> list[tuple[str, bool]]:
     # The census arithmetic, with the tree's extensions supplied directly.
     census_cases = [
         ("a source ext outside the list is UNCOVERED",
@@ -702,23 +720,22 @@ def self_test() -> int:
         ("an ABSENT decline IS stale",
          {".rs"}, (".rs",), {".slang": "gone"}, [], [".slang"]),
     ]
-    for name, present, exts, not_stamped, want_unc, want_stale in census_cases:
-        unc, stl = census(present, exts, not_stamped)
-        ok = unc == want_unc and stl == want_stale
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+    return [(name, census(present, exts, not_stamped) == (want_unc, want_stale))
+            for name, present, exts, not_stamped, want_unc, want_stale
+            in census_cases]
 
+
+def _equivalence_controls() -> list[tuple[str, bool]]:
     equivalences = [("MIT OR Apache-2.0", "Apache-2.0 OR MIT", True),
                     ("Apache-2.0", "MIT OR Apache-2.0", False),
                     ("MIT", "MIT OR Apache-2.0", False)]
-    for a, b, same in equivalences:
-        ok = (normalise(a) == normalise(b)) == same
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  {a!r} {'==' if same else '!='} {b!r}")
+    return [(f"{a!r} {'==' if same else '!='} {b!r}",
+             (normalise(a) == normalise(b)) == same)
+            for a, b, same in equivalences]
 
-    # ⚠️ SUMMED, NOT WRITTEN DOWN. This line said "10 controls" while 18 ran,
-    # for one commit - a stale count inside the run whose entire purpose is to
-    # kill stale counts. A COUNT CANNOT SURVIVE ITS OWN LIST GROWING.
+
+def _own_bytes_controls() -> list[tuple[str, bool]]:
+    """This file's own line endings."""
     # ⚠️ THIS FILE'S OWN BYTES. On 2026-09-16 every deployment of this gate
     # was stored with ~200 lines ending CR CR LF - left by line-based edits
     # that re-added CRLF to lines already ending in CR. Git calls such a file
@@ -729,30 +746,42 @@ def self_test() -> int:
     # Windows is not, so this counts the difference rather than any CR.
     own = pathlib.Path(__file__).read_bytes()
     lone_cr = own.count(b"\r") - own.count(b"\r\n")
-    own_bytes = [("this file has no lone CR", lone_cr == 0)]
-    for name, ok in own_bytes:
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  {name}"
-              + ("" if ok else f": {lone_cr} found"))
+    return [("this file has no lone CR"
+             + ("" if lone_cr == 0 else f": {lone_cr} found"), lone_cr == 0)]
 
-    # ⚠️ CONTROLS THAT RUN GIT - see `_git_fixture_controls` for why they
-    # exist. A fixture that cannot be built is a failure, never a skip.
-    git_controls = _git_fixture_controls()
-    if git_controls is None:
-        failures += 1
-        print("  FAIL  could not build the git fixture")
-        git_controls = []
-    for name, ok in git_controls:
-        failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
 
-    total = (len(cases) + len(equivalences) + len(classifications)
-             + len(suffixes) + len(census_cases) + len(own_bytes)
-             + len(git_controls))
-    print(f"{chr(10)}{'PASS' if not failures else 'FAIL'}: {total} controls, "
-          f"{failures} failed")
+def self_test() -> int:
+    """⚠️ The gate's own positive controls. A checker nobody has watched FAIL
+    is a checker nobody has evidence works.
+
+    ⚠️ EACH GROUP LIVES IN A `*_controls` HELPER, and every helper calls the
+    gate's own functions rather than a copy of their logic - the copy is what
+    let four fixed bugs come back unnoticed. Split out of one function when it
+    reached cyclomatic complexity 14; `tools/gate_fleet.py` counts the
+    helpers' case tables, so its number still matches the one printed here.
+    """
+    results = (_declared_controls() + _classification_controls()
+               + _suffix_controls() + _census_controls()
+               + _equivalence_controls() + _own_bytes_controls())
+    fixture = _git_fixture_controls()
+    if fixture is None:
+        # ⚠️ A fixture that cannot be built is a FAILURE, never a skip: this
+        # gate cannot run without git either.
+        results.append(("the git fixture could be built", False))
+    else:
+        results += fixture
+
+    failures = 0
+    for label, ok in results:
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  {label}")
+
+    # ⚠️ SUMMED, NOT WRITTEN DOWN. This line said "10 controls" while 18 ran,
+    # for one commit - a stale count inside the run whose entire purpose is to
+    # kill stale counts. A COUNT CANNOT SURVIVE ITS OWN LIST GROWING.
+    print(f"{chr(10)}{'PASS' if not failures else 'FAIL'}: {len(results)} "
+          f"controls, {failures} failed")
     return 1 if failures else 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
