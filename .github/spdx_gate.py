@@ -29,10 +29,14 @@ WHAT THIS REFUSES TO DO, AND WHY EACH ONE IS DELIBERATE:
 
 from __future__ import annotations
 
+import contextlib
+import io
+import os
 import pathlib
 import shutil
 import subprocess  # noqa: S404 - fixed argv, no shell, no caller input
 import sys
+import tempfile
 
 LICENCE = "MIT OR Apache-2.0"
 # ⚠️ AN EXTENSION THIS TUPLE OMITS IS A POPULATION THE GATE NEVER COUNTED, and
@@ -265,18 +269,14 @@ COPYRIGHT_ACKNOWLEDGED = {
 }
 
 
-def uncovered_extensions(root: pathlib.Path):
-    """Tracked SOURCE extensions that EXTENSIONS does not cover, and stale
-    NOT_STAMPED entries.
+def extensions_of(names) -> set[str]:
+    """Every extension among `names`, lower-cased, "no extension" removed.
 
-    ⚠️ THE RATCHET'S OWN POPULATION, CHECKED. Without this, adding `.wgsl`
-    tomorrow escapes the gate silently and the pass rate goes UP - because the
-    denominator never learns about the new files. That is how `fuel` reports
-    834/834 while 203 tracked source files sit outside its scan.
+    ⚠️ PURE AND SEPARATE SO THAT THE SELF-TEST CALLS IT. Until 2026-09-16
+    the suffix controls re-derived `PurePosixPath(...).suffix` themselves, so
+    putting `rsplit(".")` BACK into this derivation still passed 29 of 29.
+    A CONTROL THAT EXERCISES A COPY OF THE CODE TESTS THE COPY.
     """
-    ok, names = _git_z_all(root)
-    if not ok:
-        return None, None
     # ⚠️ `PurePosixPath.suffix`, NOT `rsplit(".")`. Filed as a LOW-RISK style
     # nitpick and it is a correctness bug - measured on real path shapes:
     #
@@ -304,16 +304,41 @@ def uncovered_extensions(root: pathlib.Path):
     # No repo here has such a filename, so the two are equivalent today.
     present = {pathlib.PurePosixPath(n).suffix.lower() for n in names}
     present.discard("")
+    return present
+
+
+def census(present: set[str], exts, not_stamped) -> tuple[list, list]:
+    """(uncovered, stale) for a tree whose extensions are `present`.
+
+    ⚠️ PURE FOR THE SAME REASON AS `extensions_of`. The census controls
+    redid this arithmetic inline, so reverting the staleness fix below -
+    comparing against `source_present` again - still passed all of them.
+    """
     source_present = present & SOURCE_EXTENSIONS
-    uncovered = sorted(source_present - set(EXTENSIONS) - set(NOT_STAMPED))
+    uncovered = sorted(source_present - set(exts) - set(not_stamped))
     # ⚠️ AGAINST EVERY PRESENT EXTENSION, NOT JUST THE SOURCE ONES. NOT_STAMPED
     # means "present in this tree and deliberately not stamped"; the staleness
     # question is whether it is STILL PRESENT, not whether it is still
     # classified as source. Comparing against `source_present` reported
     # `.spv` and `.xml` as stale while both sit in the tree - a decline of a
     # non-source extension could never be recorded without redding.
-    stale = sorted(set(NOT_STAMPED) - present)
+    stale = sorted(set(not_stamped) - present)
     return uncovered, stale
+
+
+def uncovered_extensions(root: pathlib.Path):
+    """Tracked SOURCE extensions that EXTENSIONS does not cover, and stale
+    NOT_STAMPED entries.
+
+    ⚠️ THE RATCHET'S OWN POPULATION, CHECKED. Without this, adding `.wgsl`
+    tomorrow escapes the gate silently and the pass rate goes UP - because the
+    denominator never learns about the new files. That is how `fuel` reports
+    834/834 while 203 tracked source files sit outside its scan.
+    """
+    ok, names = _git_z_all(root)
+    if not ok:
+        return None, None
+    return census(extensions_of(names), EXTENSIONS, NOT_STAMPED)
 
 
 def _git_z_all(root: pathlib.Path):
@@ -499,6 +524,90 @@ def main(argv: list[str]) -> int:
                  or uncovered or stale_ns) else 0
 
 
+def _git_fixture_controls() -> list[tuple[str, bool]] | None:
+    """Controls for the paths that run GIT, against real throwaway repos.
+
+    ⚠️ FOUR DEFECTS FIXED IN THIS FILE, PUT BACK ONE AT A TIME, ALL PASSED THE
+    SELF-TEST AS IT STOOD ON 2026-09-16 - each mutation checked as applied:
+
+        listing failure returns [] instead of None        PASS 29/29
+        survey failure returns [] instead of None         PASS 29/29
+        `rsplit(".")` back in the extension derivation    PASS 29/29
+        staleness against source extensions only          PASS 29/29
+
+    The first two had no control at all: nothing in the self-test ran git. The
+    last two had controls that exercised a COPY of the logic.
+
+    ⚠️ THREE FIXTURES, BECAUSE TWO CANNOT SEPARATE THE ANSWERS. Outside a repo
+    must give None; an EMPTY repo must give [] and not None; a populated repo
+    must find what is in it. A helper that always returned None passes the
+    first alone, and one that always returned [] passes the second alone.
+    Measured before writing:
+
+        outside a repo    ls-files -> 128   grep -> 128
+        empty repo        ls-files -> 0     grep -> 1
+        populated repo    ls-files -> 0     grep -> 0
+
+    `GIT_CEILING_DIRECTORIES` stops discovery at the temp dir, so "outside a
+    repo" holds even when the temp dir sits beneath somebody's checkout.
+
+    The fixture is built through `_git_z` as well, so this file still runs git
+    from exactly one place. None means the fixture could not be built, which
+    the caller counts as a FAILURE rather than a skip: this gate cannot run
+    without git either.
+    """
+    probe = f"probe{EXTENSIONS[0]}"
+    stray_ext = sorted(SOURCE_EXTENSIONS - set(EXTENSIONS) - set(NOT_STAMPED))[0]
+    stray = f"stray{stray_ext}"
+    saved = os.environ.get("GIT_CEILING_DIRECTORIES")
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        os.environ["GIT_CEILING_DIRECTORIES"] = str(base)
+        try:
+            outside, empty, full = base / "outside", base / "empty", base / "full"
+            for d in (outside, empty, full):
+                d.mkdir()
+            (full / probe).write_text("# Copyright 2020 Somebody Else\n",
+                                      encoding="utf-8")
+            (full / stray).write_text("x = 1\n", encoding="utf-8")
+            if not (_git_z(empty, "init", "-q")[0]
+                    and _git_z(full, "init", "-q")[0]
+                    and _git_z(full, "add", "--", probe, stray)[0]):
+                return None
+            # ⚠️ A FAILURE MUST BE REPORTED AS WELL AS RETURNED - `_git_z`
+            # prints stderr rather than discarding it - so capture and count.
+            said = io.StringIO()
+            with contextlib.redirect_stderr(said):
+                listed = tracked_sources(outside)
+                surveyed = survey_copyright(outside)
+                censused = uncovered_extensions(outside)
+            return [
+                ("outside a repo: listing is None, not []", listed is None),
+                ("outside a repo: survey is None, not []", surveyed is None),
+                ("outside a repo: census is None, not []",
+                 censused == (None, None)),
+                ("outside a repo: all three failures are REPORTED",
+                 said.getvalue().count("FAIL: git") == 3),
+                ("empty repo: listing is [], not None",
+                 tracked_sources(empty) == []),
+                ("empty repo: survey is [], not None",
+                 survey_copyright(empty) == []),
+                ("empty repo: census ran",
+                 uncovered_extensions(empty)[0] == []),
+                ("populated repo: listing finds the probe",
+                 tracked_sources(full) == [probe]),
+                ("populated repo: survey finds the notice",
+                 survey_copyright(full) == [probe]),
+                (f"populated repo: census finds {stray_ext}",
+                 uncovered_extensions(full)[0] == [stray_ext]),
+            ]
+        finally:
+            if saved is None:
+                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+            else:
+                os.environ["GIT_CEILING_DIRECTORIES"] = saved
+
+
 def self_test() -> int:
     """⚠️ The gate's own positive controls. A checker nobody has watched FAIL
     is a checker nobody has evidence works."""
@@ -554,8 +663,15 @@ def self_test() -> int:
     # a manual run proves it worked that afternoon; nothing re-runs it when
     # SOURCE_EXTENSIONS or NOT_STAMPED grows.
     #
-    # The first three FAIL against the `rsplit(".")` form this replaced, so
-    # they are controls rather than decoration.
+    # The two dotted directories and the dotfile FAIL against the
+    # `rsplit(".")` form this replaced, so they are controls rather than
+    # decoration.
+    #
+    # ⚠️ THIS SAID "THE FIRST THREE", AND UNTIL 2026-09-16 IT WAS FALSE TWICE:
+    # the first entry passes under `rsplit`, and no entry could fail at all,
+    # because each re-derived the suffix instead of calling the gate. They
+    # call `extensions_of` now, and the claim was re-measured by putting the
+    # original `rsplit` back: exactly those three red.
     suffixes = [
         ("src/lib.rs", ".rs"),
         ("some.dir/file", ""),
@@ -565,13 +681,14 @@ def self_test() -> int:
         ("crates/core/LICENSE-MIT", ""),
     ]
     for path, expected in suffixes:
-        got = pathlib.PurePosixPath(path).suffix.lower()
-        ok = got == expected
+        got = extensions_of([path])
+        ok = got == {expected} - {""}
         failures += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'}  suffix({path!r}) == {got!r}")
+        print(f"  {'ok  ' if ok else 'FAIL'}  extensions_of([{path!r}]) == "
+              f"{sorted(got)!r}")
 
     # The census arithmetic, with the tree's extensions supplied directly.
-    census = [
+    census_cases = [
         ("a source ext outside the list is UNCOVERED",
          {".rs", ".md"}, (".py",), {}, [".rs"], []),
         ("a source ext IN the list is covered",
@@ -585,10 +702,8 @@ def self_test() -> int:
         ("an ABSENT decline IS stale",
          {".rs"}, (".rs",), {".slang": "gone"}, [], [".slang"]),
     ]
-    for name, present, exts, not_stamped, want_unc, want_stale in census:
-        source_present = present & SOURCE_EXTENSIONS
-        unc = sorted(source_present - set(exts) - set(not_stamped))
-        stl = sorted(set(not_stamped) - present)
+    for name, present, exts, not_stamped, want_unc, want_stale in census_cases:
+        unc, stl = census(present, exts, not_stamped)
         ok = unc == want_unc and stl == want_stale
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
@@ -604,8 +719,36 @@ def self_test() -> int:
     # ⚠️ SUMMED, NOT WRITTEN DOWN. This line said "10 controls" while 18 ran,
     # for one commit - a stale count inside the run whose entire purpose is to
     # kill stale counts. A COUNT CANNOT SURVIVE ITS OWN LIST GROWING.
+    # ⚠️ THIS FILE'S OWN BYTES. On 2026-09-16 every deployment of this gate
+    # was stored with ~200 lines ending CR CR LF - left by line-based edits
+    # that re-added CRLF to lines already ending in CR. Git calls such a file
+    # `-text` and never normalises it, and Python reads each lone CR as a line
+    # break, so a traceback's line number was up to 159 lines away from the
+    # line GitHub shows. The fleet comparison cannot see it: an AST has no
+    # line endings. A CR NOT FOLLOWED BY LF is the defect; a CRLF checkout on
+    # Windows is not, so this counts the difference rather than any CR.
+    own = pathlib.Path(__file__).read_bytes()
+    lone_cr = own.count(b"\r") - own.count(b"\r\n")
+    own_bytes = [("this file has no lone CR", lone_cr == 0)]
+    for name, ok in own_bytes:
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  {name}"
+              + ("" if ok else f": {lone_cr} found"))
+
+    # ⚠️ CONTROLS THAT RUN GIT - see `_git_fixture_controls` for why they
+    # exist. A fixture that cannot be built is a failure, never a skip.
+    git_controls = _git_fixture_controls()
+    if git_controls is None:
+        failures += 1
+        print("  FAIL  could not build the git fixture")
+        git_controls = []
+    for name, ok in git_controls:
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+
     total = (len(cases) + len(equivalences) + len(classifications)
-             + len(suffixes) + len(census))
+             + len(suffixes) + len(census_cases) + len(own_bytes)
+             + len(git_controls))
     print(f"{chr(10)}{'PASS' if not failures else 'FAIL'}: {total} controls, "
           f"{failures} failed")
     return 1 if failures else 0
