@@ -533,6 +533,53 @@ def main(argv: list[str]) -> int:
                  or uncovered or stale_ns) else 0
 
 
+def _fixture_names() -> tuple[str, str, str, str]:
+    """(probe, stray, upper, stray_ext) for the populated fixture repo."""
+    stray_ext = sorted(SOURCE_EXTENSIONS - set(EXTENSIONS) - set(NOT_STAMPED))[0]
+    return (f"probe{EXTENSIONS[0]}", f"stray{stray_ext}",
+            f"UPPER{EXTENSIONS[0].upper()}", stray_ext)
+
+
+@contextlib.contextmanager
+def _git_ceiling(path: str):
+    """Stop git's repository discovery at `path` while the block runs."""
+    saved = os.environ.get("GIT_CEILING_DIRECTORIES")
+    os.environ["GIT_CEILING_DIRECTORIES"] = path
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+        else:
+            os.environ["GIT_CEILING_DIRECTORIES"] = saved
+
+
+def _git_fixture(base: pathlib.Path):
+    """(outside, empty, full) built under `base`, or None if git could not.
+
+    `full` tracks a probe carrying a notice, a source file whose extension is
+    not covered, and an upper-case spelling of a covered extension. Built
+    through `_git_z`, so this file still runs git from exactly one place.
+    """
+    probe, stray, upper, _ = _fixture_names()
+    outside, empty, full = base / "outside", base / "empty", base / "full"
+    for d in (outside, empty, full):
+        d.mkdir()
+    (full / probe).write_text("# Copyright 2020 Somebody Else\n",
+                              encoding="utf-8")
+    for name in (stray, upper):
+        (full / name).write_text("x = 1\n", encoding="utf-8")
+    # ⚠️ `base` IS ITSELF A REPO, so `outside` is outside only because of the
+    # ceiling. Otherwise dropping `_git_ceiling` would pass on every machine
+    # whose temp dir is not already inside a checkout - which is every
+    # machine this has run on - and the ceiling would be untested.
+    built = (_git_z(base, "init", "-q")[0]
+             and _git_z(empty, "init", "-q")[0]
+             and _git_z(full, "init", "-q")[0]
+             and _git_z(full, "add", "--", probe, stray, upper)[0])
+    return (outside, empty, full) if built else None
+
+
 def _git_fixture_controls() -> list[tuple[str, bool]] | None:
     """Controls for the paths that run GIT, against real throwaway repos.
 
@@ -560,68 +607,47 @@ def _git_fixture_controls() -> list[tuple[str, bool]] | None:
     `GIT_CEILING_DIRECTORIES` stops discovery at the temp dir, so "outside a
     repo" holds even when the temp dir sits beneath somebody's checkout.
 
-    The fixture is built through `_git_z` as well, so this file still runs git
-    from exactly one place. None means the fixture could not be built, which
-    the caller counts as a FAILURE rather than a skip: this gate cannot run
-    without git either.
+    None means the fixture could not be built, which the caller counts as a
+    FAILURE rather than a skip: this gate cannot run without git either.
     """
-    probe = f"probe{EXTENSIONS[0]}"
-    stray_ext = sorted(SOURCE_EXTENSIONS - set(EXTENSIONS) - set(NOT_STAMPED))[0]
-    stray = f"stray{stray_ext}"
-    upper = f"UPPER{EXTENSIONS[0].upper()}"
-    saved = os.environ.get("GIT_CEILING_DIRECTORIES")
-    with tempfile.TemporaryDirectory() as tmp:
-        base = pathlib.Path(tmp)
-        os.environ["GIT_CEILING_DIRECTORIES"] = str(base)
-        try:
-            outside, empty, full = base / "outside", base / "empty", base / "full"
-            for d in (outside, empty, full):
-                d.mkdir()
-            (full / probe).write_text("# Copyright 2020 Somebody Else\n",
-                                      encoding="utf-8")
-            (full / stray).write_text("x = 1\n", encoding="utf-8")
-            (full / upper).write_text("x = 1\n", encoding="utf-8")
-            if not (_git_z(empty, "init", "-q")[0]
-                    and _git_z(full, "init", "-q")[0]
-                    and _git_z(full, "add", "--", probe, stray, upper)[0]):
-                return None
-            # ⚠️ A FAILURE MUST BE REPORTED AS WELL AS RETURNED - `_git_z`
-            # prints stderr rather than discarding it - so capture and count.
-            said = io.StringIO()
-            with contextlib.redirect_stderr(said):
-                listed = tracked_sources(outside)
-                surveyed = survey_copyright(outside)
-                censused = uncovered_extensions(outside)
-            full_listing = tracked_sources(full) or []
-            return [
-                ("outside a repo: listing is None, not []", listed is None),
-                ("outside a repo: survey is None, not []", surveyed is None),
-                ("outside a repo: census is None, not []",
-                 censused == (None, None)),
-                ("outside a repo: all three failures are REPORTED",
-                 said.getvalue().count("FAIL: git") == 3),
-                ("empty repo: listing is [], not None",
-                 tracked_sources(empty) == []),
-                ("empty repo: survey is [], not None",
-                 survey_copyright(empty) == []),
-                ("empty repo: census ran",
-                 uncovered_extensions(empty)[0] == []),
-                ("populated repo: listing finds the probe",
-                 probe in full_listing),
-                ("populated repo: listing finds an UPPER-CASE extension",
-                 upper in full_listing),
-                ("populated repo: listing is exactly the matching files",
-                 sorted(full_listing) == sorted([probe, upper])),
-                ("populated repo: survey finds the notice",
-                 survey_copyright(full) == [probe]),
-                (f"populated repo: census finds {stray_ext}",
-                 uncovered_extensions(full)[0] == [stray_ext]),
-            ]
-        finally:
-            if saved is None:
-                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
-            else:
-                os.environ["GIT_CEILING_DIRECTORIES"] = saved
+    probe, _, upper, stray_ext = _fixture_names()
+    with tempfile.TemporaryDirectory() as tmp, _git_ceiling(tmp):
+        dirs = _git_fixture(pathlib.Path(tmp))
+        if dirs is None:
+            return None
+        outside, empty, full = dirs
+        # ⚠️ A FAILURE MUST BE REPORTED AS WELL AS RETURNED - `_git_z` prints
+        # stderr rather than discarding it - so capture and count.
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            listed = tracked_sources(outside)
+            surveyed = survey_copyright(outside)
+            censused = uncovered_extensions(outside)
+        full_listing = tracked_sources(full) or []
+        return [
+            ("outside a repo: listing is None, not []", listed is None),
+            ("outside a repo: survey is None, not []", surveyed is None),
+            ("outside a repo: census is None, not []",
+             censused == (None, None)),
+            ("outside a repo: all three failures are REPORTED",
+             said.getvalue().count("FAIL: git") == 3),
+            ("empty repo: listing is [], not None",
+             tracked_sources(empty) == []),
+            ("empty repo: survey is [], not None",
+             survey_copyright(empty) == []),
+            ("empty repo: census ran",
+             uncovered_extensions(empty)[0] == []),
+            ("populated repo: listing finds the probe",
+             probe in full_listing),
+            ("populated repo: listing finds an UPPER-CASE extension",
+             upper in full_listing),
+            ("populated repo: listing is exactly the matching files",
+             sorted(full_listing) == sorted([probe, upper])),
+            ("populated repo: survey finds the notice",
+             survey_copyright(full) == [probe]),
+            (f"populated repo: census finds {stray_ext}",
+             uncovered_extensions(full)[0] == [stray_ext]),
+        ]
 
 
 def _declared_controls() -> list[tuple[str, bool]]:
