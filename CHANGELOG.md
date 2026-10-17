@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — CI hardening (no packaged source touched)
+
+Every `uses:` in `.github/workflows/ci.yml` is pinned to a full commit SHA (tag in a trailing comment),
+the workflow declares `permissions: contents: read`, and `.github/CODEOWNERS` names `@ciresnave`.
+No crate version changes: all four members already sit on unpublished versions and no packaged file changed.
+
 ## [vulkane_derive 0.1.2] — unreleased
 
 ### Changed — bumped because the licence sweep edits PACKAGED source

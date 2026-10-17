@@ -29,6 +29,10 @@ on:
   # rather than close a gap.
   pull_request:
 
+# Least privilege: every job here only reads the repository.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -72,10 +76,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
 
       # A pin that is present but INERT looks exactly like a pin that works:
       # `stable` and the pinned version resolve to the same compiler today, so a
@@ -96,7 +100,7 @@ jobs:
           esac
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -358,10 +362,10 @@ jobs:
     name: shaderc (GLSL/HLSL -> SPIR-V)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
@@ -403,8 +407,8 @@ jobs:
     name: Build docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
       # Build the documentation with all features enabled and treat any
       # broken intra-doc link as an error. This is what docs.rs will do
       # when the crate is published.
@@ -429,7 +433,7 @@ jobs:
     name: Local gate harness self-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # Provisioning is a SEPARATE step from the gate, deliberately. The harness
       # replays these commands locally, and a gate bundled with a `pip install`
       # makes a local verification depend on the network. Same category as the
@@ -656,7 +660,7 @@ jobs:
     name: Every source file declares the licence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # The gate's own controls run FIRST. A checker nobody has watched fail is
       # a checker nobody has evidence works, and a gate whose parser silently
       # broke would report a clean tree rather than an error.
@@ -669,8 +673,8 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
         with:
           components: rustfmt
       - name: Check formatting
@@ -680,8 +684,8 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
         with:
           components: clippy
       - name: Run clippy
@@ -704,8 +708,8 @@ jobs:
       matrix: ${{ steps.read.outputs.matrix }}
       minimality: ${{ steps.read.outputs.minimality }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
       - id: read
         name: Read each crate's declared rust-version
         shell: bash
@@ -730,7 +734,7 @@ jobs:
       matrix:
         crate: ${{ fromJSON(needs.msrv-discover.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # Install and invoke MUST use the same string. rustup does not treat
       # `1.85` as an alias for `1.85.0` -- they are separate toolchains, and a
       # bare `1.85` installs the latest patch of that minor (1.85.1 today).
@@ -784,7 +788,7 @@ jobs:
       matrix:
         crate: ${{ fromJson(needs.msrv-discover.outputs.minimality) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install the toolchain one minor below the floor
         run: rustup toolchain install "${{ matrix.crate.below }}" --profile minimal
       - name: The toolchain must answer before its result means anything
