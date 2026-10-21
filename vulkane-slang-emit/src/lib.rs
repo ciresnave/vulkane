@@ -26,6 +26,23 @@
 //! Slang re-lifts to the same IR (the residue-round-trip contract the "one IR, N
 //! languages" hub rests on; proven by `slang_emit_round_trips_through_the_lifter`).
 //!
+//! ## Subnormals: a compile flag, not source
+//!
+//! Without a declared mode, SPIR-V leaves f32 subnormal behaviour to the device, and the devices
+//! tried flush: the emitted `relu` (`x < 0.0 ? 0.0 : x`) returned a negative subnormal unchanged
+//! where cpu-c and CUDA return 0 (8,388,607 of 2^32 inputs; AMD Radeon 610M and RTX 4070 Laptop,
+//! exhaustive, `unpopped-harness`). The mode is a `slangc` argument, not something the `.slang`
+//! text can carry, so it is the consumer's to pass: [`required_slangc_args`] names it, and every
+//! float kernel's header comment repeats it. With `-denorm-mode-fp32 preserve` (SPIR-V
+//! `DenormPreserve 32`) the same run had zero mismatches on both devices.
+//!
+//! **A device must not be gated on `VkPhysicalDeviceFloatControlsProperties` alone.** The RTX 4070
+//! reports `shaderDenormPreserveFloat32 = false` and `shaderDenormFlushToZeroFloat32 = false`, yet
+//! flushes by default and preserves when asked; AMD reports both true and honours both. What a
+//! device does is a measurement, to be recorded per device (the harness report), not read off the
+//! property bits. How a plan declines on it waits on a KISS capability field; until then an `Exact`
+//! float kernel is only as exact as the flag the consumer passed.
+//!
 //! ## v1 scope (honest boundary)
 //!
 //! - Dtypes: `F32`/`F32Strict`→`float`, `F64`→`double`, `I32`→`int`,
@@ -226,6 +243,17 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     }
 }
 
+/// The `slangc` arguments a kernel of `dtype` needs for its subnormals to follow IEEE, as SPIR-V
+/// `DenormPreserve`. Empty for integer dtypes. See the module docs ("Subnormals") for why this
+/// is a compile argument and why it is not gated on device properties.
+pub fn required_slangc_args(dtype: ElementKind) -> &'static [&'static str] {
+    match dtype {
+        ElementKind::F32 | ElementKind::F32Strict => &["-denorm-mode-fp32", "preserve"],
+        ElementKind::F64 => &["-denorm-mode-fp64", "preserve"],
+        _ => &[],
+    }
+}
+
 impl Backend for Slang {
     fn name(&self) -> &str {
         "slang"
@@ -316,6 +344,14 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> Result<GeneratedKern
         plan.op_name,
         plan.key.to_token()
     ));
+    let args = required_slangc_args(plan.dtype);
+    if !args.is_empty() {
+        s.push_str(&format!(
+            "// slangc: {}
+",
+            args.join(" ")
+        ));
+    }
     for i in 0..n {
         s.push_str(&format!("StructuredBuffer<{ctype}> input{i};\n"));
     }
@@ -575,6 +611,39 @@ mod tests {
     use unpopped::generate;
     use unpopped::ir::{OpDef, input};
     use unpopped_vocab::{ArchSku, OpCategory, OperandDesc, structure_key};
+
+    /// Float kernels name the `slangc` argument their subnormals need; integer kernels name none.
+    /// The header must agree with [`required_slangc_args`] (one source), per dtype.
+    #[test]
+    fn float_kernels_name_the_denorm_flag_and_integer_kernels_do_not() {
+        let cases = [
+            (
+                ElementKind::F32,
+                Some("// slangc: -denorm-mode-fp32 preserve"),
+            ),
+            (
+                ElementKind::F64,
+                Some("// slangc: -denorm-mode-fp64 preserve"),
+            ),
+            (ElementKind::I32, None),
+        ];
+        for (dt, want) in cases {
+            let op = OpDef::elementwise("dn", 2, &[dt], input(0) + input(1));
+            let k = generate(&op, &binary_scalar_key(dt, 4), &Slang);
+            let line = k.source.lines().find(|l| l.starts_with("// slangc:"));
+            assert_eq!(
+                line, want,
+                "{dt:?}:
+{}",
+                k.source
+            );
+            let args = required_slangc_args(dt);
+            assert_eq!(args.is_empty(), want.is_none(), "{dt:?}");
+            if let Some(w) = want {
+                assert_eq!(w, format!("// slangc: {}", args.join(" ")), "{dt:?}");
+            }
+        }
+    }
 
     /// A binary Elementwise cell whose small `align` defeats vectorization, so
     /// `build_plan` derives [`Schedule::Scalar`] (the path Slang v1 serves).
