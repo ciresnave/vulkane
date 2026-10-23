@@ -69,8 +69,8 @@
 //! is the fix (tracked as a seam follow-up).
 
 use unpopped::backend::{
-    Backend, Decline, DeclinedOp, GeneratedKernel, LowerError, Lowering, Spelling, const_lit,
-    lower_dag,
+    Backend, Decline, DeclinedOp, DtypeSupport, GeneratedKernel, LowerError, Lowering, Spelling,
+    const_lit, lower_dag,
 };
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use unpopped::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
@@ -127,7 +127,7 @@ fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
 /// 8-bit arithmetic, because `lower` consulted only the name table and
 /// `supports_dtype` was never on that path. **A capability gate that the
 /// lowering path does not call is not a gate.**
-fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
+fn dtype_ok(dt: ElementKind, target: TargetId) -> DtypeSupport {
     // `target` is now CONSULTED for the narrow integers — the gap this
     // comment used to describe is closed for i8/u8. What follows records why
     // the answer differs per width, and what is still unanswerable.
@@ -170,17 +170,15 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     // down because it is exactly the inference a future reader would think
     // was an obvious win.
     //
-    // # Why this still returns a bare `bool`, for now
+    // # Three answers (issue #6)
     //
-    // The honest answer has THREE states — supported, unsupported, and *not
-    // expressible in this vocabulary version* — and `bool` collapses the
-    // last two. "The device lacks it" and "the vocabulary cannot say" call
-    // for different responses (wait for hardware vs wait for a spec), which
-    // is Vulkane's point and a real API question rather than a comment's.
-    // Raised with Eric; not decided unilaterally, since `Backend` is a
-    // peer-implemented trait.
+    // "The device lacks it" and "the vocabulary cannot say" call for different
+    // responses (change hardware vs wait for a spec), which is Vulkane's point.
+    // `i8`/`u8`/`bool`: the vocabulary HAS the token, so a target that does not
+    // carry it is `Unsupported`. `i16`/`u16`: the vocabulary has no token, so a
+    // target that does not carry one is `NotExpressible` — silence, not denial.
     if slang_ctype(dt).is_none() {
-        return false;
+        return DtypeSupport::Unsupported;
     }
     // The narrow integers are the only dtypes whose answer depends on the
     // target. Everything else `slang_ctype` names is universally spellable.
@@ -188,7 +186,7 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
         dt,
         ElementKind::I8 | ElementKind::U8 | ElementKind::Bool | ElementKind::I16 | ElementKind::U16
     ) {
-        return true;
+        return DtypeSupport::Supported;
     }
     // 8-bit ARITHMETIC is `shaderInt8`, spelled `i8` in the `<arith>` field.
     //
@@ -233,13 +231,21 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> bool {
     } else {
         "i8"
     };
-    match target.capability_field("arith") {
-        Some(arith) => arith.iter().any(|t| t == needed),
-        // The token does not speak about arithmetic — a `cuda:` or `metal:`
-        // target, or a `vulkan:` one that omits the field. **Absence is
-        // silence, not permission.** Declining here is the same answer as
-        // before this gate existed; what changed is that it now has a reason.
-        None => false,
+    let advertised = target
+        .capability_field("arith")
+        .is_some_and(|arith| arith.iter().any(|t| t == needed));
+    if advertised {
+        DtypeSupport::Supported
+    } else if needed == "i16" {
+        // The vocabulary names no 16-bit-arithmetic token yet, so a target
+        // without one is silent rather than lacking. **Absence is silence, not
+        // permission** — and not denial either.
+        DtypeSupport::NotExpressible
+    } else {
+        // The token exists and the target does not carry it (or does not speak
+        // about arithmetic at all — a `cuda:` or `metal:` target). **Absence is
+        // silence, not permission.**
+        DtypeSupport::Unsupported
     }
 }
 
@@ -263,14 +269,14 @@ impl Backend for Slang {
         "unpopped"
     }
 
-    fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> bool {
+    fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> DtypeSupport {
         dtype_ok(dtype, target)
     }
 
     fn lower(&self, plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         // The ONE statement of slang's legality surface. The JIT used to keep a
         // parallel copy derived from CUDA's rules and apply it to every backend.
-        if !dtype_ok(plan.dtype, plan.key.target) {
+        if !dtype_ok(plan.dtype, plan.key.target).is_supported() {
             return Err(LowerError::UnsupportedDtype {
                 dtype: plan.dtype,
                 detail: format!(
@@ -678,7 +684,7 @@ mod tests {
     #[test]
     fn eight_bit_gates_on_the_arith_field_and_refuses_when_silent() {
         let t = |tok: &str| TargetId::parse(tok).expect("valid token");
-        let can = |tok: &str, dt| Slang.supports_dtype(dt, t(tok));
+        let can = |tok: &str, dt| Slang.supports_dtype(dt, t(tok)).is_supported();
 
         // ADVERTISED -> supported, and `u8` gates on `i8` because `shaderInt8`
         // is signedness-agnostic. There is no `u8` token to look for.
@@ -758,7 +764,7 @@ mod tests {
     /// for **symmetry with an assumption already being made**, not because the
     /// universality argument reaches it. If i64 is over-claiming here then so is
     /// u64, and both are answered by the same `supports_dtype` three-state
-    /// question already raised with Eric — not by this test.
+    /// [`DtypeSupport`] — not by this test.
     #[test]
     fn unsigned_elementwise_emits_uint_buffers() {
         for (dt, ctype, tag) in [
@@ -883,17 +889,80 @@ mod tests {
         );
     }
 
+    /// Issue #6: the two refusals are DIFFERENT facts. 8-bit has a vocabulary
+    /// token, so a target without it lacks the capability (`Unsupported`); 16-bit
+    /// has none, so a target without it is silent (`NotExpressible`). Both are
+    /// not-supported, and a `bool` could not tell them apart.
+    #[test]
+    fn supports_dtype_separates_a_lacking_device_from_a_silent_vocabulary() {
+        let t = |tok: &str| TargetId::parse(tok).expect("valid token");
+        let at = |tok: &str, dt| Slang.supports_dtype(dt, t(tok));
+
+        assert_eq!(
+            at("vulkan:sg32.arith-f16-i8", ElementKind::I8),
+            DtypeSupport::Supported
+        );
+        // Token exists, target lacks it: the device lacks it.
+        assert_eq!(
+            at("vulkan:sg32.arith-f16", ElementKind::I8),
+            DtypeSupport::Unsupported
+        );
+        assert_eq!(at("cuda:sm89", ElementKind::U8), DtypeSupport::Unsupported);
+        // No token exists for 16-bit arithmetic: the vocabulary cannot say.
+        assert_eq!(
+            at("vulkan:sg32.arith-f16-i8", ElementKind::I16),
+            DtypeSupport::NotExpressible
+        );
+        assert_eq!(
+            at("vulkan:sg32.arith-f16-i8", ElementKind::U16),
+            DtypeSupport::NotExpressible
+        );
+        // A dtype Slang never spells is its own refusal, not a vocabulary gap.
+        assert_eq!(
+            at("vulkan:sg32.arith-f16-i8", ElementKind::F16),
+            DtypeSupport::Unsupported
+        );
+    }
+
     #[test]
     fn declines_f16_and_non_scalar_dtypes_via_supports_dtype() {
-        assert!(!Slang.supports_dtype(ElementKind::F16, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::Bf16, ArchSku::Sm89.into()));
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::F16, ArchSku::Sm89.into())
+                .is_supported()
+        );
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::Bf16, ArchSku::Sm89.into())
+                .is_supported()
+        );
         // U32/U64 now lower — see `slang_ctype` and
         // `unsigned_elementwise_emits_uint_buffers`. i8/u8/i16/u16 stay declined.
-        assert!(!Slang.supports_dtype(ElementKind::I8, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::U8, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::I16, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::U16, ArchSku::Sm89.into()));
-        assert!(!Slang.supports_dtype(ElementKind::I8, ArchSku::Sm89.into()));
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::I8, ArchSku::Sm89.into())
+                .is_supported()
+        );
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::U8, ArchSku::Sm89.into())
+                .is_supported()
+        );
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::I16, ArchSku::Sm89.into())
+                .is_supported()
+        );
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::U16, ArchSku::Sm89.into())
+                .is_supported()
+        );
+        assert!(
+            !Slang
+                .supports_dtype(ElementKind::I8, ArchSku::Sm89.into())
+                .is_supported()
+        );
         for dt in [
             ElementKind::F32,
             ElementKind::F64,
@@ -901,7 +970,9 @@ mod tests {
             ElementKind::I64,
         ] {
             assert!(
-                Slang.supports_dtype(dt, ArchSku::Sm89.into()),
+                Slang
+                    .supports_dtype(dt, ArchSku::Sm89.into())
+                    .is_supported(),
                 "{dt:?} should be supported"
             );
         }
