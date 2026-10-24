@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - unreleased
+
+### Added - `PROVENANCE.md` records where `vulkan.jpeg` came from
+
+Documentation only; no source or asset changed. The logo's embedded C2PA manifest (read-only parse, not
+cryptographically validated) names Microsoft's Image Creator from Designer; CireSnave's statement and the open
+licence-terms question are recorded in `PROVENANCE.md`. Bumped because every pushed change takes a version.
+
 ### Changed — CI hardening (no packaged source touched)
 
 Every `uses:` in `.github/workflows/ci.yml` is pinned to a full commit SHA (tag in a trailing comment),
