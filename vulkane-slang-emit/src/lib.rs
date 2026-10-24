@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! IR→Slang compute-shader lowering — the third backend (v1), and the **first
 //! idiomatically non-C-family emitter**.
 //!
