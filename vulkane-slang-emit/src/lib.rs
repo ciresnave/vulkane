@@ -59,15 +59,14 @@
 //!   follow-up. Params (scalar `p{i}` via a `cbuffer`) are likewise a follow-up —
 //!   v1 is parameterless.
 //!
-//! ## Known C-shaped seam assumption this backend surfaces
+//! ## A C-shaped seam assumption this backend surfaced, now closed
 //!
 //! [`unpopped::backend::const_lit`] spells non-finite constants as C's
-//! `NAN`/`INFINITY` macros, which are not valid Slang — so a body carrying a
-//! NaN/Inf *constant* emits invalid Slang today. Finite-constant bodies (the vast
-//! majority: add/mul/relu/affine/…) are unaffected. This is exactly the kind of
-//! accidentally-C-shaped assumption a non-C backend is meant to shake out before
-//! the emitter seam is frozen into a versioned ABI; a Slang-aware const spelling
-//! is the fix (tracked as a seam follow-up).
+//! `NAN`/`INFINITY` macros, which are not valid Slang: a body carrying a NaN/Inf
+//! *constant* used to emit Slang that `slangc` rejected (`undefined identifier
+//! 'INFINITY'`, found by the harness's C14 probe, 2026-10-24). The `constant` seam
+//! now spells them with `slang_const` (`asfloat(0x7f800000u)` and friends, the
+//! IEEE bit patterns), and finite constants still go through `const_lit` unchanged.
 
 use unpopped::backend::{
     Backend, Decline, DeclinedOp, DtypeSupport, GeneratedKernel, LowerError, Lowering, Spelling,
@@ -81,6 +80,22 @@ use unpopped_vocab::{ElementKind, TargetId};
 /// The Slang compute-shader backend. Lowers a [`KernelPlan`] to `.slang` source.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Slang;
+
+/// A constant as Slang source. `const_lit` is valid Slang for every finite value but spells NaN
+/// and the infinities as C macros (`NAN`, `INFINITY`) that Slang does not define, so those three
+/// are spelled as their IEEE-754 binary32 bit patterns through `asfloat`. A kernel that widens the
+/// result to f64 widens the float, which keeps NaN and the infinities.
+fn slang_const(v: f64) -> String {
+    if v.is_nan() {
+        "asfloat(0x7fc00000u)".to_string()
+    } else if v == f64::INFINITY {
+        "asfloat(0x7f800000u)".to_string()
+    } else if v == f64::NEG_INFINITY {
+        "asfloat(0xff800000u)".to_string()
+    } else {
+        const_lit(v)
+    }
+}
 
 /// Slang scalar type for a dtype, or `None` if v1 declines it.
 fn slang_ctype(dt: ElementKind) -> Option<&'static str> {
@@ -386,7 +401,7 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> Result<GeneratedKern
             &|op, a, b| slang_binary(op, a, b, plan.dtype),
         )
         .select(&|c, a, b| slang_select(c, a, b, plan.dtype))
-        .constant(&|v| Ok(Spelling::Spelled(const_lit(v))))
+        .constant(&|v| Ok(Spelling::Spelled(slang_const(v))))
         .build(),
     )?;
     for decl in &prelude {
@@ -650,6 +665,34 @@ mod tests {
                 assert_eq!(w, format!("// slangc: {}", args.join(" ")), "{dt:?}");
             }
         }
+    }
+
+    /// A NaN or infinity constant must not emit a C macro Slang does not define. Control: the
+    /// finite constant beside it is spelled exactly as before.
+    #[test]
+    fn non_finite_constants_are_not_spelled_as_c_macros() {
+        use unpopped::ir::konst;
+        for (v, want) in [
+            (f64::INFINITY, "asfloat(0x7f800000u)"),
+            (f64::NEG_INFINITY, "asfloat(0xff800000u)"),
+            (f64::NAN, "asfloat(0x7fc00000u)"),
+        ] {
+            let op = OpDef::elementwise("nf", 2, &[ElementKind::F32], input(0) + konst(v));
+            let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
+            assert!(k.source.contains(want), "{v}:\n{}", k.source);
+            assert!(
+                !k.source.contains("INFINITY") && !k.source.contains("NAN"),
+                "{v}:\n{}",
+                k.source
+            );
+        }
+        let op = OpDef::elementwise("fin", 2, &[ElementKind::F32], input(0) + konst(2.5));
+        let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
+        assert!(
+            k.source.contains("2.5") && !k.source.contains("asfloat"),
+            "{}",
+            k.source
+        );
     }
 
     /// A binary Elementwise cell whose small `align` defeats vectorization, so
@@ -1023,6 +1066,17 @@ mod tests {
         use unpopped::ir::{BinaryOp, UnaryOp};
 
         let kernels = vec![
+            generate(
+                &OpDef::elementwise(
+                    "nonfinite",
+                    1,
+                    &[ElementKind::F32],
+                    (input(0) + unpopped::ir::konst(f64::INFINITY))
+                        + (unpopped::ir::konst(f64::NEG_INFINITY) + unpopped::ir::konst(f64::NAN)),
+                ),
+                &unary_scalar_key(ElementKind::F32, 4),
+                &Slang,
+            ),
             generate(
                 &OpDef::elementwise(
                     "affine",
