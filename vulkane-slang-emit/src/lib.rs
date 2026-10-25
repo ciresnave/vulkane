@@ -417,7 +417,9 @@ fn body_has_params(e: &ScalarExpr) -> bool {
     match e {
         ScalarExpr::Param(_) => true,
         ScalarExpr::Unary(_, x) => body_has_params(x),
-        ScalarExpr::Cast(x, _) | ScalarExpr::Bitcast(x, _) => body_has_params(x),
+        ScalarExpr::Cast(x, _) | ScalarExpr::Bitcast(x, _) | ScalarExpr::Qualified(x, _) => {
+            body_has_params(x)
+        }
         ScalarExpr::Add(a, b)
         | ScalarExpr::Sub(a, b)
         | ScalarExpr::Mul(a, b)
@@ -1095,6 +1097,27 @@ mod tests {
         let key = binary_scalar_key(ElementKind::F32, 4);
         let _ = unpopped::try_generate(&plain, &key, &Slang)
             .expect("the untyped form must still generate (positive control)");
+    }
+
+    /// A `Qualified` operation is a typed decline in Slang, never the bare operation
+    /// (which would silently drop the rounding mode / ftz / approx). Control: the same
+    /// op unqualified generates, so the decline is the qualifier and nothing else.
+    #[test]
+    fn declines_a_qualified_op_and_names_the_qualifier() {
+        let key = binary_scalar_key(ElementKind::F32, 4);
+        for q in [
+            (input(0) + input(0)).ftz(),
+            (input(0) / input(0)).approx(),
+            (input(0) * input(0)).rounded(unpopped::ir::RoundMode::TowardZero),
+        ] {
+            let op = OpDef::elementwise("q", 1, &[ElementKind::F32], q);
+            let err = unpopped::try_generate(&op, &key, &Slang)
+                .expect_err("Slang must decline a Qualified op it cannot honour");
+            assert!(format!("{err:?}").contains("Qualified"), "{err:?}");
+        }
+        let plain = OpDef::elementwise("p", 1, &[ElementKind::F32], input(0) + input(0));
+        unpopped::try_generate(&plain, &key, &Slang)
+            .expect("the unqualified form must still generate (positive control)");
     }
 
     /// The residue-round-trip contract: emitted Slang re-lifts to the SAME IR —
