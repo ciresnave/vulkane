@@ -296,7 +296,12 @@ impl Backend for Slang {
             return Err(LowerError::UnsupportedDtype {
                 dtype: plan.dtype,
                 detail: format!(
-                    "slang backend: {:?} is not spellable for target `{}`. f16/bf16 are                      declined outright; i8/u8 require the target to advertise 8-bit                      arithmetic (`i8` in the vulkan `<arith>` field — NOT `st8`, which is                      storage only), and i16/u16 wait on vocabulary v5",
+                    concat!(
+                        "slang backend: {:?} is not spellable for target `{}`. f16/bf16 are declined outright; ",
+                        "i8/u8 require the target to advertise 8-bit arithmetic (`i8` in the vulkan ",
+                        "`<arith>` field — NOT `st8`, which is storage only), and i16/u16 require ",
+                        "`i16` in the same field"
+                    ),
                     plan.dtype,
                     plan.key.target.as_str()
                 ),
@@ -670,6 +675,32 @@ mod tests {
                 assert_eq!(w, format!("// slangc: {}", args.join(" ")), "{dt:?}");
             }
         }
+    }
+
+    /// The decline text for a 16-bit integer must say what is true today: vocabulary v5 shipped,
+    /// so i16/u16 need `i16` in the target's `<arith>` field. It used to say they "wait on
+    /// vocabulary v5". Adopters match this text (ROADMAP X5).
+    #[test]
+    fn sixteen_bit_decline_names_the_arith_token_not_a_vocabulary_wait() {
+        let op = OpDef::elementwise("w16", 2, &[ElementKind::I16], input(0) + input(1));
+        let key = binary_scalar_key(ElementKind::I16, 4);
+        let msg = match std::panic::catch_unwind(|| generate(&op, &key, &Slang)) {
+            Ok(k) => panic!(
+                "expected a decline on a target without i16:
+{}",
+                k.source
+            ),
+            Err(e) => e
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+                .expect("string panic payload"),
+        };
+        assert!(
+            msg.contains("i16/u16 require `i16` in the same field"),
+            "{msg}"
+        );
+        assert!(!msg.contains("wait on vocabulary v5"), "{msg}");
     }
 
     /// A NaN or infinity constant must not emit a C macro Slang does not define. Control: the
