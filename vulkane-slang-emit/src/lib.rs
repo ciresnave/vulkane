@@ -431,7 +431,9 @@ fn body_has_params(e: &ScalarExpr) -> bool {
         ScalarExpr::Input(_)
         | ScalarExpr::Const(_)
         | ScalarExpr::Reduced(_)
-        | ScalarExpr::Coord(_) => false,
+        | ScalarExpr::Coord(_)
+        | ScalarExpr::CoordInt(..)
+        | ScalarExpr::ConstInt(..) => false,
     }
 }
 
