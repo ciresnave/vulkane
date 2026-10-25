@@ -417,6 +417,7 @@ fn body_has_params(e: &ScalarExpr) -> bool {
     match e {
         ScalarExpr::Param(_) => true,
         ScalarExpr::Unary(_, x) => body_has_params(x),
+        ScalarExpr::Cast(x, _) | ScalarExpr::Bitcast(x, _) => body_has_params(x),
         ScalarExpr::Add(a, b)
         | ScalarExpr::Sub(a, b)
         | ScalarExpr::Mul(a, b)
@@ -1060,6 +1061,40 @@ mod tests {
         );
         unpopped::try_generate(&unfused, &key, &Slang)
             .expect("the unfused form must still generate (positive control)");
+    }
+
+    /// **Slang declines `Cast`/`Bitcast` until it can spell the exact rounding and
+    /// saturation.** `typed_expressions` in the cpu_c end-to-end suite is the model for
+    /// the spelling; until Slang has one, a typed op is a typed decline, never a plain
+    /// HLSL cast. Control: the same op without the cast generates.
+    #[test]
+    fn declines_a_cast_but_generates_the_untyped_form() {
+        // A round trip through i32 keeps the store type at f32, so the decline under
+        // test is the Cast seam and not Slang's separate hetero-output decline.
+        let op = OpDef::elementwise(
+            "roundTrip",
+            1,
+            &[ElementKind::F32],
+            input(0)
+                .cast(
+                    ElementKind::I32,
+                    unpopped::ir::RoundMode::TowardZero,
+                    unpopped::ir::Saturation::Clamp,
+                )
+                .cast(
+                    ElementKind::F32,
+                    unpopped::ir::RoundMode::NearestEven,
+                    unpopped::ir::Saturation::Wrap,
+                ),
+        );
+        let key = binary_scalar_key(ElementKind::F32, 4);
+        let err = unpopped::try_generate(&op, &key, &Slang)
+            .expect_err("Slang must decline a Cast it cannot spell exactly");
+        assert!(format!("{err:?}").contains("Cast"), "{err:?}");
+        let plain = OpDef::elementwise("neg", 1, &[ElementKind::F32], input(0) + input(0));
+        let key = binary_scalar_key(ElementKind::F32, 4);
+        let _ = unpopped::try_generate(&plain, &key, &Slang)
+            .expect("the untyped form must still generate (positive control)");
     }
 
     /// The residue-round-trip contract: emitted Slang re-lifts to the SAME IR —
