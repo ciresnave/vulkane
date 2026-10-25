@@ -422,7 +422,7 @@ fn body_has_params(e: &ScalarExpr) -> bool {
         | ScalarExpr::Mul(a, b)
         | ScalarExpr::Div(a, b)
         | ScalarExpr::Binary(_, a, b) => body_has_params(a) || body_has_params(b),
-        ScalarExpr::Select(c, a, b) => {
+        ScalarExpr::Select(c, a, b) | ScalarExpr::Fma(c, a, b) => {
             body_has_params(c) || body_has_params(a) || body_has_params(b)
         }
         ScalarExpr::Input(_)
@@ -1028,6 +1028,38 @@ mod tests {
         // A V4-aligned contiguous binary f32 op keys Schedule::Vectorized.
         let op = OpDef::elementwise("add", 2, &[ElementKind::F32], input(0) + input(1));
         let _ = generate(&op, &binary_scalar_key(ElementKind::F32, 256), &Slang);
+    }
+
+    /// **Slang declines `Fma` rather than spelling a two-rounding substitute.**
+    ///
+    /// SPIR-V's `Fma` (and HLSL `mad`) carry no single-rounding guarantee on every
+    /// Vulkan device, so this emitter has no spelling it can promise is fused. The
+    /// contract of `ScalarExpr::Fma` is one rounding, so the honest answer is a
+    /// typed decline. Control: the same shape built from `Mul`+`Add` generates, so
+    /// the decline is about the fused node and not about the key or the dtype.
+    #[test]
+    fn declines_fma_but_generates_the_unfused_form() {
+        let key = binary_scalar_key(ElementKind::F32, 4);
+        let fused = OpDef::elementwise(
+            "fma",
+            3,
+            &[ElementKind::F32],
+            input(0).fma(input(1), input(2)),
+        );
+        let err = unpopped::try_generate(&fused, &key, &Slang)
+            .expect_err("Slang must decline a fused multiply-add");
+        assert!(
+            format!("{err:?}").contains("Fma"),
+            "the decline must name Fma, got {err:?}"
+        );
+        let unfused = OpDef::elementwise(
+            "mulAdd",
+            3,
+            &[ElementKind::F32],
+            input(0) * input(1) + input(2),
+        );
+        unpopped::try_generate(&unfused, &key, &Slang)
+            .expect("the unfused form must still generate (positive control)");
     }
 
     /// The residue-round-trip contract: emitted Slang re-lifts to the SAME IR —
