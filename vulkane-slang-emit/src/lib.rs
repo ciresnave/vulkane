@@ -422,9 +422,11 @@ fn body_has_params(e: &ScalarExpr) -> bool {
     match e {
         ScalarExpr::Param(_) => true,
         ScalarExpr::Unary(_, x) => body_has_params(x),
-        ScalarExpr::Cast(x, _) | ScalarExpr::Bitcast(x, _) | ScalarExpr::Qualified(x, _) => {
-            body_has_params(x)
-        }
+        ScalarExpr::Cast(x, _)
+        | ScalarExpr::Bitcast(x, _)
+        | ScalarExpr::Qualified(x, _)
+        | ScalarExpr::Extract(x, _) => body_has_params(x),
+        ScalarExpr::Pack(xs) => xs.iter().any(body_has_params),
         ScalarExpr::Add(a, b)
         | ScalarExpr::Sub(a, b)
         | ScalarExpr::Mul(a, b)
