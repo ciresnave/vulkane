@@ -976,6 +976,31 @@ mod tests {
     /// token, so a target without it lacks the capability (`Unsupported`); 16-bit
     /// has none, so a target without it is silent (`NotExpressible`). Both are
     /// not-supported, and a `bool` could not tell them apart.
+    /// The OCP MX element formats (KISS-CLASSIFY 6.1-0014) are storage and key identity
+    /// only: Slang has no type to spell them with, on any target.
+    #[test]
+    fn the_mx_element_formats_are_not_computed_on_any_target() {
+        let t = |tok: &str| TargetId::parse(tok).expect("valid token");
+        for dt in [
+            ElementKind::F4E2M1,
+            ElementKind::F6E2M3,
+            ElementKind::F6E3M2,
+        ] {
+            for tok in ["vulkan:sg32.arith-f16-i8", "cuda:sm89"] {
+                assert!(
+                    !Slang.supports_dtype(dt, t(tok)).is_supported(),
+                    "{dt:?} on {tok}"
+                );
+            }
+        }
+        // Control: a computed dtype is supported on the same target.
+        assert!(
+            Slang
+                .supports_dtype(ElementKind::F32, t("vulkan:sg32.arith-f16-i8"))
+                .is_supported()
+        );
+    }
+
     #[test]
     fn supports_dtype_separates_a_lacking_device_from_a_silent_vocabulary() {
         let t = |tok: &str| TargetId::parse(tok).expect("valid token");
