@@ -22,6 +22,6 @@ AND its emitter; Unpopped holds neither (contract: Unpopped's `Frontend` / `Back
 | 2a | Unpopped ROADMAP row E2: 8 unary + copysign/nextafter polyfills in `unpopped-slang` (Slang src + tests) | blocked (row 2 design note agreed with the Unpopped lane and merged) | PM notice 2026-10-30: Slang emitter work, now Vulkane's; do not edit Unpopped before that note merges |
 | 3a | SPIR-V parser + emitter | design note in PR (`docs/design/spirv-parser-emitter.md`) | S1-S5 options; reuse `rspirv`; parser first |
 | 3e | Bump stale deps: `naga` 29 to 30.0.1, `shaderc` 0.8 to 0.10.1 | todo | found while writing 3a; CireSnave's latest-versions rule |
-| 3b | GLSL parser + emitter | todo | one language per PR |
+| 3b | GLSL parser + emitter | design note in PR (`docs/design/glsl-parser-emitter.md`) | G1 measure `tree-sitter-glsl` over the 27-file corpus first |
 | 3c | HLSL parser + emitter | todo | |
 | 3d | WGSL parser + emitter | todo | existing `naga` feature is the starting point |
