@@ -52,7 +52,7 @@ workspace version: Unpopped's CI would be red until Vulkane published, and Vulka
 Recommended: **the three Slang cells move into `vulkane-slang-emit/tests/`** and run against the registry `unpopped`.
 No new published harness is needed: the Unpopped lane read the tests (2026-10-30) and reports they use only public
 `unpopped` (`try_generate`, `ir::{OpDef, input}`), `unpopped_vocab`, and the backend under test, nothing from
-`unpopped-conformance`'s `src`. (I checked the imports of `dtype_lowering_coverage.rs` only through that report, not myself.) The Unpopped lane
+`unpopped-conformance`'s `src`. (Checked for `dtype_lowering_coverage.rs` at `d2e3f2b`: its imports are `unpopped::{ir, try_generate}`, `unpopped_vocab`, `unpopped_slang::Slang` and `unpopped_cpu_c::CpuC`, so the moved test also needs `unpopped-cpu-c` as a registry dev-dependency; the other two tests were not read by me.) The Unpopped lane
 will not publish a conformance kit; shared cells can be asked for later.
 
 ### D4. Parser seam
