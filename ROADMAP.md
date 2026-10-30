@@ -20,7 +20,8 @@ AND its emitter; Unpopped holds neither (contract: Unpopped's `Frontend` / `Back
 | 1d | Characterisation test for `hoist_extinst_imports.py`, then split `hoist_imports` (Codacy: CC 34, 75 lines; subprocess findings accepted) | todo | disposition on #105 |
 | 2 | Slang parser + emitter on Unpopped's contract | blocked (design note with the Unpopped lane first) | `unpopped-slang` (emitter) and the Slang front end in Unpopped's `convert.rs` exist today |
 | 2a | Unpopped ROADMAP row E2: 8 unary + copysign/nextafter polyfills in `unpopped-slang` (Slang src + tests) | blocked (row 2 design note agreed with the Unpopped lane and merged) | PM notice 2026-10-30: Slang emitter work, now Vulkane's; do not edit Unpopped before that note merges |
-| 3a | SPIR-V parser + emitter | todo | design note with options first |
+| 3a | SPIR-V parser + emitter | design note in PR (`docs/design/spirv-parser-emitter.md`) | S1-S5 options; reuse `rspirv`; parser first |
+| 3e | Bump stale deps: `naga` 29 to 30.0.1, `shaderc` 0.8 to 0.10.1 | todo | found while writing 3a; CireSnave's latest-versions rule |
 | 3b | GLSL parser + emitter | todo | one language per PR |
 | 3c | HLSL parser + emitter | todo | |
 | 3d | WGSL parser + emitter | todo | existing `naga` feature is the starting point |
