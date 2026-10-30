@@ -698,6 +698,16 @@ jobs:
           VULKANE_REQUIRE_SLANGC: "1"
         run: cargo test -p vulkane-slang-emit --features convert
 
+  # Characterisation tests for the SPIR-V post-process script that ships in `vulkane-kernels-source`
+  # (ROADMAP row 1d). Text-in/text-out: no SPIR-V tools needed.
+  kernels-scripts:
+    name: Kernel scripts (hoist_extinst_imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Characterisation tests
+        run: cd vulkane-kernels-source/kernels && python3 -m unittest test_hoist_extinst_imports
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest

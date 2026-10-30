@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.13] - unreleased
+
+### Added - characterisation tests for `hoist_extinst_imports.py`
+
+`vulkane-kernels-source/kernels/test_hoist_extinst_imports.py`: 7 text-in/text-out tests pinning what `hoist_imports` does today (ROADMAP 1d step 1),
+so the Codacy-flagged function (CC 34) can be split without changing behaviour; new CI job `kernels-scripts`. Mutation control: removing
+both word-boundary guards (the sort order and the lookahead) fails exactly the prefix test; removing either alone does not (they are redundant).
+
 ## [0.16.12] - unreleased
 
 ### Added - `vulkane-slang-emit`: the Slang conformance cells
