@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.8] - unreleased
+
+### Added - HLSL parser/emitter design note
+
+`docs/design/hlsl-parser-emitter.md` (no code): options H1-H4 for `vulkane-hlsl-parse` / `vulkane-hlsl-emit`. `ROADMAP.md` row 3c.
+Version allocated by the PM.
+
 ## [0.16.7] - unreleased
 
 ### Added - GLSL parser/emitter design note
