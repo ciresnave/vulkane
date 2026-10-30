@@ -25,4 +25,4 @@ AND its emitter; Unpopped holds neither (contract: Unpopped's `Frontend` / `Back
 | 3e | Bump stale deps: `naga` 29 to 30.0.1, `shaderc` 0.8 to 0.10.1 | todo | found while writing 3a; CireSnave's latest-versions rule |
 | 3b | GLSL parser + emitter | design note in PR (`docs/design/glsl-parser-emitter.md`) | G1 measure `tree-sitter-glsl` over the 27-file corpus first |
 | 3c | HLSL parser + emitter | design note drafted (`docs/design/hlsl-parser-emitter.md`) | no HLSL corpus exists; 131/147 Slang kernels compile as HLSL with dxc (proxy) |
-| 3d | WGSL parser + emitter | todo | existing `naga` feature is the starting point |
+| 3d | WGSL parser + emitter | design note drafted (`docs/design/wgsl-parser-emitter.md`) | no compute WGSL exists in the portfolio (5 graphics files); keep last in order |

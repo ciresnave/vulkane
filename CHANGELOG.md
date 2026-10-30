@@ -17,6 +17,13 @@ with its git history (165 commits; tree blob-identical to the source). Depends o
 `convert`), the `slangc`-gated test passes locally (`#[ignore]`d in CI: no `slangc` on GitHub runners), clippy `-D warnings`,
 rustdoc `-D warnings`, `cargo package --list` ok. Design: `docs/design/slang-parser-emitter-handover.md` step 2.
 
+## [0.16.9] - unreleased
+
+### Added - WGSL parser/emitter design note
+
+`docs/design/wgsl-parser-emitter.md` (no code): options W1-W4 for `vulkane-wgsl-parse` / `vulkane-wgsl-emit`. `ROADMAP.md` row 3d.
+Version allocated by the PM.
+
 ## [0.16.8] - unreleased
 
 ### Added - HLSL parser/emitter design note
