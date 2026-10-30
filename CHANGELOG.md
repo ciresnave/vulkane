@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.9] - unreleased
+
+### Added - WGSL parser/emitter design note
+
+`docs/design/wgsl-parser-emitter.md` (no code): options W1-W4 for `vulkane-wgsl-parse` / `vulkane-wgsl-emit`. `ROADMAP.md` row 3d.
+Version allocated by the PM.
+
 ## [0.16.8] - unreleased
 
 ### Added - HLSL parser/emitter design note
