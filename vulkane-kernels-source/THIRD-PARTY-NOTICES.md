@@ -91,6 +91,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## candle (Hugging Face): checked, nothing in this crate derives from it
+
+Fuel is a fork of candle (https://github.com/huggingface/candle, MIT OR Apache-2.0), so the question was asked of
+every file here. Fuel's table (above) found 0% lineage for each. Independently, the same normalised-line overlap as
+above, run for every `.slang` / `.glsl` file plus `compile.sh` and `hoist_extinst_imports.py` against all 30 `.cu`,
+`.cuh`, `.metal` and `.h` files under `candle-kernels/` and `candle-metal-kernels/` at candle commit
+`549eacb011f25b2c6fc765d6c3dbd26e42f72ee6` (5,689 distinct lines): 0 shared lines in every file (control: 40 of 40
+when the reference is compared with itself). Limit as above: a translation is not a copied line.
+`kernels/index_select.slang` says its semantics "match" candle's `index_select`; that is a behavioural
+reference (what the op computes), not copied code, and no candle notice is claimed for it. Had any file derived
+from candle, candle's licence texts would be reproduced here; none does, so they are not (Fuel's copy is in
+this crate's git history).
+
 ## Everything else: first-party
 
 The remaining `.slang` and `.glsl` files, `compile.sh` and `hoist_extinst_imports.py` are Fuel-authored
