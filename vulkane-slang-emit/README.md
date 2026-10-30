@@ -8,10 +8,7 @@ Moved here from `unpopped-slang` (Unpopped `213df4f`, v0.34.11) with its git his
 in the CireSnave ecosystem: the language owner writes the parser and the emitter. The crate is otherwise unchanged;
 it depends on a published `unpopped` / `unpopped-vocab`.
 
-```toml
-[dependencies]
-vulkane-slang-emit = "0.16"
-```
+Not yet on crates.io (first publish is the PM's); once published, add it with `cargo add vulkane-slang-emit`.
 
 Feature `convert` additionally lifts emitted Slang back to the IR (pulls tree-sitter grammars, which compile C).
 
