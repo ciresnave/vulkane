@@ -1,0 +1,38 @@
+[package]
+name         = "vulkane-slang-emit"
+version      = "0.16.10"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The Slang compute-shader emitter for Unpopped: IR to Slang source, with HLSL overloaded intrinsics, StructuredBuffer operands and a [numthreads] entry. Moved from unpopped-slang; Vulkane owns Slang."
+keywords     = ["kernel", "codegen", "compiler", "slang", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[features]
+# Lift emitted Slang back to the IR - the residue round-trip contract the "one IR,
+# N languages" hub rests on. Optional because it pulls tree-sitter grammars, which
+# compile C via the `cc` crate; the emit-only default build stays lean.
+convert = ["unpopped/convert"]
+
+[dependencies]
+unpopped       = "0.34.11"
+unpopped-vocab = "0.34.11"
+
+[lints.rust]
+missing_docs                    = "deny"
+missing_debug_implementations   = "warn"
+unreachable_pub                 = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"

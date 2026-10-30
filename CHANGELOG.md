@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.10] - unreleased
+
+### Added - `vulkane-slang-emit` crate (moved from Unpopped)
+
+New workspace member: the Slang compute-shader emitter, moved from Unpopped's `unpopped-slang` (Unpopped `213df4f`, v0.34.11)
+with its git history (165 commits; tree blob-identical to the source). Depends on the published `unpopped` / `unpopped-vocab`
+0.34.11. Unchanged code; new manifest, README and `THIRD-PARTY-NOTICES.md`. Measured: 15 unit tests pass (16 with feature
+`convert`), the `slangc`-gated test passes locally (`#[ignore]`d in CI: no `slangc` on GitHub runners), clippy `-D warnings`,
+rustdoc `-D warnings`, `cargo package --list` ok. Design: `docs/design/slang-parser-emitter-handover.md` step 2.
+
 ## [0.16.9] - unreleased
 
 ### Added - WGSL parser/emitter design note
