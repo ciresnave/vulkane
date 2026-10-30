@@ -5,6 +5,7 @@
     "vulkan_gen",
     "kiss-vulkan-vocab",
     "vulkane-kernels-source",
+    "vulkane-slang-emit",
   ]
   resolver = "2"
 

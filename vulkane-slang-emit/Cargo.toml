@@ -1,27 +1,38 @@
 [package]
-name = "unpopped-slang"
-version = "0.34.11"
-description = "The Slang compute-shader emitter for Unpopped, and the first idiomatically non-C-family one: HLSL overloaded intrinsics rather than C's suffixed math functions, `StructuredBuffer` operands, and a `[numthreads]` entry. It exists as much to shake C-shaped assumptions out of the neutral seam as to serve Slang — a backend that cannot reuse the C spellers is what proves the seam is a seam."
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-keywords = ["kernel", "codegen", "compiler", "slang", "shader"]
-categories = ["compilers", "development-tools", "graphics"]
-# License texts duplicated into the crate directory so they ship in the published
-# tarball; see the `unpopped` manifest for why.
+name         = "vulkane-slang-emit"
+version      = "0.16.10"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The Slang compute-shader emitter for Unpopped: IR to Slang source, with HLSL overloaded intrinsics, StructuredBuffer operands and a [numthreads] entry. Moved from unpopped-slang; Vulkane owns Slang."
+keywords     = ["kernel", "codegen", "compiler", "slang", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [features]
-# Lift emitted Slang back to the IR — the residue round-trip contract the "one IR,
+# Lift emitted Slang back to the IR - the residue round-trip contract the "one IR,
 # N languages" hub rests on. Optional because it pulls tree-sitter grammars, which
 # compile C via the `cc` crate; the emit-only default build stays lean.
 convert = ["unpopped/convert"]
 
 [dependencies]
-unpopped = { workspace = true }
-unpopped-vocab = { workspace = true }
+unpopped       = "0.34.11"
+unpopped-vocab = "0.34.11"
 
-[lints]
-workspace = true
+[lints.rust]
+missing_docs                    = "deny"
+missing_debug_implementations   = "warn"
+unreachable_pub                 = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"
