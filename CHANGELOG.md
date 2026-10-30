@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ## [0.16.4] - unreleased
 
 ### Added - Slang parser/emitter handover design note
@@ -14,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 `docs/design/slang-parser-emitter-handover.md` (no code): how `unpopped-slang` and the Slang front end move from
 Unpopped to Vulkane (`vulkane-slang-emit`, `vulkane-slang-parse`). `ROADMAP.md` gains row 1d. Version `0.16.4`
 allocated by the PM.
+=======
+## [0.16.5] - unreleased
+
+### Added - SPIR-V parser/emitter design note
+
+`docs/design/spirv-parser-emitter.md` (no code): options S1-S5 for `vulkane-spirv-parse` / `vulkane-spirv-emit`.
+`ROADMAP.md` rows 3a (note) and 3e (stale `naga`/`shaderc` pins). Version allocated by the PM.
+>>>>>>> 0763442 (docs: version 0.16.5, CHANGELOG for SPIR-V note)
 
 ## [0.16.3] - unreleased
 
