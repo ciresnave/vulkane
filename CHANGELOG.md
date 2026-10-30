@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.7] - unreleased
+
+### Added - GLSL parser/emitter design note
+
+`docs/design/glsl-parser-emitter.md` (no code): options G1-G5 for `vulkane-glsl-parse` / `vulkane-glsl-emit`. `ROADMAP.md` row 3b.
+Version allocated by the PM.
+
 ## [0.16.6] - unreleased
 
 ### Changed - `naga` 29 to 30, `shaderc` 0.8 to 0.10 (latest-versions rule)
