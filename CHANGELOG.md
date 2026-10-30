@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.11] - unreleased
+
+### Changed - `vulkane-slang-emit`: the `slangc` test runs in CI
+
+`emitted_slang_compiles_with_slangc` is no longer `#[ignore]`d: it returns early when `slangc` is absent, and fails if
+`VULKANE_REQUIRE_SLANGC` is set. A new CI job installs a pinned, sha256-verified `slangc` (2026.20) and runs the crate's tests with
+`--features convert`, which no other job built. Origin recorded in the crate's `THIRD-PARTY-NOTICES.md`.
+
 ## [0.16.10] - unreleased
 
 ### Added - `vulkane-slang-emit` crate (moved from Unpopped)
