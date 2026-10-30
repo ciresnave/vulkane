@@ -1,0 +1,20 @@
+[package]
+name         = "vulkane-kernels-source"
+version      = "0.16.3"
+edition      = "2024"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "GPU kernel source files (.slang / .glsl) for Vulkane and its consumers. Compile ahead of time with kernels/compile.sh; compiled SPIR-V is the consumer's to build and ship."
+keywords     = ["vulkan", "slang", "spir-v", "gpu", "kernels"]
+categories   = ["graphics", "science"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "kernels/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+# No Rust code beyond a doc-only lib: the crate is a home for kernel sources
+# and the compile script. A lib target keeps cargo happy.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

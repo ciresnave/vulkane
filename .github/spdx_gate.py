@@ -47,7 +47,8 @@ LICENCE = "MIT OR Apache-2.0"
 # The shaders are safe to stamp, and that is measured rather than reasoned from
 # the GLSL spec: all nine ALREADY opened with a `//` comment line before this
 # gate existed, and they compile in the `shaderc` and naga jobs today.
-EXTENSIONS = (".rs", ".py", ".wgsl", ".comp", ".vert", ".frag", ".glsl")
+EXTENSIONS = (".rs", ".py", ".wgsl", ".comp", ".vert", ".frag", ".glsl",
+              ".slang", ".sh")
 
 #: How far into a file the header may sit. Measured, not guessed: across 2,100
 #: real .rs files in this portfolio (fuel, kiss-ref, lightbulb, synapse), 851
@@ -275,6 +276,14 @@ COPYRIGHT_ACKNOWLEDGED = {
         "`SPDX-License-Identifier: Apache-2.0 OR MIT` on line 6. `.xml` is not "
         "in EXTENSIONS so it is never stamped - and if `.xml` is ever added, "
         "this file needs a HOLDOUT entry FIRST. It is not ours to relicense.",
+    "vulkane-kernels-source/kernels/dequant_q4_km.slang":
+        "carries llama.cpp's MIT notice (Copyright (c) 2023-2026 The ggml "
+        "authors) because `get_scale_min_k4` is a Slang translation of "
+        "llama.cpp's function (ggml/src/ggml-quants.c at 9d57ce456c). MIT lets "
+        "us sublicense on condition the notice travels, and it does: in the "
+        "file's origin comment and with the licence text in the crate's "
+        "THIRD-PARTY-NOTICES.md. So the file keeps our dual-licence stamp "
+        "and is NOT a HOLDOUT; the rest of the file is first-party.",
 }
 
 
