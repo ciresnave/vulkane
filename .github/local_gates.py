@@ -204,6 +204,9 @@ POLICIES = [
      + " when slangc is on PATH"),
     ("slangc -v", SKIP,
      "asserts the CI-installed slangc version; a local slangc is whatever the SDK ships"),
+    ("unittest test_hoist_extinst_imports", RUN,
+     "text-in/text-out characterisation tests of a Python script; needs no"
+     + " network and no device, so a local run answers what a runner answers"),
     ("cargo package --list", RUN,
      "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),
