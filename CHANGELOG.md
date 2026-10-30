@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.4] - unreleased
+
+### Added - Slang parser/emitter handover design note
+
+`docs/design/slang-parser-emitter-handover.md` (no code): how `unpopped-slang` and the Slang front end move from
+Unpopped to Vulkane (`vulkane-slang-emit`, `vulkane-slang-parse`). `ROADMAP.md` gains row 1d. Version `0.16.4`
+allocated by the PM.
+
 ## [0.16.3] - unreleased
 
 ### Added - `vulkane-kernels-source` crate and `ROADMAP.md`
