@@ -22,3 +22,12 @@ No overlap measurement against third-party Slang/HLSL sources was run; the crate
 authored expression.
 
 Limit: this is a scan and a lineage trace, not an overlap proof against every possible upstream.
+
+## Tool used in CI (not shipped, not linked)
+
+CI downloads the Slang compiler `slangc` to run the crate's compile test: `slang-2026.20-linux-x86_64.tar.gz` from
+https://github.com/shader-slang/slang/releases/tag/v2026.20 (tag object `d8729bec562ca9d9c669f7b13263c06067cda40b`),
+sha256 `e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9`. That digest is the one GitHub records for the
+asset; it was re-computed on 2026-10-30 from a downloaded copy (83,407,874 bytes) and matched. The workflow re-checks it with
+`sha256sum -c` on every run. Slang is Apache-2.0 with LLVM exception (its tarball carries `LICENSE` and `LICENSES/`); nothing from
+it is copied into, linked into or published with this crate.

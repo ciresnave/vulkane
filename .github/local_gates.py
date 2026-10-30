@@ -199,6 +199,11 @@ POLICIES = [
      "reads the tracked tree and the first ten lines of each source file;"
      + " offline by construction, and the drift it catches -- a file added"
      + " without a licence header -- is exactly as real locally as on a runner"),
+    ("slang.tar.gz", SKIP,
+     "downloads a pinned slangc release from GitHub (network); the same test runs locally as plain `cargo test`"
+     + " when slangc is on PATH"),
+    ("slangc -v", SKIP,
+     "asserts the CI-installed slangc version; a local slangc is whatever the SDK ships"),
     ("cargo package --list", RUN,
      "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),

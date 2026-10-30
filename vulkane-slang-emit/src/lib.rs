@@ -1211,12 +1211,25 @@ mod tests {
     /// nvcc harnesses, and a stronger check than the tree-sitter round-trip (it
     /// type-checks + lowers, not just parses). Covers the infix / unary-intrinsic
     /// / double / ternary / compare-cast / NaN-propagating / int-operator speller
-    /// paths. Ignored — needs `slangc` on PATH.
+    /// paths. Needs `slangc` on PATH: without it the test returns early, UNLESS
+    /// `VULKANE_REQUIRE_SLANGC` is set, in which case a missing `slangc` is a
+    /// failure (CI sets it, with a pinned, checksum-verified `slangc`, so the
+    /// test cannot silently pass by skipping there).
     #[test]
-    #[ignore = "requires the slang compiler (slangc) on PATH"]
     fn emitted_slang_compiles_with_slangc() {
         use std::process::Command;
         use unpopped::ir::{BinaryOp, UnaryOp};
+
+        if Command::new("slangc").arg("-v").output().is_err() {
+            assert!(
+                std::env::var_os("VULKANE_REQUIRE_SLANGC").is_none(),
+                "VULKANE_REQUIRE_SLANGC is set but `slangc` could not be run"
+            );
+            eprintln!(
+                "skipping: `slangc` not on PATH (set VULKANE_REQUIRE_SLANGC to make this fatal)"
+            );
+            return;
+        }
 
         let kernels = vec![
             generate(
