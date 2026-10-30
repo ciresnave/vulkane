@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.12] - unreleased
+
+### Added - `vulkane-slang-emit`: the Slang conformance cells
+
+The three Slang cells (`cell_token_is_not_a_computation`, `dtype_lowering_coverage`, `lower_kernel_default_is_the_typed_decline`; 12 tests)
+move from Unpopped's `unpopped-conformance` (Unpopped `5500fd1`) into `vulkane-slang-emit/tests/`, run against the published `unpopped` /
+`unpopped-cpu-c` 0.34.11 (new dev-dependency), per D3 of the Slang handover note. Only the `Slang` import path changed; rustfmt applied.
+Unpopped removes its copies after this merges.
+
 ## [0.16.11] - unreleased
 
 ### Changed - `vulkane-slang-emit`: the `slangc` test runs in CI
