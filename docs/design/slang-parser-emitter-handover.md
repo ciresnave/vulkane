@@ -82,8 +82,9 @@ Vulkane's single series (the PM allocates), not Unpopped's: the crates depend on
    being imported is 0.34.10 and must compile against a *published* `unpopped`. The Unpopped lane reports the PM has ruled
    it will publish the four-crate set (`unpopped`, `unpopped-vocab`, `unpopped-cpu-c`, `unpopped-slang`) as **0.34.11**
    right after Unpopped #195 merges (corrected by the Unpopped lane, relayed 2026-10-30; an earlier relay said 0.34.3,
-   which crates.io already lists as the max, so it could not have been a new publish). Not yet published as of this
-   writing: confirm on the registry before relying on it. The first thing step 2 does is build the imported crate
+   which crates.io already lists as the max, so it could not have been a new publish). **Published and verified**: the
+   crates.io API returns 0.34.11, `yanked: false`, for all four crates (2026-10-30; a nonexistent version, 9.9.9, returns
+   an error, so the query discriminates). The gate is clear. The first thing step 2 does is build the imported crate
    against the published `unpopped` and report.
    Until a published version works, neither lane writes E1c or E2.
 2. **Vulkane: `vulkane-slang-emit`** by history-preserving import of `crates/unpopped-slang` (the technique used for #105:
