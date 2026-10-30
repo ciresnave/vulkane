@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Compile every shader source (*.wgsl, *.glsl, *.slang) in this
-# directory to SPIR-V, writing the output to ../../fuel-vulkan-kernels/spv/.
+# directory to SPIR-V, writing the output to --out-dir DIR (default ../spv/).
 #
 # Toolchain: requires the Vulkan SDK (for slangc + glslangValidator)
 # and naga-cli (cargo install naga-cli) on PATH.
 #
-# SPIR-V files are committed to the repo — contributors who don't
-# touch shader sources never need any of these tools installed.
+# Compiled SPIR-V is not kept in this crate; each consumer builds (and, if it
+# wants, commits) its own from these sources.
 #
 # Usage:
-#   cd fuel-graph-executor/src/shaders
-#   ./compile.sh            # compile all
-#   ./compile.sh rope.wgsl  # compile a single file
+#   ./compile.sh                         # compile all into ../spv/
+#   ./compile.sh --out-dir out/spv       # compile all into out/spv/
+#   ./compile.sh rope.slang              # compile a single file
+#   ./compile.sh --out-dir out rope.slang
 #
 # Conventions:
 #   .wgsl   -> naga (Vulkan 1.1 / SPIR-V 1.3)
@@ -31,10 +32,17 @@
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Outputs land in the fuel-vulkan-kernels crate's spv/ directory.
-# Layout: fuel-kernels-source/kernels/  →  fuel-vulkan-kernels/spv/
-OUT_DIR="$(cd "$SRC_DIR/../.." && pwd)/fuel-vulkan-kernels/spv"
+# Output directory: --out-dir DIR, else spv/ next to kernels/ (git-ignored).
+# A relative DIR is resolved against the caller's working directory, before
+# this script changes into kernels/.
+OUT_DIR="$SRC_DIR/../spv"
+if [[ "${1:-}" == "--out-dir" ]]; then
+  [[ -n "${2:-}" ]] || { echo "error: --out-dir needs a directory" >&2; exit 2; }
+  OUT_DIR="$2"
+  shift 2
+fi
 mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 # Resolve tools. slangc and glslangValidator come from the Vulkan SDK.
 SLANGC="${SLANGC:-${VULKAN_SDK:-}/Bin/slangc}"
@@ -61,7 +69,7 @@ compile_wgsl() {
   local src="$1"
   local base; base="$(basename "$src" .wgsl)"
   local out="$OUT_DIR/$base.spv"
-  echo "  wgsl  $base.wgsl -> ../fuel-vulkan-kernels/spv/$base.spv"
+  echo "  wgsl  $base.wgsl -> $OUT_DIR/$base.spv"
   "$NAGA" "$src" "$out"
 }
 
@@ -69,7 +77,7 @@ compile_glsl() {
   local src="$1"
   local base; base="$(basename "$src" .glsl)"
   local out="$OUT_DIR/$base.spv"
-  echo "  glsl  $base.glsl -> ../fuel-vulkan-kernels/spv/$base.spv"
+  echo "  glsl  $base.glsl -> $OUT_DIR/$base.spv"
   "$GLSLANG" -V -S comp --target-env vulkan1.1 "$src" -o "$out" >/dev/null
 }
 
@@ -92,13 +100,13 @@ compile_slang() {
       entry="$(echo "$entry" | tr -d '[:space:]')"
       [[ -z "$entry" ]] && continue
       local out="$OUT_DIR/$entry.spv"
-      echo "  slang $base.slang[$entry] -> ../fuel-vulkan-kernels/spv/$entry.spv"
+      echo "  slang $base.slang[$entry] -> $OUT_DIR/$entry.spv"
       "$SLANGC" "$src" -target spirv -profile glsl_450 -entry "$entry" -o "$out"
       hoist_imports_if_needed "$out"
     done
   else
     local out="$OUT_DIR/$base.spv"
-    echo "  slang $base.slang -> ../fuel-vulkan-kernels/spv/$base.spv"
+    echo "  slang $base.slang -> $OUT_DIR/$base.spv"
     "$SLANGC" "$src" -target spirv -profile glsl_450 -entry main -o "$out"
     hoist_imports_if_needed "$out"
   fi

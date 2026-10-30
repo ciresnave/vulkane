@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.3] - unreleased
+
+### Added - `vulkane-kernels-source` crate and `ROADMAP.md`
+
+New workspace member holding the GPU kernel sources (147 Slang, 27 GLSL, `compile.sh`,
+`hoist_extinst_imports.py`) moved from Fuel's `fuel-kernels-source` (Fuel `e3ff3427`) with their git history,
+including the history from before they were renamed out of `fuel-graph-executor/src/shaders/`. The imported tree is
+blob-identical to Fuel's at that commit. `compile.sh` takes `--out-dir DIR` (default `spv/` inside the crate)
+instead of writing into Fuel's `fuel-vulkan-kernels/spv/`. Third-party origins are traced in the crate's
+`THIRD-PARTY-NOTICES.md` (llama.cpp for `get_scale_min_k4`; webgpu-blas acknowledged, no code taken).
+Version `0.16.3` is provisional; the PM allocates at gate time. `vulkane` itself is unchanged apart from its version.
+
+Known, carried over from Fuel and not fixed here: `softmax_f64.slang` compiles to SPIR-V that `spirv-val`
+rejects (`GLSL.std.450 Exp` on a 64-bit float); Fuel's committed `softmax_f64.spv` fails identically.
+
 ## [0.16.2] - unreleased
 
 ### Added - `PROVENANCE.md` records where `vulkan.jpeg` came from

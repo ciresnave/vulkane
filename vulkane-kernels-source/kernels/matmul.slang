@@ -5,7 +5,8 @@
 // Uses 16x16 workgroups with each thread computing a 4x4 tile of C.
 // Effective tile: 64x64 output per workgroup.
 // No shared memory — relies on register tiling.
-// Based on webgpu-blas (MIT) optimization pattern.
+// Based on webgpu-blas (MIT) optimization pattern: register tiling only; no
+// code taken (see THIRD-PARTY-NOTICES.md).
 //
 // Replaces matmul.wgsl. Written in Slang per the shader policy.
 

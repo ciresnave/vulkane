@@ -1,34 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! # fuel-kernels-source
+//! # vulkane-kernels-source
 //!
-//! Home for Fuel's GPU kernel source files (`.slang`, `.wgsl`, `.glsl`)
-//! and the `compile.sh` script that turns them into backend artifacts.
+//! Home for GPU kernel source files (`.slang`, `.glsl`) and the `compile.sh`
+//! script that turns them into SPIR-V. Moved from Fuel's `fuel-kernels-source`
+//! with its git history; see `README.md` and `THIRD-PARTY-NOTICES.md`.
 //!
-//! This crate intentionally has no Rust code. Downstream consumers
-//! read the compiled outputs from:
-//!
-//! - [`fuel-vulkan-kernels`](../fuel_vulkan_kernels/) — SPIR-V baked
-//!   into the binary via `include_bytes!`.
-//! - `fuel-cuda-kernels` — PTX/cubin (today `.cu` files are
-//!   co-located there; Slang→CUDA unification is planned but not yet
-//!   wired).
+//! This crate intentionally has no Rust code. Consumers read the sources from
+//! the published package (`kernels/`) and build or embed SPIR-V themselves.
 //!
 //! ## Layout
 //!
 //! - `kernels/*.slang` — Slang sources (preferred for new kernels:
 //!   autodiff-ready, cross-backend output).
-//! - `kernels/*.wgsl` — legacy WGSL sources (being hand-ported to
-//!   Slang; see todo list).
-//! - `kernels/*.glsl` — legacy GLSL sources (kept for the few kernels
-//!   where GLSL is more ergonomic, e.g., cooperative-matrix matmul).
-//! - `kernels/compile.sh` — ahead-of-time compiler invocation, writes
-//!   SPIR-V to `../fuel-vulkan-kernels/spv/`.
-//!
-//! ## Why a separate crate
-//!
-//! Keeping the sources in their own crate makes the source→artifact
-//! split explicit: the `.slang` file is the authoritative
-//! implementation; the `.spv` in fuel-vulkan-kernels and the future
-//! CUDA in fuel-cuda-kernels are derived. Tooling that wants to
-//! regenerate artifacts (CI, future cross-backend compiler) has a
-//! single directory to iterate over.
+//! - `kernels/*.glsl` — GLSL sources, kept where GLSL is more ergonomic
+//!   (e.g. cooperative-matrix matmul).
+//! - `kernels/compile.sh [--out-dir DIR] [files...]` — ahead-of-time compiler
+//!   invocation; SPIR-V goes to `DIR` (default: `spv/` next to `kernels/`).
+//! - `kernels/hoist_extinst_imports.py` — post-pass that hoists
+//!   `OpExtInstImport` out of function bodies in `slangc` output.

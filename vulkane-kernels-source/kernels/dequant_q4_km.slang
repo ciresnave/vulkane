@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // GGML Q4_K_M super-block dequantization to f32.
 //
+// Origin: `get_scale_min_k4` below is a Slang translation of llama.cpp's
+// function of the same name (ggml/src/ggml-quants.c at 9d57ce456c, MIT,
+// Copyright (c) 2023-2026 The ggml authors), and the decode order follows
+// llama.cpp's dequantize_row_q4_K. The licence text is in
+// THIRD-PARTY-NOTICES.md.
+//
 // Block layout (144 bytes per 256-element super-block):
 //   [0..2)    f16 d      (super-block scale)
 //   [2..4)    f16 dmin   (super-block min scale)
