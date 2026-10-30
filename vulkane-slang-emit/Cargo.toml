@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-emit"
-version      = "0.16.11"
+version      = "0.16.12"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -22,6 +22,10 @@ convert = ["unpopped/convert"]
 [dependencies]
 unpopped       = "0.34.11"
 unpopped-vocab = "0.34.11"
+
+[dev-dependencies]
+# The conformance cells (tests/) compare against the C reference emitter.
+unpopped-cpu-c = "0.34.11"
 
 [lints.rust]
 missing_docs                    = "deny"
