@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.6] - unreleased
+
+### Changed - `naga` 29 to 30, `shaderc` 0.8 to 0.10 (latest-versions rule)
+
+No public API change: `shaderc` 0.10 returns `Result` from `Compiler::new` / `CompileOptions::new`, mapped onto the
+existing `ShadercError::CompilerInit` / `OptionsInit`. Measured on this branch with `--features naga,shaderc`: lib tests (82), `naga_test`,
+`shaderc_test`, `ci_coverage` pass; clippy `--all-targets -D warnings` clean. Version provisional until the PM allocates.
+
 ## [0.16.5] - unreleased
 
 ### Added - SPIR-V parser/emitter design note
