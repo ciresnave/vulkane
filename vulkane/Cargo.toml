@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.16.5"
+version = "0.16.6"
 edition = "2024"
 # 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
 # and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
@@ -56,11 +56,11 @@ libloading = { workspace = true }
 kiss-vulkan-vocab = { version = "0.4.1", path = "../kiss-vulkan-vocab", optional = true }
 # Optional: GLSL/WGSL -> SPIR-V compilation via Naga (the wgpu shader translator).
 # Pulls in glsl-in, wgsl-in and spv-out features only — no other backends.
-naga = { version = "29", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }
+naga = { version = "30", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }
 # Optional: GLSL/HLSL -> SPIR-V compilation via shaderc (glslang).
 # Prefers a system libshaderc (Vulkan SDK) and falls back to building
 # glslang from source — see the `shaderc` feature documentation above.
-shaderc = { version = "0.8", optional = true }
+shaderc = { version = "0.10", optional = true }
 # Optional: derive macros for vertex layout generation.
 vulkane_derive = { path = "../vulkane_derive", version = "0.1", optional = true }
 

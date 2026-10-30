@@ -101,8 +101,8 @@ pub fn compile_glsl(
     file_name: &str,
     entry_point: &str,
 ) -> Result<Vec<u32>, ShadercError> {
-    let compiler = shaderc::Compiler::new().ok_or(ShadercError::CompilerInit)?;
-    let options = shaderc::CompileOptions::new().ok_or(ShadercError::OptionsInit)?;
+    let compiler = shaderc::Compiler::new().map_err(|_| ShadercError::CompilerInit)?;
+    let options = shaderc::CompileOptions::new().map_err(|_| ShadercError::OptionsInit)?;
 
     let artifact = compiler
         .compile_into_spirv(source, kind, file_name, entry_point, Some(&options))
@@ -149,8 +149,8 @@ pub fn compile_with_options<F>(
 where
     F: FnOnce(&mut shaderc::CompileOptions<'_>),
 {
-    let compiler = shaderc::Compiler::new().ok_or(ShadercError::CompilerInit)?;
-    let mut options = shaderc::CompileOptions::new().ok_or(ShadercError::OptionsInit)?;
+    let compiler = shaderc::Compiler::new().map_err(|_| ShadercError::CompilerInit)?;
+    let mut options = shaderc::CompileOptions::new().map_err(|_| ShadercError::OptionsInit)?;
     configure(&mut options);
 
     let artifact = compiler
