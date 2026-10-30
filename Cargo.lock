@@ -1846,6 +1846,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vulkane-slang-parse"
+version = "0.16.13"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-slang",
+ "unpopped",
+ "unpopped-vocab",
+]
+
+[[package]]
 name = "vulkane_derive"
 version = "0.1.2"
 dependencies = [

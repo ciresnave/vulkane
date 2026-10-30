@@ -1,0 +1,43 @@
+[package]
+name         = "vulkane-slang-parse"
+version      = "0.16.13"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The Slang front end for Unpopped: a tree-sitter Slang parser, the Slang residue list and the `SLANG` Frontend that lifts Slang compute kernels into Unpopped's IR. Vulkane owns Slang."
+keywords     = ["kernel", "parser", "compiler", "slang", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+# `Frontend`, the `lift_*` walkers and `LiftError` live in unpopped's `convert` module.
+unpopped          = { version = "0.34.11", features = ["convert"] }
+# MUST be the same tree-sitter minor that `unpopped` uses: `Frontend::parse` returns a
+# `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build, so
+# 0.27 (the latest) cannot be resolved next to published `unpopped` 0.34.11, which pins 0.26
+# (measured 2026-10-30: `cargo build` fails with "links to the native library `tree-sitter`").
+# The grammar is not the obstacle: `tree-sitter-slang` 0.3.1 needs only `tree-sitter-language ^0.1`.
+# REVISIT TRIGGER: Unpopped's step-4 release moves to tree-sitter 0.27; bump this the same day.
+tree-sitter       = "0.26"
+tree-sitter-slang = "0.3"
+
+[dev-dependencies]
+unpopped-vocab = "0.34.11"
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"
