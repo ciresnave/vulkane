@@ -80,10 +80,11 @@ Vulkane's single series (the PM allocates), not Unpopped's: the crates depend on
 1. **Gate (PM / Unpopped):** publish a current `unpopped`. The published 0.34.3 does contain `KernelFn` (76 mentions
    in its `src/`, downloaded and grepped 2026-10-30), so that is not the blocker; the blocker is that the emitter source
    being imported is 0.34.10 and must compile against a *published* `unpopped`. The Unpopped lane reports the PM has ruled
-   it will publish the four-crate set (`unpopped`, `unpopped-vocab`, `unpopped-cpu-c`, `unpopped-slang`) "as 0.34.3"
-   right after Unpopped #195 merges. ⚠️ Not reconciled: the crates.io API already lists 0.34.3 as the max version of all
-   three crates I checked (2026-10-30), so that label cannot be a new publish; to be settled with the PM. The first
-   thing step 2 does, whatever the label, is build the imported crate against the published `unpopped` and report.
+   it will publish the four-crate set (`unpopped`, `unpopped-vocab`, `unpopped-cpu-c`, `unpopped-slang`) as **0.34.11**
+   right after Unpopped #195 merges (corrected by the Unpopped lane, relayed 2026-10-30; an earlier relay said 0.34.3,
+   which crates.io already lists as the max, so it could not have been a new publish). Not yet published as of this
+   writing: confirm on the registry before relying on it. The first thing step 2 does is build the imported crate
+   against the published `unpopped` and report.
    Until a published version works, neither lane writes E1c or E2.
 2. **Vulkane: `vulkane-slang-emit`** by history-preserving import of `crates/unpopped-slang` (the technique used for #105:
    path-limited `git fast-export`, blob-identity check against the source commit), then adapt the manifest to a
