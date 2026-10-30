@@ -1739,6 +1739,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "unpopped-cpu-c"
+version = "0.34.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27e26d4c585c58efda38ea67750dfe75d6ac3912e383964328fdd47b2a70c631"
+dependencies = [
+ "unpopped",
+ "unpopped-vocab",
+]
+
+[[package]]
 name = "unpopped-vocab"
 version = "0.34.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1831,6 +1841,7 @@ name = "vulkane-slang-emit"
 version = "0.16.11"
 dependencies = [
  "unpopped",
+ "unpopped-cpu-c",
  "unpopped-vocab",
 ]
 
