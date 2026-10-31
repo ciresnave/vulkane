@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.4] - unreleased
+
+### Added - `vulkane-spirv-emit` (ROADMAP 3a step 4)
+
+New crate: the `SpirV` `unpopped::Backend`. Lowers the scalar elementwise path (f32, f64, i32, u32; single output, no runtime params) to a binary SPIR-V 1.3 module for Vulkan 1.1, returned as `GeneratedKernel::words()` (needs `unpopped` 0.37.1) with the disassembly as `source`. Body math runs through `lower_dag`; the spellers emit `rspirv` instructions and the `temp` seam maps hoisted names to result ids. Declares `DenormPreserve` for float kernels. Same declined set as `unpopped-slang`, plus the transcendentals at f64 (GLSL.std.450 does not define them at 64 bits). Every op is validated with `spirv-val --target-env vulkan1.1` (fatal in CI); behaviour against `unpopped-cpu-c` on a device is a follow-up.
+
 ## [0.18.3] - unreleased
 
 ### Changed - GLSL design note (ROADMAP 3b, docs only)

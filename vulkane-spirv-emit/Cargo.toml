@@ -1,0 +1,36 @@
+[package]
+name         = "vulkane-spirv-emit"
+version      = "0.18.4"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The SPIR-V compute-shader emitter for Unpopped: IR to a binary SPIR-V module (GLSL.std.450, storage-buffer blocks, a LocalSize entry), carried as the kernel's word stream. Vulkane owns SPIR-V."
+keywords     = ["spirv", "vulkan", "codegen", "compiler", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+rspirv         = "0.13.0"
+unpopped       = "0.37.1"
+unpopped-vocab = "0.37.1"
+
+[dev-dependencies]
+# Reflection of the emitted module: entry point, workgroup size, bindings.
+vulkane-spirv-parse = { path = "../vulkane-spirv-parse" }
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
