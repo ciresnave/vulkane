@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.3] - unreleased
+
+### Changed - GLSL design note (ROADMAP 3b, docs only)
+
+`docs/design/glsl-parser-emitter.md` gains the G1 measurement of `tree-sitter-glsl` 0.2.0, `glsl-lang` 0.8.1 and naga `glsl-in` over the 29-file corpus, and the minimal repros plus patch sketches for the two `tree-sitter-glsl` grammar gaps. No code change; every crate moves to 0.18.3 with the series.
+
 ## [0.18.2] - unreleased
 
 ### Changed - `vulkane-slang-emit` slangc test (ROADMAP 2c, part)
