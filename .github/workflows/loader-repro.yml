@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools libvulkan1
+      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools libvulkan1 libvulkan-dev gcc
       - run: |
           vulkaninfo --summary || true
           dpkg -l libvulkan1 mesa-vulkan-drivers | tail -2
@@ -39,3 +39,19 @@ jobs:
           run_variant test-threads=1 60 "$bin" --test-threads=1
           run_variant preload-libvulkan 60 LD_PRELOAD="$lib" "$bin"
           run_variant preload+threads=1 30 LD_PRELOAD="$lib" "$bin" --test-threads=1
+      - name: C-only repro (no Rust), all vk.xml commands through vkGetDeviceProcAddr
+        run: |
+          set +e
+          grep -o '<command[^>]*>' vulkane/vk.xml | grep -o 'name="vk[A-Za-z0-9_]*"' | sed 's/name="//;s/"//' > names.txt
+          grep -o '<proto><type>[A-Za-z0-9_]*</type> <name>vk[A-Za-z0-9_]*</name>' vulkane/vk.xml | sed 's/.*<name>//;s/<.*//' >> names.txt
+          sort -u names.txt -o names.txt
+          echo "names: $(wc -l < names.txt)"
+          gcc -O1 -g -pthread .github/loader_repro.c -lvulkan -o loader_repro || exit 1
+          for mode in 0 1 2; do
+            crashes=0; other=0
+            for i in $(seq 1 40); do
+              ./loader_repro names.txt 8 5 $mode > /dev/null 2>&1; rc=$?
+              if [ $rc -eq 139 ]; then crashes=$((crashes+1)); elif [ $rc -ne 0 ]; then other=$((other+1)); fi
+            done
+            echo "CVARIANT mode=$mode runs=40 segv=$crashes other_fail=$other"
+          done
