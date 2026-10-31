@@ -1,0 +1,115 @@
+diff --git a/grammar.js b/grammar.js
+index 9052833..2b695d6 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -42,7 +42,10 @@ module.exports = grammar(C, {
+         extension_behavior: $ => choice("require", "enable", "warn", "disable"),
+ 
+         declaration: ($, original) =>
+-            choice(seq(choice("invariant", "precise"), $.identifier, ";"), seq(
++            choice(seq(choice("invariant", "precise"), $.identifier, ";"),
++                // A declaration made only of qualifiers, e.g. `layout(local_size_x = 64) in;`
++                seq(repeat1(choice('in', 'out', 'uniform', 'buffer', 'shared', $.layout_specification)), ";"),
++                seq(
+                 repeat(
+                     choice(
+                         'in',
+diff --git a/src/grammar.json b/src/grammar.json
+index db2a574..d4f6e5e 100644
+--- a/src/grammar.json
++++ b/src/grammar.json
+@@ -2965,6 +2965,47 @@
+             }
+           ]
+         },
++        {
++          "type": "SEQ",
++          "members": [
++            {
++              "type": "REPEAT1",
++              "content": {
++                "type": "CHOICE",
++                "members": [
++                  {
++                    "type": "STRING",
++                    "value": "in"
++                  },
++                  {
++                    "type": "STRING",
++                    "value": "out"
++                  },
++                  {
++                    "type": "STRING",
++                    "value": "uniform"
++                  },
++                  {
++                    "type": "STRING",
++                    "value": "buffer"
++                  },
++                  {
++                    "type": "STRING",
++                    "value": "shared"
++                  },
++                  {
++                    "type": "SYMBOL",
++                    "name": "layout_specification"
++                  }
++                ]
++              }
++            },
++            {
++              "type": "STRING",
++              "value": ";"
++            }
++          ]
++        },
+         {
+           "type": "SEQ",
+           "members": [
+diff --git a/test/corpus/basic.txt b/test/corpus/basic.txt
+index c898a90..d262c6f 100644
+--- a/test/corpus/basic.txt
++++ b/test/corpus/basic.txt
+@@ -342,3 +342,42 @@ layout(binding = 1, set = 0, std430) buffer GBuffer { GBuffer g[]; } rgbuf[NFRAM
+     (array_declarator
+       (identifier)
+       (identifier))))
++
++================================================================================
++Qualifier-only declarations
++================================================================================
++
++layout(local_size_x = 64) in;
++layout(local_size_x = 8, local_size_y = 8) in;
++layout(std430) buffer;
++layout(binding = 0) uniform;
++
++--------------------------------------------------------------------------------
++
++(translation_unit
++  (declaration
++    (layout_specification
++      (layout_qualifiers
++        (qualifier
++          (identifier)
++          (number_literal)))))
++  (declaration
++    (layout_specification
++      (layout_qualifiers
++        (qualifier
++          (identifier)
++          (number_literal))
++        (qualifier
++          (identifier)
++          (number_literal)))))
++  (declaration
++    (layout_specification
++      (layout_qualifiers
++        (qualifier
++          (identifier)))))
++  (declaration
++    (layout_specification
++      (layout_qualifiers
++        (qualifier
++          (identifier)
++          (number_literal))))))

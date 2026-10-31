@@ -8,3 +8,7 @@ LICENSE-* text eol=lf
 # committed manifest differed from a fresh emission on every line.
 kiss-vulkan-vocab/manifest/*.json text eol=lf
 vulkane/fixtures/*.json text eol=lf
+
+# A patch meant for `git apply` upstream: a CRLF checkout would stop it applying
+# to upstream's LF files.
+docs/design/upstream-glsl/*.patch text eol=lf
