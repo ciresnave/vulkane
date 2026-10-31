@@ -202,6 +202,9 @@ POLICIES = [
     ("slang.tar.gz", SKIP,
      "downloads a pinned slangc release from GitHub (network); the same test runs locally as plain `cargo test`"
      + " when slangc is on PATH"),
+    ("spirv-val --version", SKIP,
+     "prints the runner's apt spirv-tools version; the spirv-parse tests run locally as plain `cargo test`"
+     + " with the SDK's spirv-val on PATH"),
     ("slangc -v", SKIP,
      "asserts the CI-installed slangc version; a local slangc is whatever the SDK ships"),
     ("unittest test_hoist_extinst_imports", RUN,
