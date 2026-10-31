@@ -19,9 +19,9 @@ use std::process::Command;
 
 use vulkane::safe::{
     AccessFlags, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
-    DescriptorPool, DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorType, DeviceFeatures, DeviceMemory, Fence, MemoryPropertyFlags, PipelineLayout,
-    PipelineStage, ShaderModule, ShaderStageFlags,
+    DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, DescriptorType, DeviceFeatures, DeviceMemory, Fence,
+    MemoryPropertyFlags, PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags,
 };
 
 const REQUIRE_SLANGC: &str = "VULKANE_REQUIRE_SLANGC";
@@ -165,81 +165,56 @@ fn open_device() -> Option<Opened> {
     Some((inst, physical, device, queue, qf))
 }
 
-/// Run the kernel over `data` (`n_rows` x `n_cols`) and return its output.
-fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
-    let (_inst, physical, device, queue, qf) = open_device()?;
+type Dev = vulkane::safe::Device;
 
-    let bytes = (data.len() * 8) as u64;
-    let (in_buf, mut in_mem) = host_buffer(&device, &physical, bytes, BufferUsage::STORAGE_BUFFER);
-    let (out_buf, mut out_mem) =
-        host_buffer(&device, &physical, bytes, BufferUsage::STORAGE_BUFFER);
-    let (par_buf, mut par_mem) = host_buffer(&device, &physical, 8, BufferUsage::UNIFORM_BUFFER);
-    {
-        let mut m = in_mem.map().unwrap();
-        for (i, v) in data.iter().enumerate() {
-            m.as_slice_mut()[i * 8..(i + 1) * 8].copy_from_slice(&v.to_le_bytes());
-        }
-    }
-    {
-        let mut m = out_mem.map().unwrap();
-        m.as_slice_mut().iter_mut().for_each(|b| *b = 0xAA);
-    }
-    {
-        let mut m = par_mem.map().unwrap();
-        m.as_slice_mut()[..4].copy_from_slice(&n_rows.to_le_bytes());
-        m.as_slice_mut()[4..8].copy_from_slice(&n_cols.to_le_bytes());
-    }
-
-    let shader = ShaderModule::from_spirv_bytes(&device, spv).unwrap();
-    let ssbo = |binding| DescriptorSetLayoutBinding {
+fn bindings_layout(device: &Dev) -> DescriptorSetLayout {
+    let binding = |binding, descriptor_type| DescriptorSetLayoutBinding {
         binding,
-        descriptor_type: DescriptorType::STORAGE_BUFFER,
+        descriptor_type,
         descriptor_count: 1,
         stage_flags: ShaderStageFlags::COMPUTE,
     };
-    let set_layout = DescriptorSetLayout::new(
-        &device,
+    DescriptorSetLayout::new(
+        device,
         &[
-            ssbo(0),
-            ssbo(1),
-            DescriptorSetLayoutBinding {
-                binding: 2,
-                descriptor_type: DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-                stage_flags: ShaderStageFlags::COMPUTE,
-            },
+            binding(0, DescriptorType::STORAGE_BUFFER),
+            binding(1, DescriptorType::STORAGE_BUFFER),
+            binding(2, DescriptorType::UNIFORM_BUFFER),
         ],
     )
-    .unwrap();
-    let pool = DescriptorPool::new(
-        &device,
+    .unwrap()
+}
+
+fn pool_for_bindings(device: &Dev) -> DescriptorPool {
+    let size = |descriptor_type, descriptor_count| DescriptorPoolSize {
+        descriptor_type,
+        descriptor_count,
+    };
+    DescriptorPool::new(
+        device,
         1,
         &[
-            DescriptorPoolSize {
-                descriptor_type: DescriptorType::STORAGE_BUFFER,
-                descriptor_count: 2,
-            },
-            DescriptorPoolSize {
-                descriptor_type: DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-            },
+            size(DescriptorType::STORAGE_BUFFER, 2),
+            size(DescriptorType::UNIFORM_BUFFER, 1),
         ],
     )
-    .unwrap();
-    let dset = pool.allocate(&set_layout).unwrap();
-    dset.write_buffer(0, DescriptorType::STORAGE_BUFFER, &in_buf, 0, bytes);
-    dset.write_buffer(1, DescriptorType::STORAGE_BUFFER, &out_buf, 0, bytes);
-    dset.write_buffer(2, DescriptorType::UNIFORM_BUFFER, &par_buf, 0, 8);
+    .unwrap()
+}
 
-    let layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
-    let pipeline = ComputePipeline::new(&device, &layout, &shader, "main").unwrap();
-
-    let cmd_pool = CommandPool::new(&device, qf).unwrap();
+/// Record one dispatch of `n_rows` workgroups, submit it and wait.
+fn dispatch_and_wait(
+    device: &Dev,
+    queue: &vulkane::safe::Queue,
+    qf: u32,
+    (pipeline, layout, dset): (&ComputePipeline, &PipelineLayout, &DescriptorSet),
+    n_rows: u32,
+) {
+    let cmd_pool = CommandPool::new(device, qf).unwrap();
     let mut cmd = cmd_pool.allocate_primary().unwrap();
     {
         let mut rec = cmd.begin().unwrap();
-        rec.bind_compute_pipeline(&pipeline);
-        rec.bind_compute_descriptor_sets(&layout, 0, &[&dset]);
+        rec.bind_compute_pipeline(pipeline);
+        rec.bind_compute_descriptor_sets(layout, 0, &[dset]);
         rec.dispatch(n_rows, 1, 1);
         rec.memory_barrier(
             PipelineStage::COMPUTE_SHADER,
@@ -249,9 +224,44 @@ fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
         );
         rec.end().unwrap();
     }
-    let fence = Fence::new(&device).unwrap();
+    let fence = Fence::new(device).unwrap();
     queue.submit(&[&cmd], Some(&fence)).unwrap();
     fence.wait(u64::MAX).unwrap();
+}
+
+/// Write `bytes` at the start of a host-visible allocation.
+fn write_bytes(mem: &mut DeviceMemory, bytes: &[u8]) {
+    let mut m = mem.map().unwrap();
+    m.as_slice_mut()[..bytes.len()].copy_from_slice(bytes);
+}
+
+/// Run the kernel over `data` (`n_rows` x `n_cols`) and return its output.
+fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
+    let (_inst, physical, device, queue, qf) = open_device()?;
+    let bytes = (data.len() * 8) as u64;
+    let storage = BufferUsage::STORAGE_BUFFER;
+    let (in_buf, mut in_mem) = host_buffer(&device, &physical, bytes, storage);
+    let (out_buf, mut out_mem) = host_buffer(&device, &physical, bytes, storage);
+    let (par_buf, mut par_mem) = host_buffer(&device, &physical, 8, BufferUsage::UNIFORM_BUFFER);
+    let input: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
+    write_bytes(&mut in_mem, &input);
+    write_bytes(&mut out_mem, &vec![0xAA; data.len() * 8]);
+    let params: Vec<u8> = [n_rows, n_cols]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    write_bytes(&mut par_mem, &params);
+
+    let set_layout = bindings_layout(&device);
+    let pool = pool_for_bindings(&device);
+    let dset = pool.allocate(&set_layout).unwrap();
+    dset.write_buffer(0, DescriptorType::STORAGE_BUFFER, &in_buf, 0, bytes);
+    dset.write_buffer(1, DescriptorType::STORAGE_BUFFER, &out_buf, 0, bytes);
+    dset.write_buffer(2, DescriptorType::UNIFORM_BUFFER, &par_buf, 0, 8);
+    let layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
+    let shader = ShaderModule::from_spirv_bytes(&device, spv).unwrap();
+    let pipeline = ComputePipeline::new(&device, &layout, &shader, "main").unwrap();
+    dispatch_and_wait(&device, &queue, qf, (&pipeline, &layout, &dset), n_rows);
 
     let m = out_mem.map().unwrap();
     let raw = m.as_slice();
