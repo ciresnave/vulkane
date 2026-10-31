@@ -76,8 +76,8 @@ errors are ERROR plus MISSING nodes found by a full tree walk. Control: a delibe
 
 | parser | files clean | notes |
 |---|---|---|
-| `tree-sitter-glsl` 0.2.0, files as they are | **0 of 29** | every one of the 29 files has an ERROR at the `;` of the bare `layout(local_size_x = N, ...) in;` declaration; the 3 `flash_attn_split_*` files have a second ERROR at a `float(kj)` constructor call, operand of `-` |
-| `tree-sitter-glsl`, the bare `layout(local_size_*) in;` lines deleted | 26 of 29 | the 3 failures are the `float(kj)` call only; **zero** other errors in any file, so the explicit-arithmetic types, `coopmat`, `layout(...) buffer` and `shared` all parse |
+| `tree-sitter-glsl` 0.2.0, files as they are | **0 of 29** | every one of the 29 files has an ERROR at the `;` of the bare `layout(local_size_x = N, ...) in;` declaration; the 3 `flash_attn_split_*` files have a second ERROR at `(float(kj) - float(qi))`, a parenthesised expression that begins with a keyword type |
+| `tree-sitter-glsl`, the bare `layout(local_size_*) in;` lines deleted | 26 of 29 | the 3 failures are the `(float(kj) - ...)` shape only; **zero** other errors in any file, so the explicit-arithmetic types, `coopmat`, `layout(...) buffer` and `shared` all parse |
 | `glsl-lang` 0.8.1 | 13 of 29 | the 16 failures are all `uint16_t` / `float16_t` (the `GL_EXT_shader_explicit_arithmetic_types_*` extensions) as unknown type names |
 | naga 30.0.1 `glsl-in` | 16 of 29 | failures: `uint16_t` unknown type (9), `coopmat` unknown (1), `uint16_t` unknown variable (1), `subgroupAdd` unknown function (2: `matvec`, `matvec_bf16_b`) |
 
@@ -89,11 +89,55 @@ what-if, not a parse of the real files, and says nothing about whether the rest 
 has no ERROR/MISSING node).
 
 **Decision still open, recommendation:** keep A and fix the grammar upstream (`tree-sitter-glsl`: `layout(...) in;`
-as a declaration, and a `float(...)` constructor call as an operand), then require the fixed release. Fallbacks, in
+as a declaration, and a parenthesised expression that begins with a keyword type), then require the fixed release. Fallbacks, in
 order: Vulkane publishes a fixed grammar crate itself; failing that, a pre-pass in `vulkane-glsl-parse` that lifts
 the bare `layout(local_size_*) in;` out of the source before parsing (it is one regular line, and the values are
-read by the model rather than the tree) plus a `float(` workaround, which is a hack and the last resort. The
+read by the model rather than the tree) plus a `(float(` workaround, which is a hack. **Ruled out by the PM 2026-10-31: no pre-pass hack.** The
 Unpopped seam question for B is not raised: B is not viable here.
+
+### The two gaps: repros (run) and patch sketches (NOT run)
+
+Repros, each run against `tree-sitter-glsl` 0.2.0 on `tree-sitter` 0.27.1 (2026-10-31); the second has a control.
+
+```glsl
+// repro1.comp -> ERROR at `layout(local_size_x = 64) in` (the qualifier-only declaration)
+#version 450
+layout(local_size_x = 64) in;
+void main() {}
+
+// repro2.comp -> 2 ERROR nodes, at `float(` and at `)`
+#version 450
+void main() {
+    float s = (float(1) - 1.0);
+}
+
+// control2.comp -> 0 errors: the same expression with the type not directly after `(`
+#version 450
+void main() {
+    float s = (1.0 - float(1));
+}
+```
+
+Cause, read from the 0.2.0 `grammar.js` (extends `tree-sitter-c` 0.24.2): (1) `declaration` is `qualifiers` followed by
+either `identifier field_declaration_list ...` or the C declaration (a type and declarators), so a declaration that is
+qualifiers and `;` alone matches nothing. (2) The inherited C `cast_expression` reads `(float` as the start of a C cast
+`(type) expr`; GLSL has no C-style casts, so a `(` followed by a keyword type should begin a parenthesised constructor
+call. `s += float(kj)`, `float(1) - float(2)` and `(1.0 - float(1))` all parse (checked), which is why this
+stayed hidden.
+
+Patch sketches. **Neither was built or run:** the tree-sitter CLI was not available in the session (an `npm install` of it
+was not permitted), so these are the shape of the fix for a maintainer to complete and test, not a verified patch.
+
+```js
+// (1) in `declaration`, add an alternative before the existing `seq(repeat(...), choice(...))`:
+seq(repeat1(choice('in', 'out', 'uniform', 'buffer', 'shared', $.layout_specification)), ";"),
+
+// (2) GLSL has no C cast: stop `(float` being read as one, e.g. drop it from the expression choice
+//     (exact idiom is the maintainer's: an override of `cast_expression` that can never match).
+```
+
+Upstream: `https://github.com/tree-sitter-grammars/tree-sitter-glsl` (the crate's `repository` field says `theHamsta/tree-sitter-glsl`;
+the README links the `tree-sitter-grammars` org). Licence MIT. Submission is an outward post and waits on CireSnave (PM).
 
 ## Proposed sequence (each its own PR; none starts before this note merges)
 
