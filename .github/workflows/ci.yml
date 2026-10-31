@@ -698,6 +698,24 @@ jobs:
           VULKANE_REQUIRE_SLANGC: "1"
         run: cargo test -p vulkane-slang-emit --features convert
 
+  # `vulkane-spirv-parse`'s spirv-val tests: verdict before/after a parse+encode, and the invalid-module
+  # negative case (#106). spirv-val comes from the runner's `spirv-tools` package; the tests are fatal
+  # without it because VULKANE_REQUIRE_SPIRV_VAL is set.
+  spirv-parse-val:
+    name: vulkane-spirv-parse (spirv-val)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
+      - name: Install spirv-tools (runner provisioning)
+        run: sudo apt-get update && sudo apt-get install -y spirv-tools
+      - name: spirv-val runs
+        run: spirv-val --version
+      - name: Test vulkane-spirv-parse
+        env:
+          VULKANE_REQUIRE_SPIRV_VAL: "1"
+        run: cargo test -p vulkane-spirv-parse --locked
+
   # Characterisation tests for the SPIR-V post-process script that ships in `vulkane-kernels-source`
   # (ROADMAP row 1d). Text-in/text-out: no SPIR-V tools needed.
   kernels-scripts:

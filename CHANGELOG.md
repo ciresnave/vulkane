@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - unreleased
+
+### Added - `vulkane-spirv-parse` spirv-val tests (ROADMAP 3a)
+
+`tests/spirv_val.rs`: `spirv-val --target-env vulkan1.3` gives the same verdict on each of the 9 committed modules before and after parse/encode (with a guard that some are accepted), and a well-formed module with its capabilities removed still parses and re-encodes unchanged while `spirv-val` rejects it (control: the unmodified module passes). New CI job `vulkane-spirv-parse (spirv-val)` sets `VULKANE_REQUIRE_SPIRV_VAL`. Version allocated by the PM (all crates move to 0.17.3).
+
 ## [0.17.2] - unreleased
 
 ### Added - `vulkane-spirv-parse` crate (ROADMAP 3a step 2)
