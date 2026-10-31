@@ -134,5 +134,39 @@ class HoistImports(unittest.TestCase):
         self.assertIn("couldn't find a place to insert imports", str(cm.exception))
 
 
+    def test_longer_alias_is_rewritten_before_its_prefix(self):
+        # %cl_10 must be rewritten before %cl_1, or %cl_1 would eat its prefix.
+        text = (
+            "OpCapability Shader\n"
+            '%cl = OpExtInstImport "X"\n'
+            '%cl_1 = OpExtInstImport "X"\n'
+            '%cl_10 = OpExtInstImport "X"\n'
+            "OpMemoryModel Logical GLSL450\n"
+            "%q = OpExtInst %v %cl_10 1 %cl_1\n"
+        )
+        self.assertEqual(
+            h.hoist_imports(text),
+            "OpCapability Shader\n"
+            '%cl = OpExtInstImport "X"\n'
+            "OpMemoryModel Logical GLSL450\n"
+            "%q = OpExtInst %v %cl 1 %cl\n",
+        )
+
+    def test_with_only_a_memory_model_the_new_import_goes_before_it(self):
+        text = (
+            "OpMemoryModel Logical GLSL450\n"
+            "%f = OpFunction %v None %t\n"
+            '%c = OpExtInstImport "Y"\n'
+            "OpFunctionEnd\n"
+        )
+        self.assertEqual(
+            h.hoist_imports(text),
+            '         %c = OpExtInstImport "Y"\n'
+            "OpMemoryModel Logical GLSL450\n"
+            "%f = OpFunction %v None %t\n"
+            "OpFunctionEnd\n",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

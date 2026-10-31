@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - `hoist_extinst_imports.py` (ROADMAP 1d step 2)
+
+`hoist_imports` (Codacy CC 34, 115 lines) is split into five helpers; no behaviour change. Measured: output identical to the previous function on all 178 modules of Fuel's `fuel-vulkan-kernels/spv` (disassembled with `spirv-dis`) and on 7 synthetic inputs including both error paths; note the corpus never triggers a hoist (0 of 178 changed text), so the synthetic cases carry that path. 2 tests added (alias prefix ordering, OpMemoryModel-only fallback); all 9 pass on the old function and the new. Version to be allocated by the PM.
+
 ## [0.18.0] - unreleased
 
 ### Changed (breaking) - `unpopped` 0.36.0
