@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.3] - unreleased
+
+### Added - upstream contribution for tree-sitter-glsl, prepared not posted (ROADMAP 3b, docs only)
+
+`docs/design/upstream-glsl/` holds a verified patch for `tree-sitter-grammars/tree-sitter-glsl` (qualifier-only declarations such as `layout(local_size_x = 64) in;`: grammar change plus a corpus test that fails before and passes after), its PR body, and a separate issue body for the unfixed `(float(1) - 1.0)` gap. Run with `tree-sitter` CLI 0.24.7 and `tree-sitter-c` 0.24.2, whose regeneration of unmodified upstream is byte-identical to its committed `src/`. The 9.7 MB regenerated `parser.c` is not stored; the README gives the steps and expected SHA-256 of each generated file. No code change; every crate moves to 0.19.3 with the series.
+
 ## [0.19.2] - unreleased
 
 ### Changed - GLSL design note: measured patch results replace the sketches (ROADMAP 3b, docs only)
