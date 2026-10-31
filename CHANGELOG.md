@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.4] - unreleased
+
+### Fixed - `softmax_f64.slang` and `unary_f64.slang` `exp` returned garbage for results below 2^-1022 (issue #106, ROADMAP 1c)
+
+The `GLSL.std.450 Exp` validation error in #106 was already fixed by #119 (`poly_exp_d`). Running the kernel for the first time against a CPU f64 softmax (new `vulkane/tests/softmax_f64_live.rs`) found a second defect in that `poly_exp_d`: for `x` in about `[-745, -708.4]` the range reduction gives `k < -1022`, `pow2_int(k)` builds its exponent field from `uint(k + 1023)`, which wraps, and the "power of two" is garbage. In softmax one such element (an input 709 to 745 below the row max) made the row sum negative, so every output of that row was `-0`. Measured before the fix: 2758 of 3001 sweep points wrong, all `-0`. Both kernels now scale in two exact power-of-two steps when `k < -1021`; the result is subnormal there and rounds once. `unary_f64`'s `exp`, `sigmoid`, `silu` and `tanh` share the function, so they had the same defect for large-magnitude arguments.
+
+After: the 3001-point sweep over `x - max` in `[-750, 0]` and 21,576 softmax outputs (rows of 1 to 4097 columns, including a spread wide enough to underflow) agree with the CPU f64 reference within 1e-13 relative; worst measured 3.2e-15 on an NVIDIA device (Windows). Both modules pass `spirv-val --target-env vulkan1.1`. Not run on a device: `unary_f64` itself (same edit, same function; only validated). CI runs the new test on Lavapipe with a pinned slangc and both `VULKANE_REQUIRE_*` variables set.
+
 ## [0.19.3] - unreleased
 
 ### Added - upstream contribution for tree-sitter-glsl, prepared not posted (ROADMAP 3b, docs only)

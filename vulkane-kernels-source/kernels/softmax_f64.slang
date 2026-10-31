@@ -226,6 +226,18 @@ double poly_exp_d(double x) {
     // Multiply by 2^k. pow2_int(k) is an exact power of 2, so both
     // er_hi and er_lo scale exactly; their sum then rounds to give
     // the f64 result to ~1 ULP.
+    //
+    // pow2_int is only valid for k in [-1022, 1023]. x in [-745, -708.4] gives
+    // k down to -1075, where uint(k + 1023) wraps and the "power of 2" is
+    // garbage (negative or huge), which poisoned a whole softmax row sum
+    // (#106). Those results are subnormal, so scale in two exact-power-of-2
+    // steps instead: the first lands in the normal range, the second rounds
+    // once into the subnormal range.
+    if (k < -1021) {
+        double p1 = pow2_int(k + 100);
+        double p2 = pow2_int(-100);
+        return (er_hi * p1 + er_lo * p1) * p2;
+    }
     double pk = pow2_int(k);
     return er_hi * pk + er_lo * pk;
 }
