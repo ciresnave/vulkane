@@ -49,19 +49,28 @@ fn slangc() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// `slangc`, or `None` after declaring the skip; the skip is a panic under
+/// `VULKANE_REQUIRE_SLANGC`.
+fn slangc_or_skip() -> Option<PathBuf> {
+    let found = slangc();
+    if found.is_none() {
+        let msg = "SKIP: no slangc (set SLANGC, VULKAN_SDK, or put it on PATH)";
+        if std::env::var(REQUIRE_SLANGC).is_ok_and(|v| !v.is_empty() && v != "0") {
+            panic!("{msg}, and {REQUIRE_SLANGC} is set");
+        }
+        eprintln!("{msg}");
+    }
+    found
+}
+
 /// Compile the kernel exactly as `compile.sh` does (`-target spirv -profile glsl_450
 /// -entry main`). `softmax_f64.slang` has no in-function `OpExtInstImport`, so
 /// `hoist_extinst_imports.py` is a no-op for it; the assertion below keeps that true.
 fn compile_kernel(slangc: &PathBuf) -> Vec<u8> {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let src = format!("{manifest}/../vulkane-kernels-source/kernels/softmax_f64.slang");
-    // Unique per call: the tests in this file run in parallel in one process.
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let out = std::env::temp_dir().join(format!(
-        "vulkane_softmax_f64_{}_{n}.spv",
-        std::process::id()
-    ));
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("softmax_f64.spv");
     let st = Command::new(slangc)
         .args([
             &src, "-target", "spirv", "-profile", "glsl_450", "-entry", "main", "-o",
@@ -74,9 +83,7 @@ fn compile_kernel(slangc: &PathBuf) -> Vec<u8> {
         "slangc failed: {}",
         String::from_utf8_lossy(&st.stderr)
     );
-    let bytes = std::fs::read(&out).expect("read spv");
-    let _ = std::fs::remove_file(&out);
-    bytes
+    std::fs::read(&out).expect("read spv")
 }
 
 fn cpu_softmax(row: &[f64]) -> Vec<f64> {
@@ -122,9 +129,17 @@ fn host_buffer(
     (buffer, memory)
 }
 
-/// Run the kernel over `data` (`n_rows` x `n_cols`) and return its output.
-fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
-    let (_inst, devices) = match common::instance_and_devices("softmax_f64", ApiVersion::V1_1) {
+type Opened = (
+    vulkane::safe::Instance,
+    vulkane::safe::PhysicalDevice,
+    vulkane::safe::Device,
+    vulkane::safe::Queue,
+    u32,
+);
+
+/// Instance, device with `shaderFloat64`, and queue; `None` once the skip is declared.
+fn open_device() -> Option<Opened> {
+    let (inst, devices) = match common::instance_and_devices("softmax_f64", ApiVersion::V1_1) {
         Ok(x) => x,
         Err(cause) => {
             common::skip(cause);
@@ -147,6 +162,12 @@ fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
         }
     };
     let queue = device.get_queue(qf, 0);
+    Some((inst, physical, device, queue, qf))
+}
+
+/// Run the kernel over `data` (`n_rows` x `n_cols`) and return its output.
+fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
+    let (_inst, physical, device, queue, qf) = open_device()?;
 
     let bytes = (data.len() * 8) as u64;
     let (in_buf, mut in_mem) = host_buffer(&device, &physical, bytes, BufferUsage::STORAGE_BUFFER);
@@ -241,15 +262,39 @@ fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
     )
 }
 
+/// Compare every output of `rows` against the CPU reference; returns how many were checked
+/// and raises `worst` to the largest relative error seen on non-denormal outputs.
+fn check_rows(n_cols: usize, rows: &[Vec<f64>], got: &[f64], worst: &mut f64) -> usize {
+    let mut checked = 0;
+    for (r, row) in rows.iter().enumerate() {
+        let want = cpu_softmax(row);
+        let out = &got[r * n_cols..(r + 1) * n_cols];
+        let sum: f64 = out.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-12,
+            "n_cols={n_cols} row={r}: outputs sum to {sum}, not 1"
+        );
+        for (c, (g, w)) in out.iter().zip(&want).enumerate() {
+            assert!(g.is_finite(), "n_cols={n_cols} row={r} col={c}: {g}");
+            // Relative error, with an absolute floor for denormal-small outputs.
+            let err = (g - w).abs() / w.abs().max(1e-300);
+            if *w > 1e-290 {
+                *worst = worst.max(err);
+            }
+            assert!(
+                err < 1e-13 || (g - w).abs() < 1e-300,
+                "n_cols={n_cols} row={r} col={c}: got {g:e}, want {w:e} (rel {err:e})"
+            );
+            checked += 1;
+        }
+    }
+    checked
+}
+
 #[test]
 fn softmax_f64_matches_cpu_reference_on_device() {
     common::require_serialization_lock();
-    let Some(slangc) = slangc() else {
-        let msg = "SKIP: no slangc (set SLANGC, VULKAN_SDK, or put it on PATH)";
-        if std::env::var(REQUIRE_SLANGC).is_ok_and(|v| !v.is_empty() && v != "0") {
-            panic!("{msg}, and {REQUIRE_SLANGC} is set");
-        }
-        eprintln!("{msg}");
+    let Some(slangc) = slangc_or_skip() else {
         return;
     };
     let spv = compile_kernel(&slangc);
@@ -263,27 +308,7 @@ fn softmax_f64_matches_cpu_reference_on_device() {
             return; // skip already declared
         };
         assert_eq!(got.len(), flat.len());
-        for (r, row) in rows.iter().enumerate() {
-            let want = cpu_softmax(row);
-            let sum: f64 = got[r * n_cols..(r + 1) * n_cols].iter().sum();
-            assert!(
-                (sum - 1.0).abs() < 1e-12,
-                "n_cols={n_cols} row={r}: outputs sum to {sum}, not 1"
-            );
-            for (c, w) in want.iter().enumerate() {
-                let g = got[r * n_cols + c];
-                assert!(g.is_finite(), "n_cols={n_cols} row={r} col={c}: {g}");
-                // Relative error on the value, with an absolute floor for outputs that
-                // are denormal-small.
-                let err = (g - w).abs() / w.abs().max(1e-300);
-                worst = worst.max(if *w > 1e-290 { err } else { 0.0 });
-                assert!(
-                    err < 1e-13 || (g - w).abs() < 1e-300,
-                    "n_cols={n_cols} row={r} col={c}: got {g:e}, want {w:e} (rel {err:e})"
-                );
-                checked += 1;
-            }
-        }
+        checked += check_rows(n_cols, &rows, &got, &mut worst);
     }
     eprintln!("softmax_f64: {checked} outputs checked, worst relative error {worst:e}");
 }
@@ -294,8 +319,7 @@ fn softmax_f64_matches_cpu_reference_on_device() {
 #[test]
 fn softmax_f64_exp_domain_sweep() {
     common::require_serialization_lock();
-    let Some(slangc) = slangc() else {
-        eprintln!("SKIP: no slangc");
+    let Some(slangc) = slangc_or_skip() else {
         return;
     };
     let spv = compile_kernel(&slangc);

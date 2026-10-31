@@ -1834,6 +1834,7 @@ dependencies = [
  "naga",
  "raw-window-handle",
  "shaderc",
+ "tempfile",
  "ureq",
  "vulkan_gen",
  "vulkane_derive",

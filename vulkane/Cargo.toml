@@ -74,6 +74,7 @@ ureq = "3"
 # build — only when building the bundled examples that need them.
 [dev-dependencies]
 winit = "0.30"
+tempfile = { workspace = true }
 raw-window-handle = "0.6"
 
 [package.metadata.docs.rs]
