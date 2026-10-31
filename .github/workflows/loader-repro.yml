@@ -22,6 +22,7 @@ jobs:
           VULKANE_REQUIRE_DEVICE: '1'
           GPU_RUN_UNGUARDED: 'CI diagnostic: ephemeral single-tenant runner'
         run: |
+          set +e
           bin=$(tail -1 bins.txt)
           lib=$(ldconfig -p | awk '/libvulkan.so.1 /{print $NF; exit}')
           echo "bin=$bin lib=$lib"
