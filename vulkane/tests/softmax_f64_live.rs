@@ -201,21 +201,23 @@ fn pool_for_bindings(device: &Dev) -> DescriptorPool {
     .unwrap()
 }
 
-/// Record one dispatch of `n_rows` workgroups, submit it and wait.
-fn dispatch_and_wait(
-    device: &Dev,
-    queue: &vulkane::safe::Queue,
-    qf: u32,
-    (pipeline, layout, dset): (&ComputePipeline, &PipelineLayout, &DescriptorSet),
+/// What one dispatch binds.
+struct Bound<'a> {
+    pipeline: &'a ComputePipeline,
+    layout: &'a PipelineLayout,
+    dset: &'a DescriptorSet,
     n_rows: u32,
-) {
+}
+
+/// Record one dispatch of `n_rows` workgroups, submit it and wait.
+fn dispatch_and_wait(device: &Dev, queue: &vulkane::safe::Queue, qf: u32, b: &Bound) {
     let cmd_pool = CommandPool::new(device, qf).unwrap();
     let mut cmd = cmd_pool.allocate_primary().unwrap();
     {
         let mut rec = cmd.begin().unwrap();
-        rec.bind_compute_pipeline(pipeline);
-        rec.bind_compute_descriptor_sets(layout, 0, &[dset]);
-        rec.dispatch(n_rows, 1, 1);
+        rec.bind_compute_pipeline(b.pipeline);
+        rec.bind_compute_descriptor_sets(b.layout, 0, &[b.dset]);
+        rec.dispatch(b.n_rows, 1, 1);
         rec.memory_barrier(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::HOST,
@@ -261,7 +263,13 @@ fn run(spv: &[u8], n_rows: u32, n_cols: u32, data: &[f64]) -> Option<Vec<f64>> {
     let layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
     let shader = ShaderModule::from_spirv_bytes(&device, spv).unwrap();
     let pipeline = ComputePipeline::new(&device, &layout, &shader, "main").unwrap();
-    dispatch_and_wait(&device, &queue, qf, (&pipeline, &layout, &dset), n_rows);
+    let bound = Bound {
+        pipeline: &pipeline,
+        layout: &layout,
+        dset: &dset,
+        n_rows,
+    };
+    dispatch_and_wait(&device, &queue, qf, &bound);
 
     let m = out_mem.map().unwrap();
     let raw = m.as_slice();
