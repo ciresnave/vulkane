@@ -699,7 +699,7 @@ jobs:
         run: cargo test -p vulkane-slang-emit --features convert
 
   # `vulkane-spirv-parse`'s spirv-val tests: verdict before/after a parse+encode, and the invalid-module
-  # negative case (#106). spirv-val comes from the runner's `spirv-tools` package; the tests are fatal
+  # negative case (#106); also `vulkane-spirv-emit`'s: every emitted module must pass spirv-val. spirv-val comes from the runner's `spirv-tools` package; the tests are fatal
   # without it because VULKANE_REQUIRE_SPIRV_VAL is set.
   spirv-parse-val:
     name: vulkane-spirv-parse (spirv-val)
@@ -715,6 +715,10 @@ jobs:
         env:
           VULKANE_REQUIRE_SPIRV_VAL: "1"
         run: cargo test -p vulkane-spirv-parse --locked
+      - name: Test vulkane-spirv-emit
+        env:
+          VULKANE_REQUIRE_SPIRV_VAL: "1"
+        run: cargo test -p vulkane-spirv-emit --locked
 
   # Characterisation tests for the SPIR-V post-process script that ships in `vulkane-kernels-source`
   # (ROADMAP row 1d). Text-in/text-out: no SPIR-V tools needed.
