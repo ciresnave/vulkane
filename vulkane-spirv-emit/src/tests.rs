@@ -7,9 +7,10 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use super::*;
-use unpopped::ir::{OpDef, input, konst};
+use unpopped::backend::GeneratedKernel;
+use unpopped::ir::{BinaryOp, OpDef, UnaryOp, input, konst};
 use unpopped::{generate, try_generate};
-use unpopped_vocab::{ArchSku, OpCategory, OperandDesc, structure_key};
+use unpopped_vocab::{ArchSku, ElementKind, OpCategory, OperandDesc, TargetId, structure_key};
 
 const TARGET_ENV: &str = "vulkan1.1";
 
