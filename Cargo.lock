@@ -1245,6 +1245,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rspirv"
+version = "0.13.0+sdk-1.4.341.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "091dca2e1d6fd3098417b5ec88e77e80d1ba5945750943419dc976858082c296"
+dependencies = [
+ "rustc-hash",
+ "spirv",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1818,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1833,11 +1843,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.17.1"
+version = "0.17.2"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "unpopped",
  "unpopped-cpu-c",
@@ -1846,12 +1856,20 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
  "unpopped",
  "unpopped-vocab",
+]
+
+[[package]]
+name = "vulkane-spirv-parse"
+version = "0.17.2"
+dependencies = [
+ "rspirv",
+ "thiserror 2.0.16",
 ]
 
 [[package]]

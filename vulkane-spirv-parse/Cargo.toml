@@ -1,0 +1,30 @@
+[package]
+name         = "vulkane-spirv-parse"
+version      = "0.17.2"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "SPIR-V module model and reflection for Vulkane: decode a binary module, list entry points, workgroup sizes, descriptor bindings and capabilities, and re-encode it byte-identically."
+keywords     = ["spirv", "vulkan", "parser", "reflection", "shader"]
+categories   = ["parser-implementations", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+rspirv    = "0.13.0"
+thiserror = "2.0"
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

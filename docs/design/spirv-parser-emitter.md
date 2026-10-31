@@ -21,8 +21,7 @@ Vulkane `origin/main` after #105, 2026-10-30; crates.io API the same day.
 | Unpopped side | `Frontend` in `unpopped::convert` returns a `tree_sitter::Tree` (fields `name`, `kernel_marker`, `residue`, `out_name`, `in_prefix`, `parse`). `Backend`/`Lowering` produce text. |
 | Candidate crates | `rspirv` 0.13.0+sdk-1.4.341.0 (Apache-2.0, 2026-04-10, about 1.4M downloads): binary parser, builder, disassembler. `spirv` 0.4.0+sdk-1.4.341.0: the grammar enums, 42M downloads. `naga` 30.0.1 (2026-08-22) has `spv-in`/`spv-out`. |
 
-**Finding, outside this note:** `vulkane/Cargo.toml` pins `naga = "29"` (latest 30.0.1) and `shaderc = "0.8"` (latest
-0.10.1, 2025-09-06). CireSnave's standing rule is latest versions at all times. Tracked as its own PR, not part of this note.
+**Resolved:** the `naga` 29 / `shaderc` 0.8 pins this note first found stale were bumped in #109 (naga 30, shaderc 0.10).
 
 ## The structural problem: SPIR-V does not fit `Frontend`
 
