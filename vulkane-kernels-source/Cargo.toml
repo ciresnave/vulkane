@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-kernels-source"
-version      = "0.19.3"
+version      = "0.19.4"
 edition      = "2024"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"

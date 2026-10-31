@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.19.3"
+version = "0.19.4"
 edition = "2024"
 # 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
 # and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
@@ -74,6 +74,7 @@ ureq = "3"
 # build — only when building the bundled examples that need them.
 [dev-dependencies]
 winit = "0.30"
+tempfile = { workspace = true }
 raw-window-handle = "0.6"
 
 [package.metadata.docs.rs]

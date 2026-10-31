@@ -294,6 +294,28 @@ jobs:
           VULKANE_REQUIRE_DEVICE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
+      # `softmax_f64_live` compiles `softmax_f64.slang` with slangc and runs it on the device
+      # against a CPU f64 softmax (issue #106, ROADMAP 1c). slangc is the same pinned release
+      # (version + sha256) the slang-emit job uses. Linux only: that is where Lavapipe is. Both
+      # requirement variables are set, so a missing slangc or device is a failure, not a green skip.
+      - name: Install pinned slangc (runner provisioning)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=2026.20
+          sha=e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9
+          curl -fsSL -o slang.tar.gz "https://github.com/shader-slang/slang/releases/download/v${v}/slang-${v}-linux-x86_64.tar.gz"
+          echo "${sha}  slang.tar.gz" | sha256sum -c -
+          mkdir slang && tar xzf slang.tar.gz -C slang
+          echo "$PWD/slang/bin" >> "$GITHUB_PATH"
+      - name: softmax_f64 on a device (pinned slangc)
+        if: runner.os == 'Linux'
+        env:
+          VULKANE_REQUIRE_DEVICE: "1"
+          VULKANE_REQUIRE_SLANGC: "1"
+        run: cargo test -p vulkane --features fetch-spec --test softmax_f64_live -- --nocapture
+
       # All eighteen, not a subset. An example that does not compile is a
       # broken artifact shipped inside the crate, and until `ci_coverage.rs`
       # existed, eleven of these were never built by anything — the repository

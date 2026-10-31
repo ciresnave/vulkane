@@ -1827,13 +1827,14 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
  "naga",
  "raw-window-handle",
  "shaderc",
+ "tempfile",
  "ureq",
  "vulkan_gen",
  "vulkane_derive",
@@ -1842,11 +1843,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.19.3"
+version = "0.19.4"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "tempfile",
  "unpopped",
@@ -1857,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1867,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "rspirv",
  "unpopped",
@@ -1877,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
