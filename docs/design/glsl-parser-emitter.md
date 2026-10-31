@@ -95,9 +95,9 @@ the bare `layout(local_size_*) in;` out of the source before parsing (it is one 
 read by the model rather than the tree) plus a `(float(` workaround, which is a hack. **Ruled out by the PM 2026-10-31: no pre-pass hack.** The
 Unpopped seam question for B is not raised: B is not viable here.
 
-### The two gaps: repros (run) and patch sketches (NOT run)
+### The two gaps: repros and patch results (run 2026-10-31, tree-sitter CLI 0.27.1)
 
-Repros, each run against `tree-sitter-glsl` 0.2.0 on `tree-sitter` 0.27.1 (2026-10-31); the second has a control.
+Repros, each run against `tree-sitter-glsl` 0.2.0 on `tree-sitter` 0.27.1; the second has a control.
 
 ```glsl
 // repro1.comp -> ERROR at `layout(local_size_x = 64) in` (the qualifier-only declaration)
@@ -118,23 +118,39 @@ void main() {
 }
 ```
 
-Cause, read from the 0.2.0 `grammar.js` (extends `tree-sitter-c` 0.24.2): (1) `declaration` is `qualifiers` followed by
+Cause of gap 1, read from the 0.2.0 `grammar.js` (extends `tree-sitter-c` 0.24.2): `declaration` is `qualifiers` followed by
 either `identifier field_declaration_list ...` or the C declaration (a type and declarators), so a declaration that is
-qualifiers and `;` alone matches nothing. (2) The inherited C `cast_expression` reads `(float` as the start of a C cast
-`(type) expr`; GLSL has no C-style casts, so a `(` followed by a keyword type should begin a parenthesised constructor
-call. `s += float(kj)`, `float(1) - float(2)` and `(1.0 - float(1))` all parse (checked), which is why this
-stayed hidden.
+qualifiers and `;` alone matches nothing.
 
-Patch sketches. **Neither was built or run:** the tree-sitter CLI was not available in the session (an `npm install` of it
-was not permitted), so these are the shape of the fix for a maintainer to complete and test, not a verified patch.
+**Gap 2 (observed, cause not established):** `float` after `(` is a `primitive_type` that cannot start an expression, so
+`(float(1) - 1.0)` errors, while `float(1) - float(2)`, `s += float(kj)` and `(1.0 - float(1))` parse (a keyword type used as a
+callee parses in some positions, apparently as a declaration, but not as the first thing inside parentheses). Removing the
+inherited `cast_expression` from the expression choice leaves every result unchanged (tested), so C's cast rule is not the cause.
+
+**Method.** The crate ships `grammar.js` but no `tree-sitter.json` and not its `tree-sitter-c` base, so the grammar was
+generated in a scratch directory with `tree-sitter-c` 0.24.2's `grammar.js` (from crates.io) as the base and a minimal
+`tree-sitter.json`; `tree-sitter generate` then `tree-sitter parse` per file. **Control:** the regenerated, unpatched
+grammar gives 0 of 29 clean on the corpus, `repro1` and `repro2` error and `control2` is clean, which is what the crate
+itself gives. That the base is 0.24.2 and not whatever the maintainers last generated against is unverified.
+
+| grammar | corpus clean | repro1 | repro2 | control2 |
+|---|---|---|---|---|
+| unpatched (regenerated) | 0 of 29 | errors | errors | clean |
+| patch 1 only | **26 of 29** | clean | errors | clean |
+| patch 1 + a `call_expression` alternative with a `primitive_type` callee (`prec(15)` / `prec.left(15)`) | 24 of 29 | clean | clean | clean |
+
+**Patch 1 (verified, postable):** in `declaration`, add this alternative to the outer `choice`, before the existing `seq(repeat(...), choice(...))`:
 
 ```js
-// (1) in `declaration`, add an alternative before the existing `seq(repeat(...), choice(...))`:
 seq(repeat1(choice('in', 'out', 'uniform', 'buffer', 'shared', $.layout_specification)), ";"),
-
-// (2) GLSL has no C cast: stop `(float` being read as one, e.g. drop it from the expression choice
-//     (exact idiom is the maintainer's: an override of `cast_expression` that can never match).
 ```
+
+It generates without conflicts. The remaining 3 failures are the `flash_attn_split_*` files (gap 2); no file regresses.
+
+**Gap 2 has no working patch.** The `call_expression` alternative fixes those 3 files and `repro2` but **regresses 5 files**
+(`matmul_coop*`: `coopmat<float, ...> acc = coopmat<float, ...>(0.0);` then errors), so it is not offered. With `prec(0)` and
+`prec.dynamic(-10)` instead of `prec(15)` the generator refuses: "Unresolved conflict for symbol sequence:
+`primitive_type  .  '('`". The upstream post for gap 2 is `repro2` as an issue, with no patch.
 
 Upstream: `https://github.com/tree-sitter-grammars/tree-sitter-glsl` (the crate's `repository` field says `theHamsta/tree-sitter-glsl`;
 the README links the `tree-sitter-grammars` org). Licence MIT. Submission is an outward post and waits on CireSnave (PM).

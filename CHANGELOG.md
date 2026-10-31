@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - unreleased
+
+### Changed - GLSL design note: measured patch results replace the sketches (ROADMAP 3b, docs only)
+
+`docs/design/glsl-parser-emitter.md` replaces the untested patch sketches and a wrong cause ("C `cast_expression`") with results run on `tree-sitter` CLI 0.27.1: patch 1 (a qualifier-only `declaration`, for `layout(local_size_*) in;`) takes the corpus from 0 to 26 of 29 clean; gap 2 (`(float(1) - 1.0)`) has no working patch (the tried `call_expression` alternative fixes 3 files and regresses 5). No code change; every crate moves to 0.19.2 with the series.
+
 ## [0.19.1] - unreleased
 
 ### Fixed - CI: Linux build & test pinned to `ubuntu-24.04` (no code change)
