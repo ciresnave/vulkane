@@ -28,6 +28,8 @@ unpopped-vocab = "0.36.0"
 [dev-dependencies]
 # The conformance cells (tests/) compare against the C reference emitter.
 unpopped-cpu-c = "0.36.0"
+# The slangc test writes its sources into a private, auto-removed directory.
+tempfile       = { workspace = true }
 
 [lints.rust]
 missing_docs                    = "deny"

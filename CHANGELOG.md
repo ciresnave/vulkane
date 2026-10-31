@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2] - unreleased
+
+### Changed - `vulkane-slang-emit` slangc test (ROADMAP 2c, part)
+
+`emitted_slang_compiles_with_slangc` writes its sources into a private `tempfile::tempdir()` (removed on drop) instead of the shared `std::env::temp_dir()`, which Codacy flags. New dev-dependency `tempfile` (workspace version). Measured: the test and the rest of the crate's tests pass with `VULKANE_REQUIRE_SLANGC=1` and `--features convert`; clippy clean. The complexity items of row 2c stay deferred to the emitter work (2a). Version allocated by the PM (all crates move to 0.18.2).
+
 ## [0.18.1] - unreleased
 
 ### Changed - `hoist_extinst_imports.py` (ROADMAP 1d step 2)

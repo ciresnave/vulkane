@@ -1849,6 +1849,7 @@ version = "0.18.1"
 name = "vulkane-slang-emit"
 version = "0.18.1"
 dependencies = [
+ "tempfile",
  "unpopped",
  "unpopped-cpu-c",
  "unpopped-vocab",

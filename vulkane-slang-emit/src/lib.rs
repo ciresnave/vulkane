@@ -1310,7 +1310,8 @@ mod tests {
             ),
         ];
 
-        let dir = std::env::temp_dir();
+        let tmp = tempfile::tempdir().expect("private temp dir");
+        let dir = tmp.path();
         for k in &kernels {
             let src_path = dir.join(format!("{}.slang", k.name));
             std::fs::write(&src_path, &k.source).expect("write .slang");
