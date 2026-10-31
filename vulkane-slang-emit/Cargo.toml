@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-emit"
-version      = "0.16.13"
+version      = "0.16.14"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]

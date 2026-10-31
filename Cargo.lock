@@ -1819,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.16.13"
+version = "0.16.14"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1834,14 +1834,24 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.16.13"
+version = "0.16.14"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.16.13"
+version = "0.16.14"
 dependencies = [
  "unpopped",
  "unpopped-cpu-c",
+ "unpopped-vocab",
+]
+
+[[package]]
+name = "vulkane-slang-parse"
+version = "0.16.14"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-slang",
+ "unpopped",
  "unpopped-vocab",
 ]
 

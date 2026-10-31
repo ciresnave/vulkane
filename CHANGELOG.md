@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.14] - unreleased
+
+### Added - `vulkane-slang-parse` crate (Slang front end, from Unpopped)
+
+New workspace member: `parse_slang`, `SLANG_RESIDUE` and the `SLANG` `Frontend`, moved from `unpopped::convert` (Unpopped `213df4f`,
+v0.34.11), built on `unpopped` 0.34.11's public `Frontend::new` and the `convert` walkers. Measured: 8 unit tests + 1 doctest pass;
+`tests/corpus.rs` reproduces Unpopped's baseline over the 147 `.slang` kernels (53 residue, 94 unrecognized, 0 accepted). `tree-sitter`
+is pinned to 0.26 to match published `unpopped`; it moves to 0.27 with Unpopped's step-4 release. Version allocated by the PM.
+
 ## [0.16.13] - unreleased
 
 ### Added - characterisation tests for `hoist_extinst_imports.py`
