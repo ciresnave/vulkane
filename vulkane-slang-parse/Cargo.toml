@@ -2,7 +2,9 @@
 name         = "vulkane-slang-parse"
 version      = "0.16.14"
 edition      = "2024"
-rust-version = "1.85"
+# 1.90: `tree-sitter-language` 0.1.9 (the grammar ABI shim under tree-sitter-slang) declares it;
+# the highest `rust-version` in this crate's normal+build dependency tree (measured 2026-10-31).
+rust-version = "1.90"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
 description  = "The Slang front end for Unpopped: a tree-sitter Slang parser, the Slang residue list and the `SLANG` Frontend that lifts Slang compute kernels into Unpopped's IR. Vulkane owns Slang."
