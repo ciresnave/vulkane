@@ -189,9 +189,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.60"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43c5703da9466b66a946814e1adf53ea2c90f10063b86290cc9eb67ce3478a20"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -366,9 +366,9 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.9"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "flate2"
@@ -1430,9 +1430,9 @@ dependencies = [
 
 [[package]]
 name = "shlex"
-version = "1.3.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "simd-adler32"
@@ -1666,13 +1666,12 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 
 [[package]]
 name = "tree-sitter"
-version = "0.26.13"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17ebdd3a5a7e28a1890b876fdbd0c3c0fe0a6336cffaa104f11b9f720c9daa29"
+checksum = "a5129de2ccc97808c4583d48f1fb44576d015cf241e432800572bda11ef30c3b"
 dependencies = [
  "cc",
  "regex",
- "regex-syntax",
  "serde_json",
  "streaming-iterator",
  "tree-sitter-language",
@@ -1726,9 +1725,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.34.11"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e501e0c8a657b684b59b1f2b6cd72bc1d8e98bebac1b7145953c5aeecfd460d"
+checksum = "755a182c8b8e5314fdf7ad835be46aa9637c4e410b63526e9461e1ae8e29d33e"
 dependencies = [
  "libm",
  "serde",
@@ -1740,9 +1739,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.34.11"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27e26d4c585c58efda38ea67750dfe75d6ac3912e383964328fdd47b2a70c631"
+checksum = "b2c0b4a0af458e678711f6599c97735425531ff731f0d49d450a6e67bf0b0696"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -1750,9 +1749,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.34.11"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2f5a2f5af7a46911cab355f902912db36846feeb9f4e44a9e740400ff0498cd"
+checksum = "e663b40cc4494c142cfc78c0e08d8da6d46cd8bddc6b1c7b13725d65e8e8d850"
 dependencies = [
  "float8",
  "half",
@@ -1819,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.16.14"
+version = "0.17.0"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1834,11 +1833,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.16.14"
+version = "0.17.0"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.16.14"
+version = "0.17.0"
 dependencies = [
  "unpopped",
  "unpopped-cpu-c",
@@ -1847,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.16.14"
+version = "0.17.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
