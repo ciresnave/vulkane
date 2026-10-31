@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1843,11 +1843,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.17.2"
+version = "0.17.3"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "unpopped",
  "unpopped-cpu-c",
@@ -1856,7 +1856,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
