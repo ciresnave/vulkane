@@ -75,9 +75,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     # The matrix value stays `ubuntu-latest` because the required status check
     # is named `Build & test (ubuntu-latest)`; the runner is pinned to 24.04.
-    # ubuntu-latest moved to 26.04 (Mesa 26.0.8) on 2026-10-31 and lavapipe
-    # then SIGSEGVs intermittently in the live-device tests (see the issue
-    # linked from CHANGELOG 0.19.1). Unpin when that is fixed.
+    # ubuntu-latest moved to 26.04 on 2026-10-31 and the live-device tests then
+    # SIGSEGV intermittently inside the Vulkan loader (vkGetDeviceProcAddr);
+    # see issue #130. Unpin when that is resolved.
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
 
     steps:
