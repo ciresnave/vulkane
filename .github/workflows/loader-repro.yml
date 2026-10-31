@@ -1,0 +1,40 @@
+name: loader-repro
+on:
+  push:
+    branches: [loader-repro]
+jobs:
+  repro:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools libvulkan1
+      - run: |
+          vulkaninfo --summary || true
+          dpkg -l libvulkan1 mesa-vulkan-drivers | tail -2
+      - name: Build the crashing test binary
+        run: |
+          cargo test -p vulkane --test extension_pnext_test --no-run
+          ls -t target/debug/deps/extension_pnext_test-* | grep -v '\.d$' | head -1 > bins.txt
+          cat bins.txt
+      - name: Crash rate by variant
+        env:
+          VULKANE_REQUIRE_DEVICE: '1'
+          GPU_RUN_UNGUARDED: 'CI diagnostic: ephemeral single-tenant runner'
+        run: |
+          bin=$(tail -1 bins.txt)
+          lib=$(ldconfig -p | awk '/libvulkan.so.1 /{print $NF; exit}')
+          echo "bin=$bin lib=$lib"
+          run_variant() {  # name, runs, env-prefix, args
+            name=$1; n=$2; shift 2
+            crashes=0; fails=0
+            for i in $(seq 1 $n); do
+              env "$@" > /dev/null 2>&1; rc=$?
+              if [ $rc -eq 139 ]; then crashes=$((crashes+1)); elif [ $rc -ne 0 ]; then fails=$((fails+1)); fi
+            done
+            echo "VARIANT $name runs=$n segv=$crashes other_fail=$fails"
+          }
+          run_variant default-threads 60 "$bin"
+          run_variant test-threads=1 60 "$bin" --test-threads=1
+          run_variant preload-libvulkan 60 LD_PRELOAD="$lib" "$bin"
+          run_variant preload+threads=1 30 LD_PRELOAD="$lib" "$bin" --test-threads=1
