@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - unreleased
+
+### Changed (breaking) - `unpopped` 0.36.0
+
+`vulkane-slang-emit` and `vulkane-slang-parse` now depend on `unpopped` / `unpopped-vocab` / `unpopped-cpu-c` 0.36.0 (unpopped-slang removed upstream; public dependency versions change, hence the minor bump). No source change was needed. `tree-sitter` stays 0.27 with one copy in the tree (`cargo tree -i tree-sitter`: `unpopped` 0.36.0 and `vulkane-slang-parse`). Measured: emit and parse tests pass with the `convert` feature (17 emit unit tests incl. the `slangc` test, 7 + 3 cells/parse tests, 8 parse unit, corpus and doctests); `rust-version` floors unchanged (emit 1.85, parse 1.90). Version allocated by the PM.
+
 ## [0.17.3] - unreleased
 
 ### Added - `vulkane-spirv-parse` spirv-val tests (ROADMAP 3a)
