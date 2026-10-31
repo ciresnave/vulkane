@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - unreleased
+
+### Fixed
+
+- `vulkane-kernels-source`: `softmax_f64.slang` computed f64 `exp` with GLSL.std.450 `Exp` (16/32-bit only), so `spirv-val` rejected it (#106). It now uses `poly_exp_d` from `unary_f64.slang`. `spirv-val --target-env vulkan1.1` passes; no GPU numerical comparison yet. Version allocated by the PM.
+
 ## [0.17.0] - unreleased
 
 ### Changed (breaking) - `unpopped` 0.35.0, `tree-sitter` 0.27
