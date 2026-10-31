@@ -22,7 +22,7 @@
 //! ## Naming — round-trips through the Slang lifter
 //!
 //! Buffers are `output` / `input{K}` (not `out`/`in`, which are HLSL keywords),
-//! matching `unpopped::convert::SLANG`'s convention — the `Frontend` that
+//! matching `vulkane_slang_parse::SLANG`'s convention — the `Frontend` that
 //! `lift_elementwise` is given — so emitted
 //! Slang re-lifts to the same IR (the residue-round-trip contract the "one IR, N
 //! languages" hub rests on; proven by `slang_emit_round_trips_through_the_lifter`).
@@ -1189,8 +1189,9 @@ mod tests {
     #[cfg(feature = "convert")]
     #[test]
     fn slang_emit_round_trips_through_the_lifter() {
-        use unpopped::convert::{SLANG, lift_elementwise};
+        use unpopped::convert::lift_elementwise;
         use unpopped::ir::ScalarExpr;
+        use vulkane_slang_parse::SLANG;
         let op = OpDef::elementwise("mul", 2, &[ElementKind::F32], input(0) * input(1));
         let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
         let lifted = lift_elementwise(&SLANG, &k.source, "mul", &[ElementKind::F32])

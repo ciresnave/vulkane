@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-emit"
-version      = "0.18.4"
+version      = "0.19.0"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -22,14 +22,16 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 convert = ["unpopped/convert"]
 
 [dependencies]
-unpopped       = "0.36.0"
-unpopped-vocab = "0.36.0"
+unpopped       = "0.38.0"
+unpopped-vocab = "0.38.0"
 
 [dev-dependencies]
 # The conformance cells (tests/) compare against the C reference emitter.
-unpopped-cpu-c = "0.36.0"
+unpopped-cpu-c = "0.38.0"
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = { workspace = true }
+# The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
+vulkane-slang-parse = { path = "../vulkane-slang-parse" }
 
 [lints.rust]
 missing_docs                    = "deny"

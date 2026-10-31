@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - unreleased
+
+### Changed (Breaking) - `unpopped` 0.38.0 (ROADMAP 3a, one dependency move)
+
+`vulkane-slang-emit` and `vulkane-slang-parse` move from `unpopped`/`unpopped-vocab`/`unpopped-cpu-c` 0.36.0, and `vulkane-spirv-emit` from 0.37.1, to **0.38.0**. Breaking because `unpopped` types (`Backend`, `GeneratedKernel`, `Frontend`) are part of these crates' public API. `unpopped` 0.38.0 keeps `GeneratedKernel::with_words`, which `vulkane-spirv-emit` returns; `ArtifactKind::SpirV` belongs to the `Compiler` path and does not apply to a `Backend`.
+
+`vulkane-slang-emit`: the round-trip test imports the Slang frontend from `vulkane_slang_parse::SLANG` (new path dev-dependency; `unpopped::convert::SLANG` left `unpopped` in 0.37.0). No change to emitted Slang.
+
+Crates whose code or dependencies changed: `vulkane-slang-emit`, `vulkane-slang-parse`, `vulkane-spirv-emit`. `vulkane-spirv-parse`, `vulkane-kernels-source` and `vulkane` are unchanged and move to 0.19.0 with the series. MSRV unchanged (`unpopped` 0.38.0 declares 1.85).
+
 ## [0.18.4] - unreleased
 
 ### Added - `vulkane-spirv-emit` (ROADMAP 3a step 4)

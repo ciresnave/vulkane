@@ -1735,55 +1735,32 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.36.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb8cf667e442361a7de35752a9ae3165687f767dfe49536c1ac473a295568309"
+checksum = "4e46a92f723904043b4534cbeac29c1ef2e84faf30d26a0fb15d6674647ff2d8"
 dependencies = [
  "libm",
  "serde",
  "serde_json",
  "tree-sitter",
- "tree-sitter-slang",
- "unpopped-vocab 0.36.0",
-]
-
-[[package]]
-name = "unpopped"
-version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ea68c351defada211386380d699c39edf52c7bfe9dbddf02e3db8d4f5c0bb97"
-dependencies = [
- "libm",
- "serde",
- "serde_json",
- "unpopped-vocab 0.37.1",
+ "unpopped-vocab",
 ]
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.36.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9149051dd7e653e16e431c27cc1e3dac650cb1637d78e5b5350f5369f621dda"
+checksum = "00d874f84ac9f0ab31745f01d24cab3ab3372156804bdd1b419bec59fbf232cc"
 dependencies = [
- "unpopped 0.36.0",
- "unpopped-vocab 0.36.0",
+ "unpopped",
+ "unpopped-vocab",
 ]
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.36.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02856349f3c917217085641b013a7ce758e0628e06b56f0c27f2a5c6c345e8f8"
-dependencies = [
- "float8",
- "half",
-]
-
-[[package]]
-name = "unpopped-vocab"
-version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ac046dd907989e11ee78d4103b3b04feeb699c3cab2abb7e46f2539b95dfa45"
+checksum = "249de3d955a5d53f25f73aaf2a6cc49f7c6f98f7d5b4ef9c72833d4bf988faf7"
 dependencies = [
  "float8",
  "half",
@@ -1850,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.18.4"
+version = "0.19.0"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1865,41 +1842,42 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.18.4"
+version = "0.19.0"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.18.4"
+version = "0.19.0"
 dependencies = [
  "tempfile",
- "unpopped 0.36.0",
+ "unpopped",
  "unpopped-cpu-c",
- "unpopped-vocab 0.36.0",
+ "unpopped-vocab",
+ "vulkane-slang-parse",
 ]
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.18.4"
+version = "0.19.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
- "unpopped 0.36.0",
- "unpopped-vocab 0.36.0",
+ "unpopped",
+ "unpopped-vocab",
 ]
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.18.4"
+version = "0.19.0"
 dependencies = [
  "rspirv",
- "unpopped 0.37.1",
- "unpopped-vocab 0.37.1",
+ "unpopped",
+ "unpopped-vocab",
  "vulkane-spirv-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.18.4"
+version = "0.19.0"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
