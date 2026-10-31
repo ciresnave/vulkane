@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.5] - unreleased
+
+### Added - ROADMAP row 1e: issue #130 bisect result (docs only)
+
+A plain C program with no Vulkane code reproduces the Linux 26.04 SIGSEGV: 8 threads sharing one `libvulkan.so.1`, each looping create instance, enumerate, create device, destroy, crash (25 of 40 runs) only when each iteration does both `vkGetInstanceProcAddr(instance, name)` lookups and `vkGetDeviceProcAddr(device, name)` over 626 names; either alone, or neither, gives 0 of 40. The same program against Vulkan-Loader main (`aa6dee83`, built in CI) gave 0 of 40. The CI pin to ubuntu-24.04 (0.19.1) stays. ROADMAP row 1c now records #132 as merged. No code change; every crate moves to 0.19.5 with the series.
+
 ## [0.19.4] - unreleased
 
 ### Fixed - `softmax_f64.slang` and `unary_f64.slang` `exp` returned garbage for results below 2^-1022 (issue #106, ROADMAP 1c)
