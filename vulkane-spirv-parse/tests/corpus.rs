@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Round-trip and reflection over real modules.
 //!
 //! The 9 `.spv` files committed under `vulkane/examples/shaders` always run. Set

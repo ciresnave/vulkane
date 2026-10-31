@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! SPIR-V module model and reflection for Vulkane.
 //!
 //! [`Module::parse`] decodes a binary SPIR-V module (a `&[u32]`) into a typed model built on
