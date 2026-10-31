@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-parse"
-version      = "0.19.0"
+version      = "0.19.1"
 edition      = "2024"
 # 1.90: `tree-sitter-language` 0.1.9 (the grammar ABI shim under tree-sitter-slang) declares it;
 # the highest `rust-version` in this crate's normal+build dependency tree (measured 2026-10-31).

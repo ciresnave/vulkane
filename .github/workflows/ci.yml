@@ -73,7 +73,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    # The matrix value stays `ubuntu-latest` because the required status check
+    # is named `Build & test (ubuntu-latest)`; the runner is pinned to 24.04.
+    # ubuntu-latest moved to 26.04 (Mesa 26.0.8) on 2026-10-31 and lavapipe
+    # then SIGSEGVs intermittently in the live-device tests (see the issue
+    # linked from CHANGELOG 0.19.1). Unpin when that is fixed.
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

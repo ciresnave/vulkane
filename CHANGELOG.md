@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - unreleased
+
+### Fixed - CI: Linux build & test pinned to `ubuntu-24.04` (no code change)
+
+`ubuntu-latest` moved to 26.04 (Mesa 26.0.8, from 25.2.8 on 24.04). On it the live-device tests die with SIGSEGV intermittently, in a different test each run (`generator_live_device_test`, `extension_pnext_test`), on a docs-only diff. The job is pinned to 24.04 while keeping its required-check name `Build & test (ubuntu-latest)`. Every crate moves to 0.19.1 with the series.
+
 ## [0.19.0] - unreleased
 
 ### Changed (Breaking) - `unpopped` 0.38.0 (ROADMAP 3a, one dependency move)
