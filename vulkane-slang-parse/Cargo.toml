@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-parse"
-version      = "0.17.3"
+version      = "0.18.0"
 edition      = "2024"
 # 1.90: `tree-sitter-language` 0.1.9 (the grammar ABI shim under tree-sitter-slang) declares it;
 # the highest `rust-version` in this crate's normal+build dependency tree (measured 2026-10-31).
@@ -17,7 +17,7 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
 # `Frontend`, the `lift_*` walkers and `LiftError` live in unpopped's `convert` module.
-unpopped          = { version = "0.35.0", features = ["convert"] }
+unpopped          = { version = "0.36.0", features = ["convert"] }
 # MUST be the same tree-sitter minor that `unpopped` uses: `Frontend::parse` returns a
 # `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build.
 # `unpopped` 0.35 moved to 0.27 (the latest); with 0.34.x this crate had to stay on 0.26 (measured
@@ -27,7 +27,7 @@ tree-sitter       = "0.27"
 tree-sitter-slang = "0.3"
 
 [dev-dependencies]
-unpopped-vocab = "0.35.0"
+unpopped-vocab = "0.36.0"
 
 [lints.rust]
 missing_docs                  = "deny"
