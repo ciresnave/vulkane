@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - unreleased
+
+### Changed (breaking) - `unpopped` 0.35.0, `tree-sitter` 0.27
+
+`vulkane-slang-emit` and `vulkane-slang-parse` now depend on `unpopped` / `unpopped-vocab` / `unpopped-cpu-c` 0.35.0 (breaking in Unpopped: tree-sitter 0.27),
+and `vulkane-slang-parse` on `tree-sitter` 0.27 (the same copy, so `Frontend::parse` still returns the one `Tree` type). No source change was needed. Measured:
+all emit tests (17 unit incl. the `slangc` test, 12 cells) and parse tests (8 unit, doctest, corpus 53/94/0 over the 147 kernels) pass; one tree-sitter in the tree.
+`vulkane-slang-emit`'s `convert` feature is documented as needing rustc 1.90. Version provisional until the PM allocates.
+
 ## [0.16.14] - unreleased
 
 ### Added - `vulkane-slang-parse` crate (Slang front end, from Unpopped)

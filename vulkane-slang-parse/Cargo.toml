@@ -17,18 +17,17 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
 # `Frontend`, the `lift_*` walkers and `LiftError` live in unpopped's `convert` module.
-unpopped          = { version = "0.34.11", features = ["convert"] }
+unpopped          = { version = "0.35.0", features = ["convert"] }
 # MUST be the same tree-sitter minor that `unpopped` uses: `Frontend::parse` returns a
-# `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build, so
-# 0.27 (the latest) cannot be resolved next to published `unpopped` 0.34.11, which pins 0.26
-# (measured 2026-10-30: `cargo build` fails with "links to the native library `tree-sitter`").
-# The grammar is not the obstacle: `tree-sitter-slang` 0.3.1 needs only `tree-sitter-language ^0.1`.
-# REVISIT TRIGGER: Unpopped's step-4 release moves to tree-sitter 0.27; bump this the same day.
-tree-sitter       = "0.26"
+# `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build.
+# `unpopped` 0.35 moved to 0.27 (the latest); with 0.34.x this crate had to stay on 0.26 (measured
+# 2026-10-30: 0.27 next to `unpopped` 0.34.11 fails with "links to the native library `tree-sitter`").
+# REVISIT TRIGGER: every `unpopped` release that moves tree-sitter; bump this the same day (D5).
+tree-sitter       = "0.27"
 tree-sitter-slang = "0.3"
 
 [dev-dependencies]
-unpopped-vocab = "0.34.11"
+unpopped-vocab = "0.35.0"
 
 [lints.rust]
 missing_docs                  = "deny"
