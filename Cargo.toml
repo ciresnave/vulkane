@@ -7,6 +7,7 @@
     "vulkane-kernels-source",
     "vulkane-slang-emit",
     "vulkane-slang-parse",
+    "vulkane-spirv-parse",
   ]
   resolver = "2"
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - `vulkane-spirv-parse` crate (ROADMAP 3a step 2)
+
+New workspace member: `Module::parse` / `to_words` over `rspirv` 0.13, with reflection (`entry_points` with `LocalSize`, `bindings`, `capabilities`). Parsing does not validate. Header word 2 (generator) is kept because `rspirv` re-encodes its own. Measured: all 9 committed modules and all 178 modules of Fuel's `fuel-vulkan-kernels/spv` (via `VULKANE_SPV_CORPUS`) re-encode byte-identically. Version to be allocated by the PM.
+
 ## [0.17.1] - unreleased
 
 ### Fixed
