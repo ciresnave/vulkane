@@ -48,6 +48,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use rspirv::binary::{Assemble, Disassemble};
+use rspirv::dr::Builder;
 use rspirv::spirv::{ExecutionMode, ExecutionModel, FunctionControl, Word};
 use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, lower_dag};
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
@@ -234,16 +235,21 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
     let mut e = em.into_inner();
     e.store_and_return(output, root)?;
 
-    e.b.entry_point(ExecutionModel::GLCompute, main, name.clone(), [gid]);
-    e.b.execution_mode(main, ExecutionMode::LocalSize, [WORKGROUP_SIZE, 1, 1]);
-    if fam.is_float() {
-        let width = if fam == Family::F64 { 64 } else { 32 };
-        e.b.execution_mode(main, ExecutionMode::DenormPreserve, [width]);
-    }
+    declare_entry(&mut e.b, fam, main, gid, &name);
     let module = e.b.module();
     let source = module.disassemble();
     let words = module.assemble();
     Ok(GeneratedKernel::new(name, source).with_words(words))
+}
+
+/// The entry point, its workgroup size and (for floats) the denorm mode.
+fn declare_entry(b: &mut Builder, fam: Family, main: Word, gid: Word, name: &str) {
+    b.entry_point(ExecutionModel::GLCompute, main, name, [gid]);
+    b.execution_mode(main, ExecutionMode::LocalSize, [WORKGROUP_SIZE, 1, 1]);
+    if fam.is_float() {
+        let width = if fam == Family::F64 { 64 } else { 32 };
+        b.execution_mode(main, ExecutionMode::DenormPreserve, [width]);
+    }
 }
 
 #[cfg(test)]
