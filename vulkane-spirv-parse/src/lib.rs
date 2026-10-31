@@ -132,29 +132,7 @@ impl Module {
 
     /// Variables carrying a `Binding` decoration, ordered by (set, binding, id).
     pub fn bindings(&self) -> Vec<Binding> {
-        let mut set: HashMap<u32, u32> = HashMap::new();
-        let mut bind: HashMap<u32, u32> = HashMap::new();
-        for d in &self.inner.annotations {
-            if d.class.opcode != Op::Decorate {
-                continue;
-            }
-            if let [
-                dr::Operand::IdRef(id),
-                dr::Operand::Decoration(dec),
-                dr::Operand::LiteralBit32(v),
-            ] = d.operands.as_slice()
-            {
-                match dec {
-                    Decoration::DescriptorSet => {
-                        set.insert(*id, *v);
-                    }
-                    Decoration::Binding => {
-                        bind.insert(*id, *v);
-                    }
-                    _ => {}
-                }
-            }
-        }
+        let (set, bind) = self.descriptor_decorations();
         let names = self.names();
         let mut out: Vec<Binding> = self
             .inner
@@ -164,21 +142,43 @@ impl Module {
             .filter_map(|i| {
                 let id = i.result_id?;
                 let binding = *bind.get(&id)?;
-                let storage_class = match i.operands.first() {
-                    Some(dr::Operand::StorageClass(s)) => *s,
-                    _ => return None,
-                };
                 Some(Binding {
                     variable: id,
                     set: set.get(&id).copied(),
                     binding,
-                    storage_class,
+                    storage_class: storage_class_of(i)?,
                     name: names.get(&id).cloned(),
                 })
             })
             .collect();
         out.sort_by_key(|b| (b.set, b.binding, b.variable));
         out
+    }
+
+    /// `DescriptorSet` and `Binding` literals by target id.
+    fn descriptor_decorations(&self) -> (HashMap<u32, u32>, HashMap<u32, u32>) {
+        let mut set = HashMap::new();
+        let mut bind = HashMap::new();
+        for d in self
+            .inner
+            .annotations
+            .iter()
+            .filter(|d| d.class.opcode == Op::Decorate)
+        {
+            if let [
+                dr::Operand::IdRef(id),
+                dr::Operand::Decoration(dec),
+                dr::Operand::LiteralBit32(v),
+            ] = d.operands.as_slice()
+            {
+                match dec {
+                    Decoration::DescriptorSet => set.insert(*id, *v),
+                    Decoration::Binding => bind.insert(*id, *v),
+                    _ => None,
+                };
+            }
+        }
+        (set, bind)
     }
 
     fn names(&self) -> HashMap<u32, String> {
@@ -190,6 +190,13 @@ impl Module {
                 _ => None,
             })
             .collect()
+    }
+}
+
+fn storage_class_of(var: &dr::Instruction) -> Option<StorageClass> {
+    match var.operands.first() {
+        Some(dr::Operand::StorageClass(s)) => Some(*s),
+        _ => None,
     }
 }
 
