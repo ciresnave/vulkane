@@ -1,6 +1,6 @@
 # GLSL parser and emitter in Vulkane
 
-**Status: design note, options first, no code.** ROADMAP row 3b. Written by the Vulkane lane 2026-10-30. Follows the
+**Status: design note, options first, no code; G1 measured 2026-10-31 (decision open).** ROADMAP row 3b. Written by the Vulkane lane 2026-10-30. Follows the
 structure and rules of `slang-parser-emitter-handover.md` (D1 crate naming, D3 conformance inside the emitter crate, D5
 release coupling) and `spirv-parser-emitter.md` (S4 oracle approach).
 
@@ -66,6 +66,35 @@ Those stay: they compile GLSL; the new crates read and write it. No duplication,
 unsuitable as the parser (it consumes GLSL into naga IR and does not accept the extensions the corpus uses; this is the
 expected cause, **not measured here**, and the G1 measurement should include it as a comparison column).
 
+## G1 measurement (2026-10-31)
+
+Run at Vulkane `origin/main` `56e5dcb` over the 27 `vulkane-kernels-source/kernels/*.glsl` plus the 2
+`vulkane/examples/shaders/*.comp` (29 files). Parsers: `tree-sitter-glsl` 0.2.0 on `tree-sitter` 0.27.1, `glsl-lang`
+0.8.1 (`TranslationUnit::parse`), naga 30.0.1 `glsl-in` (`Frontend::parse`, `ShaderStage::Compute`). tree-sitter
+errors are ERROR plus MISSING nodes found by a full tree walk. Control: a deliberately broken string
+(`void main( { int = ; }}}`) gives 2 ERROR nodes in tree-sitter and a parse error in `glsl-lang`.
+
+| parser | files clean | notes |
+|---|---|---|
+| `tree-sitter-glsl` 0.2.0, files as they are | **0 of 29** | every one of the 29 files has an ERROR at the `;` of the bare `layout(local_size_x = N, ...) in;` declaration; the 3 `flash_attn_split_*` files have a second ERROR at a `float(kj)` constructor call, operand of `-` |
+| `tree-sitter-glsl`, the bare `layout(local_size_*) in;` lines deleted | 26 of 29 | the 3 failures are the `float(kj)` call only; **zero** other errors in any file, so the explicit-arithmetic types, `coopmat`, `layout(...) buffer` and `shared` all parse |
+| `glsl-lang` 0.8.1 | 13 of 29 | the 16 failures are all `uint16_t` / `float16_t` (the `GL_EXT_shader_explicit_arithmetic_types_*` extensions) as unknown type names |
+| naga 30.0.1 `glsl-in` | 16 of 29 | failures: `uint16_t` unknown type (9), `coopmat` unknown (1), `uint16_t` unknown variable (1), `subgroupAdd` unknown function (2: `matvec`, `matvec_bf16_b`) |
+
+Reading it: the tree-sitter grammar is missing two small constructs, not broad coverage. One of them (the `local_size`
+declaration) is in every compute shader and is the thing a reflection model most wants, so **as published it cannot be
+used**. Option B is worse on this corpus (13 of 29, failing on the extension types the corpus is built on), and
+naga `glsl-in` is confirmed unsuitable (G5's expected cause, now measured: 16 of 29). The deleted-line column is a
+what-if, not a parse of the real files, and says nothing about whether the rest of each tree is correct (only that it
+has no ERROR/MISSING node).
+
+**Decision still open, recommendation:** keep A and fix the grammar upstream (`tree-sitter-glsl`: `layout(...) in;`
+as a declaration, and a `float(...)` constructor call as an operand), then require the fixed release. Fallbacks, in
+order: Vulkane publishes a fixed grammar crate itself; failing that, a pre-pass in `vulkane-glsl-parse` that lifts
+the bare `layout(local_size_*) in;` out of the source before parsing (it is one regular line, and the values are
+read by the model rather than the tree) plus a `float(` workaround, which is a hack and the last resort. The
+Unpopped seam question for B is not raised: B is not viable here.
+
 ## Proposed sequence (each its own PR; none starts before this note merges)
 
 1. Measurement PR: tree-sitter-glsl coverage over the corpus (G1), written into this note's table; decide A or B.
@@ -82,5 +111,5 @@ eventually be generated rather than hand-written is a Fuel decision.
 
 Counts from `git ls-files` and file contents at `origin/main` `9fa47db`; compile verdicts from `glslangValidator` in the
 Vulkan SDK 1.4.350 run over every `.glsl` file (25 pass at default target, 2 fail, 27 pass at Vulkan 1.1; the failure text was
-read). Crate versions, dates and licences from the crates.io API on 2026-10-30. Not measured here, marked above: the
-`tree-sitter-glsl` error rate over the corpus and `naga glsl-in`'s behaviour on the corpus' extensions.
+read). Crate versions, dates and licences from the crates.io API on 2026-10-30. The `tree-sitter-glsl`, `glsl-lang` and
+`naga glsl-in` rates are measured in the G1 measurement section (2026-10-31).
