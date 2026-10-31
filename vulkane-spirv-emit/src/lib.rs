@@ -42,6 +42,7 @@
 //!   checked against each other on the same ops.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use rspirv::binary::{Assemble, Disassemble};
 use rspirv::dr::{Builder, Operand};
@@ -87,6 +88,61 @@ enum GLOp {
     InverseSqrt = 32,
     NMin = 79,
     NMax = 80,
+}
+
+/// Unary ops that are one GLSL.std.450 call **and** defined at 64 bits.
+const GL_UNARY_WIDE: &[(UnaryOp, GLOp)] = &[
+    (UnaryOp::Abs, GLOp::FAbs),
+    (UnaryOp::Sqrt, GLOp::Sqrt),
+    (UnaryOp::Floor, GLOp::Floor),
+    (UnaryOp::Ceil, GLOp::Ceil),
+    // Round half to even, matching `rintf`.
+    (UnaryOp::Round, GLOp::RoundEven),
+    (UnaryOp::Trunc, GLOp::Trunc),
+];
+
+/// Unary ops that are one GLSL.std.450 call but are **not** defined at 64 bits.
+const GL_UNARY_NARROW: &[(UnaryOp, GLOp)] = &[
+    (UnaryOp::Rsqrt, GLOp::InverseSqrt),
+    (UnaryOp::Exp, GLOp::Exp),
+    (UnaryOp::Log, GLOp::Log),
+    (UnaryOp::Tanh, GLOp::Tanh),
+    (UnaryOp::Sin, GLOp::Sin),
+    (UnaryOp::Cos, GLOp::Cos),
+    (UnaryOp::Exp2, GLOp::Exp2),
+    (UnaryOp::Log2, GLOp::Log2),
+    (UnaryOp::Sinh, GLOp::Sinh),
+    (UnaryOp::Cosh, GLOp::Cosh),
+    (UnaryOp::Tan, GLOp::Tan),
+    (UnaryOp::Asin, GLOp::Asin),
+    (UnaryOp::Acos, GLOp::Acos),
+    (UnaryOp::Atan, GLOp::Atan),
+];
+
+/// Binary ops that are one GLSL.std.450 call and defined at 64 bits: the NaN-suppressing min/max.
+const GL_BINARY_WIDE: &[(BinaryOp, GLOp)] = &[
+    (BinaryOp::FmaxIeee, GLOp::NMax),
+    (BinaryOp::FminIeee, GLOp::NMin),
+];
+
+/// Binary ops that are one GLSL.std.450 call but not defined at 64 bits.
+const GL_BINARY_NARROW: &[(BinaryOp, GLOp)] =
+    &[(BinaryOp::Pow, GLOp::Pow), (BinaryOp::Atan2, GLOp::Atan2)];
+
+/// Ops declined with the Slang emitter's set: no base-profile intrinsic, each needs a polyfill.
+const POLYFILL_UNARY: &[UnaryOp] = &[
+    UnaryOp::Erf,
+    UnaryOp::Erfc,
+    UnaryOp::Gelu,
+    UnaryOp::Lgamma,
+    UnaryOp::Cbrt,
+    UnaryOp::Asinh,
+    UnaryOp::Acosh,
+    UnaryOp::Atanh,
+];
+
+fn lookup<K: PartialEq>(table: &[(K, GLOp)], key: &K) -> Option<GLOp> {
+    table.iter().find(|(k, _)| k == key).map(|&(_, g)| g)
 }
 
 /// The SPIR-V compute-shader backend. Lowers a [`KernelPlan`] to a SPIR-V module.
@@ -141,6 +197,10 @@ fn lo<T, E: std::fmt::Display>(r: Result<T, E>) -> Result<T, LowerError> {
     })
 }
 
+fn sp(w: Word) -> Spelling {
+    Spelling::Spelled(w.to_string())
+}
+
 fn decline_unary(op: UnaryOp, dtype: ElementKind, why: &str) -> Spelling {
     Spelling::Declined(Decline::UnsupportedDtypeForOp {
         op: DeclinedOp::Unary(op),
@@ -170,11 +230,7 @@ struct Em {
     index: Word,
     /// `lower_dag` names a hoisted shared node `tmpN` and hands that name to its consumers; the
     /// `temp` seam records which result id each name stands for.
-    temps: std::collections::HashMap<String, Word>,
-}
-
-fn sp(w: Word) -> Spelling {
-    Spelling::Spelled(w.to_string())
+    temps: HashMap<String, Word>,
 }
 
 impl Em {
@@ -214,66 +270,66 @@ impl Em {
         lo(self.b.f_div(self.t, None, one, d))
     }
 
-    /// The unary ops GLSL.std.450 defines at 64 bits, plus the arithmetic ones.
-    fn unary_wide(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
+    /// `x > 0 ? 1 : 0`.
+    fn step(&mut self, x: Word) -> Result<Word, LowerError> {
+        let (zero, one) = (self.fconst(0.0), self.fconst(1.0));
+        let gt = lo(self.b.f_ord_greater_than(self.boolean, None, x, zero))?;
+        lo(self.b.select(self.t, None, gt, one, zero))
+    }
+
+    /// `x > 0 ? 1 : (x < 0 ? -1 : 0)`; NaN gives 0, as the Slang speller's compare chain does.
+    fn sign(&mut self, x: Word) -> Result<Word, LowerError> {
+        let (zero, one, mone) = (self.fconst(0.0), self.fconst(1.0), self.fconst(-1.0));
+        let gt = lo(self.b.f_ord_greater_than(self.boolean, None, x, zero))?;
+        let lt = lo(self.b.f_ord_less_than(self.boolean, None, x, zero))?;
+        let neg = lo(self.b.select(self.t, None, lt, mone, zero))?;
+        lo(self.b.select(self.t, None, gt, one, neg))
+    }
+
+    /// `x < 0 ? 0 : x`: NaN-propagating, since `x < 0` is false for NaN.
+    fn relu(&mut self, x: Word) -> Result<Word, LowerError> {
+        let zero = self.fconst(0.0);
+        let lt = lo(self.b.f_ord_less_than(self.boolean, None, x, zero))?;
+        lo(self.b.select(self.t, None, lt, zero, x))
+    }
+
+    /// The ops built from plain arithmetic and selects; valid at every float width.
+    fn unary_arith(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
         let t = self.t;
         let r = match op {
             UnaryOp::Neg => lo(self.b.f_negate(t, None, x))?,
-            UnaryOp::Abs => self.gl(GLOp::FAbs, &[x])?,
             UnaryOp::Sqr => lo(self.b.f_mul(t, None, x, x))?,
-            UnaryOp::Sqrt => self.gl(GLOp::Sqrt, &[x])?,
             UnaryOp::Recip => {
                 let one = self.fconst(1.0);
                 lo(self.b.f_div(t, None, one, x))?
             }
-            // NaN-propagating: `x < 0` is false for NaN, so NaN passes through.
-            UnaryOp::Relu => {
-                let zero = self.fconst(0.0);
-                let lt = lo(self.b.f_ord_less_than(self.boolean, None, x, zero))?;
-                lo(self.b.select(t, None, lt, zero, x))?
-            }
-            UnaryOp::Floor => self.gl(GLOp::Floor, &[x])?,
-            UnaryOp::Ceil => self.gl(GLOp::Ceil, &[x])?,
-            // Round half to even, matching `rintf`.
-            UnaryOp::Round => self.gl(GLOp::RoundEven, &[x])?,
-            UnaryOp::Trunc => self.gl(GLOp::Trunc, &[x])?,
-            UnaryOp::Sign => {
-                let (zero, one, mone) = (self.fconst(0.0), self.fconst(1.0), self.fconst(-1.0));
-                let gt = lo(self.b.f_ord_greater_than(self.boolean, None, x, zero))?;
-                let lt = lo(self.b.f_ord_less_than(self.boolean, None, x, zero))?;
-                let neg = lo(self.b.select(t, None, lt, mone, zero))?;
-                lo(self.b.select(t, None, gt, one, neg))?
-            }
-            UnaryOp::Step => {
-                let (zero, one) = (self.fconst(0.0), self.fconst(1.0));
-                let gt = lo(self.b.f_ord_greater_than(self.boolean, None, x, zero))?;
-                lo(self.b.select(t, None, gt, one, zero))?
-            }
+            UnaryOp::Relu => self.relu(x)?,
+            UnaryOp::Sign => self.sign(x)?,
+            UnaryOp::Step => self.step(x)?,
             _ => return Ok(None),
         };
         Ok(Some(r))
     }
 
-    /// The transcendental ops: 32-bit only (GLSL.std.450 does not define them at 64 bits).
-    fn unary_narrow(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
-        let t = self.t;
+    /// Everything defined at 64 bits: the one-call table plus the arithmetic ops.
+    fn unary_wide(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
+        match lookup(GL_UNARY_WIDE, &op) {
+            Some(g) => self.gl(g, &[x]).map(Some),
+            None => self.unary_arith(op, x),
+        }
+    }
+
+    /// Transcendentals composed of other ops (32-bit only).
+    fn unary_composite(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
+        let (t, one) = (self.t, self.fconst(1.0));
         let r = match op {
-            UnaryOp::Rsqrt => self.gl(GLOp::InverseSqrt, &[x])?,
-            UnaryOp::Exp => self.gl(GLOp::Exp, &[x])?,
-            UnaryOp::Log => self.gl(GLOp::Log, &[x])?,
-            UnaryOp::Tanh => self.gl(GLOp::Tanh, &[x])?,
             UnaryOp::Sigmoid => self.sigmoid(x)?,
             UnaryOp::Silu => {
                 let s = self.sigmoid(x)?;
                 lo(self.b.f_mul(t, None, x, s))?
             }
-            UnaryOp::Sin => self.gl(GLOp::Sin, &[x])?,
-            UnaryOp::Cos => self.gl(GLOp::Cos, &[x])?,
-            UnaryOp::Exp2 => self.gl(GLOp::Exp2, &[x])?,
-            UnaryOp::Log2 => self.gl(GLOp::Log2, &[x])?,
             UnaryOp::Expm1 => {
                 let e = self.gl(GLOp::Exp, &[x])?;
-                let one = self.fconst(1.0);
                 lo(self.b.f_sub(t, None, e, one))?
             }
             // 1/ln(10)
@@ -283,19 +339,20 @@ impl Em {
                 lo(self.b.f_mul(t, None, l, k))?
             }
             UnaryOp::Log1p => {
-                let one = self.fconst(1.0);
                 let s = lo(self.b.f_add(t, None, one, x))?;
                 self.gl(GLOp::Log, &[s])?
             }
-            UnaryOp::Sinh => self.gl(GLOp::Sinh, &[x])?,
-            UnaryOp::Cosh => self.gl(GLOp::Cosh, &[x])?,
-            UnaryOp::Tan => self.gl(GLOp::Tan, &[x])?,
-            UnaryOp::Asin => self.gl(GLOp::Asin, &[x])?,
-            UnaryOp::Acos => self.gl(GLOp::Acos, &[x])?,
-            UnaryOp::Atan => self.gl(GLOp::Atan, &[x])?,
             _ => return Ok(None),
         };
         Ok(Some(r))
+    }
+
+    /// The transcendental ops: 32-bit only (GLSL.std.450 does not define them at 64 bits).
+    fn unary_narrow(&mut self, op: UnaryOp, x: Word) -> Result<Option<Word>, LowerError> {
+        match lookup(GL_UNARY_NARROW, &op) {
+            Some(g) => self.gl(g, &[x]).map(Some),
+            None => self.unary_composite(op, x),
+        }
     }
 
     fn unary(&mut self, op: UnaryOp, x: Word) -> Result<Spelling, LowerError> {
@@ -306,17 +363,7 @@ impl Em {
                 "v1 unary is float/double; integer dtypes have no unary math",
             ));
         }
-        if matches!(
-            op,
-            UnaryOp::Erf
-                | UnaryOp::Erfc
-                | UnaryOp::Gelu
-                | UnaryOp::Lgamma
-                | UnaryOp::Cbrt
-                | UnaryOp::Asinh
-                | UnaryOp::Acosh
-                | UnaryOp::Atanh
-        ) {
+        if POLYFILL_UNARY.contains(&op) {
             return Ok(Spelling::Declined(Decline::UnsupportedOp {
                 op: DeclinedOp::Unary(op),
                 why: "declined with the Slang emitter's set: erf/erfc/gelu/lgamma/cbrt/asinh/acosh/atanh need polyfills".to_string(),
@@ -338,87 +385,97 @@ impl Em {
         }
     }
 
-    fn binary_fp(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
+    /// NaN-propagating max/min, A on ties (`>=`/`<=`): the KISS-Ops `max_prop`/`min_prop`
+    /// decomposition, in the order the Slang speller uses.
+    fn nan_minmax(&mut self, is_max: bool, a: Word, b: Word) -> Result<Word, LowerError> {
         let (t, bl) = (self.t, self.boolean);
-        let r = match op {
-            // NaN-propagating, A on ties (`>=`/`<=`): the KISS-Ops `max_prop`/`min_prop`
-            // decomposition, in the order the Slang speller uses.
-            BinaryOp::Max | BinaryOp::Min => {
-                let na = lo(self.b.is_nan(bl, None, a))?;
-                let nb = lo(self.b.is_nan(bl, None, b))?;
-                let cmp = if op == BinaryOp::Max {
-                    lo(self.b.f_ord_greater_than_equal(bl, None, a, b))?
-                } else {
-                    lo(self.b.f_ord_less_than_equal(bl, None, a, b))?
-                };
-                let pick = lo(self.b.select(t, None, cmp, a, b))?;
-                let with_b = lo(self.b.select(t, None, nb, b, pick))?;
-                lo(self.b.select(t, None, na, a, with_b))?
+        let na = lo(self.b.is_nan(bl, None, a))?;
+        let nb = lo(self.b.is_nan(bl, None, b))?;
+        let cmp = if is_max {
+            lo(self.b.f_ord_greater_than_equal(bl, None, a, b))?
+        } else {
+            lo(self.b.f_ord_less_than_equal(bl, None, a, b))?
+        };
+        let pick = lo(self.b.select(t, None, cmp, a, b))?;
+        let with_b = lo(self.b.select(t, None, nb, b, pick))?;
+        lo(self.b.select(t, None, na, a, with_b))
+    }
+
+    /// Floored remainder (torch.remainder, sign-of-divisor), not fmod.
+    fn rem_floored(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let t = self.t;
+        let q = lo(self.b.f_div(t, None, a, b))?;
+        let f = self.gl(GLOp::Floor, &[q])?;
+        let m = lo(self.b.f_mul(t, None, f, b))?;
+        lo(self.b.f_sub(t, None, a, m))
+    }
+
+    /// The six comparisons, as `1.0` / `0.0` in the compute dtype. `!=` is unordered (NaN is
+    /// unequal to everything), the rest ordered, matching C's operators.
+    fn compare(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
+        let bl = self.boolean;
+        let cond = match op {
+            BinaryOp::CmpEq => self.b.f_ord_equal(bl, None, a, b),
+            BinaryOp::CmpNe => self.b.f_unord_not_equal(bl, None, a, b),
+            BinaryOp::CmpLt => self.b.f_ord_less_than(bl, None, a, b),
+            BinaryOp::CmpLe => self.b.f_ord_less_than_equal(bl, None, a, b),
+            BinaryOp::CmpGt => self.b.f_ord_greater_than(bl, None, a, b),
+            BinaryOp::CmpGe => self.b.f_ord_greater_than_equal(bl, None, a, b),
+            _ => return Ok(None),
+        };
+        self.flag(lo(cond)?).map(Some)
+    }
+
+    /// The value for a float binary op, or `None` when the op has no spelling at this width.
+    fn binary_fp_value(
+        &mut self,
+        op: BinaryOp,
+        a: Word,
+        b: Word,
+    ) -> Result<Option<Word>, LowerError> {
+        if let Some(g) = lookup(GL_BINARY_WIDE, &op) {
+            return self.gl(g, &[a, b]).map(Some);
+        }
+        if self.fam == Family::F32 {
+            if let Some(g) = lookup(GL_BINARY_NARROW, &op) {
+                return self.gl(g, &[a, b]).map(Some);
             }
-            BinaryOp::FmaxIeee => self.gl(GLOp::NMax, &[a, b])?,
-            BinaryOp::FminIeee => self.gl(GLOp::NMin, &[a, b])?,
-            // Floored remainder (torch.remainder, sign-of-divisor), not fmod.
-            BinaryOp::Rem => {
-                let q = lo(self.b.f_div(t, None, a, b))?;
-                let f = self.gl(GLOp::Floor, &[q])?;
-                let m = lo(self.b.f_mul(t, None, f, b))?;
-                lo(self.b.f_sub(t, None, a, m))?
-            }
-            BinaryOp::RemTrunc => lo(self.b.f_rem(t, None, a, b))?,
-            BinaryOp::CmpEq => {
-                let c = lo(self.b.f_ord_equal(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::CmpNe => {
-                let c = lo(self.b.f_unord_not_equal(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::CmpLt => {
-                let c = lo(self.b.f_ord_less_than(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::CmpLe => {
-                let c = lo(self.b.f_ord_less_than_equal(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::CmpGt => {
-                let c = lo(self.b.f_ord_greater_than(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::CmpGe => {
-                let c = lo(self.b.f_ord_greater_than_equal(bl, None, a, b))?;
-                self.flag(c)?
-            }
-            BinaryOp::Pow | BinaryOp::Atan2 if self.fam == Family::F32 => {
-                let g = if op == BinaryOp::Pow {
-                    GLOp::Pow
-                } else {
-                    GLOp::Atan2
-                };
-                self.gl(g, &[a, b])?
-            }
-            BinaryOp::Pow | BinaryOp::Atan2 => {
-                return Ok(decline_binary(
-                    op,
-                    self.dtype,
-                    "GLSL.std.450 does not define this function at 64 bits",
-                ));
-            }
+        }
+        match op {
+            BinaryOp::Max | BinaryOp::Min => self.nan_minmax(op == BinaryOp::Max, a, b).map(Some),
+            BinaryOp::Rem => self.rem_floored(a, b).map(Some),
+            BinaryOp::RemTrunc => lo(self.b.f_rem(self.t, None, a, b)).map(Some),
+            _ => self.compare(op, a, b),
+        }
+    }
+
+    fn binary_fp(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
+        if let Some(r) = self.binary_fp_value(op, a, b)? {
+            return Ok(sp(r));
+        }
+        Ok(match op {
+            BinaryOp::Pow | BinaryOp::Atan2 => decline_binary(
+                op,
+                self.dtype,
+                "GLSL.std.450 does not define this function at 64 bits",
+            ),
             BinaryOp::Copysign | BinaryOp::Nextafter => {
-                return Ok(Spelling::Declined(Decline::UnsupportedOp {
+                Spelling::Declined(Decline::UnsupportedOp {
                     op: DeclinedOp::Binary(op),
                     why: "declined by design with the Slang emitter's set".to_string(),
-                }));
+                })
             }
-            _ => {
-                return Ok(decline_binary(
-                    op,
-                    self.dtype,
-                    "no float lowering for this op",
-                ));
-            }
-        };
-        Ok(sp(r))
+            _ => decline_binary(op, self.dtype, "no float lowering for this op"),
+        })
+    }
+
+    /// `>>` follows the signedness of the dtype.
+    fn shift_right(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        if self.fam == Family::I32 {
+            lo(self.b.shift_right_arithmetic(self.t, None, a, b))
+        } else {
+            lo(self.b.shift_right_logical(self.t, None, a, b))
+        }
     }
 
     fn binary_int(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
@@ -428,10 +485,7 @@ impl Em {
             BinaryOp::BitOr => lo(self.b.bitwise_or(t, None, a, b))?,
             BinaryOp::BitXor => lo(self.b.bitwise_xor(t, None, a, b))?,
             BinaryOp::Shl => lo(self.b.shift_left_logical(t, None, a, b))?,
-            BinaryOp::Shr if self.fam == Family::I32 => {
-                lo(self.b.shift_right_arithmetic(t, None, a, b))?
-            }
-            BinaryOp::Shr => lo(self.b.shift_right_logical(t, None, a, b))?,
+            BinaryOp::Shr => self.shift_right(a, b)?,
             _ => {
                 return Ok(decline_binary(
                     op,
@@ -443,33 +497,52 @@ impl Em {
         Ok(sp(r))
     }
 
-    fn arith(&mut self, op: ArithOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
-        let t = self.t;
-        let r = if self.fam.is_float() {
-            match op {
-                ArithOp::Add => lo(self.b.f_add(t, None, a, b))?,
-                ArithOp::Sub => lo(self.b.f_sub(t, None, a, b))?,
-                ArithOp::Mul => lo(self.b.f_mul(t, None, a, b))?,
-                ArithOp::Div => lo(self.b.f_div(t, None, a, b))?,
-                _ => return Ok(self.arith_decline(op)),
-            }
+    fn binary(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
+        if self.fam.is_float() {
+            self.binary_fp(op, a, b)
         } else {
-            match op {
-                ArithOp::Add => lo(self.b.i_add(t, None, a, b))?,
-                ArithOp::Sub => lo(self.b.i_sub(t, None, a, b))?,
-                ArithOp::Mul => lo(self.b.i_mul(t, None, a, b))?,
-                // Integer division is device-UB at zero; the plan gate rejects it upstream.
-                _ => return Ok(self.arith_decline(op)),
-            }
-        };
-        Ok(sp(r))
+            self.binary_int(op, a, b)
+        }
     }
 
-    fn arith_decline(&self, op: ArithOp) -> Spelling {
-        Spelling::Declined(Decline::UnsupportedDtypeForOp {
-            op: DeclinedOp::Arith(op),
-            dtype: self.dtype,
-            why: "no SPIR-V spelling for this arithmetic op".to_string(),
+    fn arith_float(&mut self, op: ArithOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
+        let t = self.t;
+        let r = match op {
+            ArithOp::Add => lo(self.b.f_add(t, None, a, b))?,
+            ArithOp::Sub => lo(self.b.f_sub(t, None, a, b))?,
+            ArithOp::Mul => lo(self.b.f_mul(t, None, a, b))?,
+            ArithOp::Div => lo(self.b.f_div(t, None, a, b))?,
+            _ => return Ok(None),
+        };
+        Ok(Some(r))
+    }
+
+    /// Integer division is device-UB at zero; the plan gate rejects it upstream, and it is not
+    /// spelled here.
+    fn arith_int(&mut self, op: ArithOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
+        let t = self.t;
+        let r = match op {
+            ArithOp::Add => lo(self.b.i_add(t, None, a, b))?,
+            ArithOp::Sub => lo(self.b.i_sub(t, None, a, b))?,
+            ArithOp::Mul => lo(self.b.i_mul(t, None, a, b))?,
+            _ => return Ok(None),
+        };
+        Ok(Some(r))
+    }
+
+    fn arith(&mut self, op: ArithOp, a: Word, b: Word) -> Result<Spelling, LowerError> {
+        let r = if self.fam.is_float() {
+            self.arith_float(op, a, b)?
+        } else {
+            self.arith_int(op, a, b)?
+        };
+        Ok(match r {
+            Some(w) => sp(w),
+            None => Spelling::Declined(Decline::UnsupportedDtypeForOp {
+                op: DeclinedOp::Arith(op),
+                dtype: self.dtype,
+                why: "no SPIR-V spelling for this arithmetic op".to_string(),
+            }),
         })
     }
 
@@ -498,12 +571,12 @@ impl Em {
             .access_chain(ptr_t, None, var, [self.zero_u32, self.index]))?;
         Ok(sp(lo(self.b.load(self.t, None, ptr, None, []))?))
     }
-}
 
-/// A float or integer constant as a SPIR-V constant id. NaN and the infinities keep their
-/// IEEE bit patterns, so no C macro spelling is involved.
-fn const_spelling(em: &mut Em, v: f64) -> Spelling {
-    sp(em.fconst(v))
+    /// A constant as a SPIR-V constant id. NaN and the infinities keep their IEEE bit patterns,
+    /// so no C macro spelling is involved.
+    fn constant(&mut self, v: f64) -> Spelling {
+        sp(self.fconst(v))
+    }
 }
 
 impl Backend for SpirV {
@@ -528,32 +601,7 @@ impl Backend for SpirV {
                 ),
             });
         }
-        if plan.n_outputs != 1 {
-            return Err(LowerError::UnsupportedPlanShape {
-                detail: format!(
-                    "spirv backend v1: single-output only; op '{}' has {} outputs",
-                    plan.op_name, plan.n_outputs
-                ),
-            });
-        }
-        if plan.out_dtype_of(0) != plan.dtype {
-            return Err(LowerError::UnsupportedPlanShape {
-                detail: format!(
-                    "spirv backend v1: uniform output dtype only; op '{}' stores {:?} from a {:?} compute",
-                    plan.op_name,
-                    plan.out_dtype_of(0),
-                    plan.dtype
-                ),
-            });
-        }
-        if body_has_params(plan.body) {
-            return Err(LowerError::UnsupportedPlanShape {
-                detail: format!(
-                    "spirv backend v1: parameterless elementwise only; op '{}' reads a runtime scalar Param",
-                    plan.op_name
-                ),
-            });
-        }
+        check_shape(plan)?;
         // Same plan-gate backstop as the C-family emitters: infix int `/` and f64 `Const`.
         if unpopped::plan::is_int_dtype(plan.dtype) {
             assert_no_int_div_or_const(plan.body, plan.dtype, false, false);
@@ -569,12 +617,56 @@ impl Backend for SpirV {
     }
 }
 
-/// Emit the module for the scalar contiguous Elementwise path.
-fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
-    let fam = Family::of(plan.dtype).expect("dtype_ok implies a family");
-    let name = format!("unpopped_spirv_{}_{}", plan.op_name, dtype_tag(plan.dtype));
-    let n_in = usize::from(plan.n_inputs);
+/// The plan shapes v1 emits: one output of the compute dtype, no runtime `Param`.
+fn check_shape(plan: &KernelPlan<'_>) -> Result<(), LowerError> {
+    if plan.n_outputs != 1 {
+        return Err(LowerError::UnsupportedPlanShape {
+            detail: format!(
+                "spirv backend v1: single-output only; op '{}' has {} outputs",
+                plan.op_name, plan.n_outputs
+            ),
+        });
+    }
+    if plan.out_dtype_of(0) != plan.dtype {
+        return Err(LowerError::UnsupportedPlanShape {
+            detail: format!(
+                "spirv backend v1: uniform output dtype only; op '{}' stores {:?} from a {:?} compute",
+                plan.op_name,
+                plan.out_dtype_of(0),
+                plan.dtype
+            ),
+        });
+    }
+    if body_has_params(plan.body) {
+        return Err(LowerError::UnsupportedPlanShape {
+            detail: format!(
+                "spirv backend v1: parameterless elementwise only; op '{}' reads a runtime scalar Param",
+                plan.op_name
+            ),
+        });
+    }
+    Ok(())
+}
 
+/// Ids of the module-level declarations the function body refers to.
+struct Skeleton {
+    b: Builder,
+    glsl: Word,
+    void: Word,
+    fn_ty: Word,
+    t: Word,
+    boolean: Word,
+    u32_t: Word,
+    vec3: Word,
+    gid: Word,
+    zero_u32: Word,
+    inputs: Vec<Word>,
+    output: Word,
+}
+
+/// Capabilities, memory model, types, the invocation-id input and the `n_in + 1` storage-buffer
+/// blocks (`struct { T data[]; }`, set 0, bindings `0..=n_in`, the last being the output).
+fn declare(fam: Family, n_in: usize) -> Skeleton {
     let mut b = Builder::new();
     b.set_version(1, 3);
     b.capability(Capability::Shader);
@@ -598,8 +690,8 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         Family::I32 => b.type_int(32, 1),
         Family::U32 => u32_t,
     };
-    let v3u = b.type_vector(u32_t, 3);
-    let gid_ptr = b.type_pointer(None, StorageClass::Input, v3u);
+    let vec3 = b.type_vector(u32_t, 3);
+    let gid_ptr = b.type_pointer(None, StorageClass::Input, vec3);
     let gid = b.variable(gid_ptr, None, StorageClass::Input, None);
     b.decorate(
         gid,
@@ -607,7 +699,6 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         [Operand::BuiltIn(BuiltIn::GlobalInvocationId)],
     );
 
-    // One storage-buffer block per operand: `struct { T data[]; }`.
     let rt_array = b.type_runtime_array(t);
     b.decorate(
         rt_array,
@@ -628,25 +719,24 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
     }
     let output = buffers.pop().expect("output buffer");
     let zero_u32 = b.constant_bit32(u32_t, 0);
-
-    let main = lo(b.begin_function(void, None, FunctionControl::NONE, fn_ty))?;
-    lo(b.begin_block(None))?;
-    let gvec = lo(b.load(v3u, None, gid, None, []))?;
-    let index = lo(b.composite_extract(u32_t, None, gvec, [0]))?;
-
-    let em = RefCell::new(Em {
+    Skeleton {
         b,
-        fam,
-        dtype: plan.dtype,
         glsl,
+        void,
+        fn_ty,
         t,
         boolean,
+        u32_t,
+        vec3,
+        gid,
         zero_u32,
         inputs: buffers,
-        index,
-        temps: std::collections::HashMap::new(),
-    });
+        output,
+    }
+}
 
+/// Lower `body` through `lower_dag` with the SPIR-V spellers; returns the result id.
+fn lower_body(em: &RefCell<Em>, body: &ScalarExpr) -> Result<Word, LowerError> {
     let acc = |k: u8| em.borrow_mut().load_input(k);
     let unary = |op, x: String| {
         let mut e = em.borrow_mut();
@@ -656,11 +746,7 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
     let binary = |op, a: String, b: String| {
         let mut e = em.borrow_mut();
         let (a, b) = (e.resolve(&a), e.resolve(&b));
-        if e.fam.is_float() {
-            e.binary_fp(op, a, b)
-        } else {
-            e.binary_int(op, a, b)
-        }
+        e.binary(op, a, b)
     };
     let arith = |op, a: String, b: String| {
         let mut e = em.borrow_mut();
@@ -672,7 +758,7 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         let (c, a, b) = (e.resolve(&c), e.resolve(&a), e.resolve(&b));
         e.select(c, a, b)
     };
-    let constant = |v: f64| Ok(const_spelling(&mut em.borrow_mut(), v));
+    let constant = |v: f64| Ok(em.borrow_mut().constant(v));
     // The declaration half of hoisting: record the name, emit no text (the value is an SSA id).
     let temp = |_ctype: &str, name: &str, rhs: &str| {
         let mut e = em.borrow_mut();
@@ -680,9 +766,8 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         e.temps.insert(name.to_string(), w);
         String::new()
     };
-
     let (prelude, root) = lower_dag(
-        &ExprDag::from_expr(plan.body),
+        &ExprDag::from_expr(body),
         "spirv",
         &Lowering::builder(&acc, &unary, &binary)
             .arith(&arith)
@@ -696,9 +781,38 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         prelude.iter().all(String::is_empty),
         "spirv emits no prelude text"
     );
+    Ok(em.borrow().resolve(&root))
+}
+
+/// Emit the module for the scalar contiguous Elementwise path.
+fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
+    let fam = Family::of(plan.dtype).expect("dtype_ok implies a family");
+    let name = format!("unpopped_spirv_{}_{}", plan.op_name, dtype_tag(plan.dtype));
+    let mut sk = declare(fam, usize::from(plan.n_inputs));
+
+    let main = lo(sk
+        .b
+        .begin_function(sk.void, None, FunctionControl::NONE, sk.fn_ty))?;
+    lo(sk.b.begin_block(None))?;
+    let gvec = lo(sk.b.load(sk.vec3, None, sk.gid, None, []))?;
+    let index = lo(sk.b.composite_extract(sk.u32_t, None, gvec, [0]))?;
+
+    let (output, gid) = (sk.output, sk.gid);
+    let em = RefCell::new(Em {
+        b: sk.b,
+        fam,
+        dtype: plan.dtype,
+        glsl: sk.glsl,
+        t: sk.t,
+        boolean: sk.boolean,
+        zero_u32: sk.zero_u32,
+        inputs: sk.inputs,
+        index,
+        temps: HashMap::new(),
+    });
+    let root = lower_body(&em, plan.body)?;
 
     let mut e = em.into_inner();
-    let root = e.resolve(&root);
     let ptr_t = e.b.type_pointer(None, StorageClass::StorageBuffer, e.t);
     let dst = lo(e.b.access_chain(ptr_t, None, output, [e.zero_u32, e.index]))?;
     lo(e.b.store(dst, root, None, []))?;
