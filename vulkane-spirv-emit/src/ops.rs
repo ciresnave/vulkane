@@ -418,12 +418,27 @@ impl Em {
         })
     }
 
-    /// `>>` follows the signedness of the dtype.
+    /// The shift count as Unpopped defines it (`docs/int-div-shift-semantics.md`, rule 3): its
+    /// bits read as unsigned, modulo the 32-bit width, i.e. `count & 31`. SPIR-V makes a count
+    /// `>= 32` poison (3.3.14), so the mask is not optional; it also defines a negative count.
+    fn shift_count(&mut self, count: Word) -> Result<Word, LowerError> {
+        let mask = self.b.constant_bit32(self.t, 31);
+        lo(self.b.bitwise_and(self.t, None, count, mask))
+    }
+
+    /// `<<` discards the bits shifted out and is defined for any `a`, signed or not.
+    fn shift_left(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let count = self.shift_count(b)?;
+        lo(self.b.shift_left_logical(self.t, None, a, count))
+    }
+
+    /// `>>` follows the signedness of the dtype: arithmetic on `i32`, logical on `u32`.
     fn shift_right(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let count = self.shift_count(b)?;
         let r = if self.fam == Family::I32 {
-            self.b.shift_right_arithmetic(self.t, None, a, b)
+            self.b.shift_right_arithmetic(self.t, None, a, count)
         } else {
-            self.b.shift_right_logical(self.t, None, a, b)
+            self.b.shift_right_logical(self.t, None, a, count)
         };
         lo(r)
     }
@@ -434,7 +449,7 @@ impl Em {
             BinaryOp::BitAnd => lo(self.b.bitwise_and(t, None, a, b)),
             BinaryOp::BitOr => lo(self.b.bitwise_or(t, None, a, b)),
             BinaryOp::BitXor => lo(self.b.bitwise_xor(t, None, a, b)),
-            BinaryOp::Shl => lo(self.b.shift_left_logical(t, None, a, b)),
+            BinaryOp::Shl => self.shift_left(a, b),
             BinaryOp::Shr => self.shift_right(a, b),
             _ => return Ok(None),
         };

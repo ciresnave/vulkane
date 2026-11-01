@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - unreleased
+
+### Fixed - `vulkane-spirv-emit` masks the `Shl`/`Shr` count (Unpopped integer rule 3)
+
+`Shl` and `Shr` on `i32`/`u32` emitted the shift with the raw count. SPIR-V makes a count of 32 or more poison (3.3.14), so the result for such counts, and for negative counts, was whatever the device chose. They now emit `count & 31` first, as `docs/int-div-shift-semantics.md` rule 3 requires (count bits read as unsigned, modulo 32; `<<` defined for any `a`; `>>` arithmetic on `i32`, logical on `u32`). Checked two ways: `shift_counts_are_masked_to_five_bits_before_the_shift` (the shift's count operand is an `OpBitwiseAnd` with the constant 31; killed by a mask of 30 and by dropping the mask) and `tests/int_shift_live.rs`, which runs the emitted kernels on a device over 9 values x 12 counts x 4 kernels (432 results, all equal to Rust's `wrapping_shl`/`wrapping_shr` on an NVIDIA device). The live test could NOT tell a masked kernel from an unmasked one on that device (dropping the mask still passed 432/432: the hardware masks), so it guards the device path on other implementations, not the mask itself.
+Not done: integer `Div`. Unpopped's `Backend::lower` still panics on integer `Div` before the emitter sees it (the plan gate opens when the emitters adopt the guards, Unpopped ROADMAP E16), so the guarded `Div`/`Rem` spelling cannot be reached or tested here yet. `vulkane-spirv-emit` gains `vulkane` as a dev-dependency for the live test. Every crate moves to 0.20.2 with the series.
+
 ## [0.20.1] - unreleased
 
 ### Added - NUL-byte gate (`.github/nul_gate.py`, CI job `nul`)
