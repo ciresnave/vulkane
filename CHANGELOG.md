@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - unreleased
+
+### Added - NUL-byte gate (`.github/nul_gate.py`, CI job `nul`)
+
+Fails when any tracked text file contains a NUL byte (invisible in review, makes git treat the file as binary). Enumerates from `git ls-files`, prints the population (405 tracked, 395 scanned as text, 10 binary by extension `.spv`/`.jpeg`, 0 with NUL at main c759fb6), refuses an empty population and a stale binary-extension entry. `--self-test` has five controls over throwaway git trees (clean passes; NUL in `.rs` fails; UTF-16 `.md` fails; stale entry fails; too few text files fails); a NUL appended to the real `README.md` made the gate exit 1 naming the file. Added to `.github/local_gates.py` as two RUN rows. Every crate moves to 0.20.1 with the series.
+
 ## [0.20.0] - unreleased
 
 ### Changed (Breaking) - `unpopped` 0.40.0

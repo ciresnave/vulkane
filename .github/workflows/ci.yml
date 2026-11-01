@@ -696,6 +696,18 @@ jobs:
       - name: Every tracked source file declares the workspace licence
         run: python3 .github/spdx_gate.py
 
+  # No tracked text file contains a NUL byte (invisible in review, turns a file binary to git).
+  # The population is printed; an empty population or a stale BINARY entry fails.
+  nul:
+    name: No tracked text file contains a NUL byte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Self-test the NUL gate
+        run: python3 .github/nul_gate.py --self-test
+      - name: No NUL byte in any tracked text file
+        run: python3 .github/nul_gate.py
+
   # `vulkane-slang-emit`'s slangc-gated test, plus its `convert` feature, which no other job builds.
   # slangc is the Slang project's own release, pinned by version AND sha256 (the digest GitHub
   # records for the asset, re-computed by hand on 2026-10-30 from a download: identical). The test
