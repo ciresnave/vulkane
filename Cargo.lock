@@ -1735,9 +1735,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.38.0"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e46a92f723904043b4534cbeac29c1ef2e84faf30d26a0fb15d6674647ff2d8"
+checksum = "775f2ad36490f08abab57be9bd2d0c149d43388429cc6307593ff431feb2f483"
 dependencies = [
  "libm",
  "serde",
@@ -1748,9 +1748,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.38.0"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d874f84ac9f0ab31745f01d24cab3ab3372156804bdd1b419bec59fbf232cc"
+checksum = "7b24778cafd24ed4a65baf13ce8d7957c77180f36778b532596c6b07b97016d2"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -1758,9 +1758,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.38.0"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "249de3d955a5d53f25f73aaf2a6cc49f7c6f98f7d5b4ef9c72833d4bf988faf7"
+checksum = "695913162a49b77355f3e448898b30d58adc5067b3d65f22445c34e7396e0964"
 dependencies = [
  "float8",
  "half",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.19.5"
+version = "0.20.0"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1843,11 +1843,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.19.5"
+version = "0.20.0"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.19.5"
+version = "0.20.0"
 dependencies = [
  "tempfile",
  "unpopped",
@@ -1858,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.19.5"
+version = "0.20.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1868,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.19.5"
+version = "0.20.0"
 dependencies = [
  "rspirv",
  "unpopped",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.19.5"
+version = "0.20.0"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
