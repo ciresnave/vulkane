@@ -42,14 +42,20 @@ BINARY: dict[str, str] = {
 MINIMUM_TEXT_FILES = 100
 
 
-def _ls_files(root: pathlib.Path) -> list[str] | None:
+def _git(root: pathlib.Path, *args: str) -> subprocess.CompletedProcess | None:
+    """The one place git is run: fixed argv, shell=False. None if git is missing."""
     git = shutil.which("git")
     if git is None:
         print("FAIL: no `git` on PATH.", file=sys.stderr)
         return None
-    proc = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "-C", str(root), "ls-files", "-z"],
-        capture_output=True, shell=False, check=False)
+    return subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        [git, "-C", str(root), *args], capture_output=True, shell=False, check=False)
+
+
+def _ls_files(root: pathlib.Path) -> list[str] | None:
+    proc = _git(root, "ls-files", "-z")
+    if proc is None:
+        return None
     if proc.returncode != 0:
         print(f"FAIL: git ls-files: {proc.stderr.decode('utf-8', 'replace').strip()[:200]}",
               file=sys.stderr)
@@ -57,22 +63,13 @@ def _ls_files(root: pathlib.Path) -> list[str] | None:
     return [n for n in proc.stdout.decode("utf-8", "replace").split(chr(0)) if n]
 
 
-def check(root: pathlib.Path) -> int:
-    names = _ls_files(root)
-    if names is None:
-        return 1
-    ext = lambda n: os.path.splitext(n)[1].lower()  # noqa: E731
-    text, binary = [], []
-    for n in names:
-        (binary if ext(n) in BINARY else text).append(n)
-    failures: list[str] = []
-    for e in BINARY:
-        if not any(ext(n) == e for n in names):
-            failures.append(f"BINARY lists {e!r} but no tracked file has it (stale entry)")
-    if len(text) < MINIMUM_TEXT_FILES:
-        failures.append(f"only {len(text)} text files (floor {MINIMUM_TEXT_FILES}): "
-                        "the listing is broken, not the tree")
-    nul = 0
+def _ext(name: str) -> str:
+    return os.path.splitext(name)[1].lower()
+
+
+def _scan(root: pathlib.Path, text: list[str]) -> tuple[int, list[str]]:
+    """(files with NUL, failure lines) over the text population."""
+    nul, failures = 0, []
     needle = bytes([0])
     for n in text:
         try:
@@ -84,18 +81,32 @@ def check(root: pathlib.Path) -> int:
         if count:
             nul += 1
             failures.append(f"{n}: {count} NUL byte(s), first at offset {data.index(needle)}")
+    return nul, failures
+
+
+def _population_failures(names: list[str], text: list[str]) -> list[str]:
+    failures = [f"BINARY lists {e!r} but no tracked file has it (stale entry)"
+                for e in BINARY if not any(_ext(n) == e for n in names)]
+    if len(text) < MINIMUM_TEXT_FILES:
+        failures.append(f"only {len(text)} text files (floor {MINIMUM_TEXT_FILES}): "
+                        "the listing is broken, not the tree")
+    return failures
+
+
+def check(root: pathlib.Path) -> int:
+    names = _ls_files(root)
+    if names is None:
+        return 1
+    text = [n for n in names if _ext(n) not in BINARY]
+    failures = _population_failures(names, text)
+    nul, scan_failures = _scan(root, text)
+    failures += scan_failures
     print(f"population: {len(names)} tracked, {len(text)} scanned as text, "
-          f"{len(binary)} binary by extension ({', '.join(sorted(BINARY))}); "
+          f"{len(names) - len(text)} binary by extension ({', '.join(sorted(BINARY))}); "
           f"{nul} text file(s) with NUL")
     for f in failures:
         print(f"FAIL: {f}", file=sys.stderr)
     return 1 if failures else 0
-
-
-def _git(root: pathlib.Path, *args: str) -> None:
-    git = shutil.which("git")
-    subprocess.run([git, "-C", str(root), *args], check=True,  # noqa: S603
-                   capture_output=True, shell=False)
 
 
 def self_test() -> int:
@@ -107,10 +118,10 @@ def self_test() -> int:
     try:
         def tree(files: dict[str, bytes]) -> pathlib.Path:
             d = pathlib.Path(tempfile.mkdtemp(prefix="nul_gate_"))
-            _git(d, "init", "-q")
+            assert _git(d, "init", "-q").returncode == 0
             for name, content in files.items():
                 (d / name).write_bytes(content)
-            _git(d, "add", "-A")
+            assert _git(d, "add", "-A").returncode == 0
             return d
 
         base = {"a.rs": b"fn main() {}\n", "b.md": b"hello\n", "k.spv": b"\x03\x02\x23\x07\x00\x00",
