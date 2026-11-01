@@ -27,7 +27,8 @@ from __future__ import annotations
 import os
 import pathlib
 import shutil
-import subprocess  # noqa: S404 - fixed argv, no shell
+import subprocess  # nosec B404 - the tracked-file list comes from running git;
+                   # there is no other source
 import sys
 import tempfile
 
@@ -48,7 +49,9 @@ def _git(root: pathlib.Path, *args: str) -> subprocess.CompletedProcess | None:
     if git is None:
         print("FAIL: no `git` on PATH.", file=sys.stderr)
         return None
-    return subprocess.run(  # noqa: S603 - fixed argv, shell=False
+    # nosemgrep - argv[0] is the path resolved for the literal "git"; every other
+    # element is a literal or this script's own repo root, and there is no shell.
+    return subprocess.run(  # nosec B603 # nosemgrep
         [git, "-C", str(root), *args], capture_output=True, shell=False, check=False)
 
 
