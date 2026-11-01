@@ -118,10 +118,12 @@ def self_test() -> int:
     try:
         def tree(files: dict[str, bytes]) -> pathlib.Path:
             d = pathlib.Path(tempfile.mkdtemp(prefix="nul_gate_"))
-            assert _git(d, "init", "-q").returncode == 0
             for name, content in files.items():
                 (d / name).write_bytes(content)
-            assert _git(d, "add", "-A").returncode == 0
+            for args in (("init", "-q"), ("add", "-A")):
+                proc = _git(d, *args)
+                if proc is None or proc.returncode != 0:
+                    raise RuntimeError(f"self-test setup failed: git {args[0]}")
             return d
 
         base = {"a.rs": b"fn main() {}\n", "b.md": b"hello\n", "k.spv": b"\x03\x02\x23\x07\x00\x00",
