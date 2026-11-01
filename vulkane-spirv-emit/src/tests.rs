@@ -244,6 +244,47 @@ fn integer_bit_ops_validate_and_shift_right_follows_signedness() {
     assert_valid(&generate(&def, &binary_key(ElementKind::I32), &SpirV));
 }
 
+/// The shift count is masked to 5 bits before the shift (Unpopped's rule 3). SPIR-V makes a
+/// count `>= 32` poison, and a device that masks in hardware (NVIDIA) cannot show a missing mask,
+/// so the guard is checked structurally: the shift's count operand is an `OpBitwiseAnd` with the
+/// constant 31.
+#[test]
+fn shift_counts_are_masked_to_five_bits_before_the_shift() {
+    for dt in [ElementKind::I32, ElementKind::U32] {
+        for (op, shift) in [
+            (BinaryOp::Shl, "OpShiftLeftLogical"),
+            (BinaryOp::Shr, "OpShiftRight"),
+        ] {
+            let k = gen_binary(op, dt).unwrap();
+            let src = &k.source;
+            let shift_line = src
+                .lines()
+                .find(|l| l.contains(shift))
+                .unwrap_or_else(|| panic!("{op:?}/{dt:?}: no {shift}:\n{src}"));
+            let count_id = shift_line.split_whitespace().last().unwrap();
+            let and_line = src
+                .lines()
+                .find(|l| {
+                    l.trim_start()
+                        .starts_with(&format!("{count_id} = OpBitwiseAnd"))
+                })
+                .unwrap_or_else(|| {
+                    panic!("{op:?}/{dt:?}: the shift count {count_id} is not masked:\n{src}")
+                });
+            let mask_id = and_line.split_whitespace().last().unwrap();
+            let mask_is_31 = src.lines().any(|l| {
+                l.trim_start()
+                    .starts_with(&format!("{mask_id} = OpConstant"))
+                    && l.trim_end().ends_with(" 31")
+            });
+            assert!(
+                mask_is_31,
+                "{op:?}/{dt:?}: the mask {mask_id} is not 31:\n{src}"
+            );
+        }
+    }
+}
+
 #[test]
 fn arithmetic_select_and_non_finite_constants_validate() {
     let def = OpDef::elementwise(
