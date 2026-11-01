@@ -113,9 +113,17 @@ fn write_words(mem: &mut DeviceMemory, words: &[u32]) {
     m.as_slice_mut()[..bytes.len()].copy_from_slice(&bytes);
 }
 
-/// Run one kernel over `(a, count)` pairs on the device; `None` after a declared skip.
-fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
-    let (_inst, devices) = match common::instance_and_devices("int_shift", ApiVersion::V1_1) {
+type Opened = (
+    vulkane::safe::Instance,
+    vulkane::safe::PhysicalDevice,
+    Dev,
+    vulkane::safe::Queue,
+    u32,
+);
+
+/// Instance, first compute device, and queue; `None` once the skip is declared.
+fn open_device() -> Option<Opened> {
+    let (inst, devices) = match common::instance_and_devices("int_shift", ApiVersion::V1_1) {
         Ok(x) => x,
         Err(cause) => {
             common::skip(cause);
@@ -137,18 +145,15 @@ fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
         }
     };
     let queue = device.get_queue(qf, 0);
+    Some((inst, physical, device, queue, qf))
+}
 
-    // The kernel has no bounds check: size every buffer to whole workgroups.
-    let groups = a.len().div_ceil(WORKGROUP_SIZE as usize);
-    let padded = groups * WORKGROUP_SIZE as usize;
-    let bytes = (padded * 4) as u64;
-    let (a_buf, mut a_mem) = host_buffer(&device, &physical, bytes);
-    let (b_buf, mut b_mem) = host_buffer(&device, &physical, bytes);
-    let (o_buf, mut o_mem) = host_buffer(&device, &physical, bytes);
-    write_words(&mut a_mem, a);
-    write_words(&mut b_mem, b);
-    write_words(&mut o_mem, &vec![0xAAAA_AAAA; padded]);
-
+/// Three storage-buffer bindings (inputs 0 and 1, output 2) bound to `bufs`.
+fn bind_three(
+    device: &Dev,
+    bufs: [&Buffer; 3],
+    bytes: u64,
+) -> (DescriptorSetLayout, DescriptorPool, DescriptorSet) {
     let binding = |binding| DescriptorSetLayoutBinding {
         binding,
         descriptor_type: DescriptorType::STORAGE_BUFFER,
@@ -156,9 +161,9 @@ fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
         stage_flags: ShaderStageFlags::COMPUTE,
     };
     let set_layout =
-        DescriptorSetLayout::new(&device, &[binding(0), binding(1), binding(2)]).unwrap();
+        DescriptorSetLayout::new(device, &[binding(0), binding(1), binding(2)]).unwrap();
     let pool = DescriptorPool::new(
-        &device,
+        device,
         1,
         &[DescriptorPoolSize {
             descriptor_type: DescriptorType::STORAGE_BUFFER,
@@ -166,21 +171,29 @@ fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
         }],
     )
     .unwrap();
-    let dset: DescriptorSet = pool.allocate(&set_layout).unwrap();
-    dset.write_buffer(0, DescriptorType::STORAGE_BUFFER, &a_buf, 0, bytes);
-    dset.write_buffer(1, DescriptorType::STORAGE_BUFFER, &b_buf, 0, bytes);
-    dset.write_buffer(2, DescriptorType::STORAGE_BUFFER, &o_buf, 0, bytes);
-    let layout = PipelineLayout::new(&device, &[&set_layout]).unwrap();
-    let shader = ShaderModule::from_spirv(&device, words).unwrap();
-    let pipeline = ComputePipeline::new(&device, &layout, &shader, name).unwrap();
+    let dset = pool.allocate(&set_layout).unwrap();
+    for (i, buf) in bufs.iter().enumerate() {
+        dset.write_buffer(i as u32, DescriptorType::STORAGE_BUFFER, buf, 0, bytes);
+    }
+    (set_layout, pool, dset)
+}
 
-    let cmd_pool = CommandPool::new(&device, qf).unwrap();
+/// Record one dispatch of `groups` workgroups, submit it and wait.
+fn dispatch_and_wait(
+    dev: &Opened,
+    pipeline: &ComputePipeline,
+    layout: &PipelineLayout,
+    dset: &DescriptorSet,
+    groups: u32,
+) {
+    let (_, _, device, queue, qf) = dev;
+    let cmd_pool = CommandPool::new(device, *qf).unwrap();
     let mut cmd = cmd_pool.allocate_primary().unwrap();
     {
         let mut rec = cmd.begin().unwrap();
-        rec.bind_compute_pipeline(&pipeline);
-        rec.bind_compute_descriptor_sets(&layout, 0, &[&dset]);
-        rec.dispatch(groups as u32, 1, 1);
+        rec.bind_compute_pipeline(pipeline);
+        rec.bind_compute_descriptor_sets(layout, 0, &[dset]);
+        rec.dispatch(groups, 1, 1);
         rec.memory_barrier(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::HOST,
@@ -189,9 +202,31 @@ fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
         );
         rec.end().unwrap();
     }
-    let fence = Fence::new(&device).unwrap();
+    let fence = Fence::new(device).unwrap();
     queue.submit(&[&cmd], Some(&fence)).unwrap();
     fence.wait(u64::MAX).unwrap();
+}
+
+/// Run one kernel over `(a, count)` pairs on the device; `None` after a declared skip.
+fn run(name: &str, words: &[u32], a: &[u32], b: &[u32]) -> Option<Vec<u32>> {
+    let dev = open_device()?;
+    let (_, physical, device, _, _) = &dev;
+    // The kernel has no bounds check: size every buffer to whole workgroups.
+    let groups = a.len().div_ceil(WORKGROUP_SIZE as usize);
+    let padded = groups * WORKGROUP_SIZE as usize;
+    let bytes = (padded * 4) as u64;
+    let (a_buf, mut a_mem) = host_buffer(device, physical, bytes);
+    let (b_buf, mut b_mem) = host_buffer(device, physical, bytes);
+    let (o_buf, mut o_mem) = host_buffer(device, physical, bytes);
+    write_words(&mut a_mem, a);
+    write_words(&mut b_mem, b);
+    write_words(&mut o_mem, &vec![0xAAAA_AAAA; padded]);
+
+    let (set_layout, _pool, dset) = bind_three(device, [&a_buf, &b_buf, &o_buf], bytes);
+    let layout = PipelineLayout::new(device, &[&set_layout]).unwrap();
+    let shader = ShaderModule::from_spirv(device, words).unwrap();
+    let pipeline = ComputePipeline::new(device, &layout, &shader, name).unwrap();
+    dispatch_and_wait(&dev, &pipeline, &layout, &dset, groups as u32);
 
     let m = o_mem.map().unwrap();
     let raw = m.as_slice();
