@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - unreleased
+
+### Changed (Breaking) - `unpopped` 0.40.0
+
+`vulkane-slang-emit`, `vulkane-slang-parse` and `vulkane-spirv-emit` move from `unpopped`/`unpopped-vocab`/`unpopped-cpu-c` 0.38.0 to **0.40.0**. Breaking because `unpopped` types are part of these crates' public API. 0.40.0 adds `Stmt::AtomicRmw`; no Vulkane `src/` names `Stmt`, and the one test that does (`lower_kernel_default_is_the_typed_decline.rs`) only constructs `Stmt::Barrier`, so no new match arm is needed. Built `cargo build --workspace` (and `--locked`) against 0.40.0; tests of `vulkane-slang-emit`, `vulkane-slang-parse`, `vulkane-spirv-emit`, `vulkane-spirv-parse` pass (CPU-side; the GPU suite runs in CI). Every crate moves to 0.20.0 with the series.
+
 ## [0.19.5] - unreleased
 
 ### Added - ROADMAP row 1e: issue #130 bisect result (docs only)
