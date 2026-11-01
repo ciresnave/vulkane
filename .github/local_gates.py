@@ -199,6 +199,11 @@ POLICIES = [
      "reads the tracked tree and the first ten lines of each source file;"
      + " offline by construction, and the drift it catches -- a file added"
      + " without a licence header -- is exactly as real locally as on a runner"),
+    # Self-test row first, same reason as the SPDX pair: same script, first match wins.
+    ("nul_gate.py --self-test", RUN,
+     "the gate's own positive controls over throwaway git trees; offline"),
+    ("nul_gate.py", RUN,
+     "reads `git ls-files` and every tracked text file; offline, and a NUL is as real locally as on a runner"),
     ("slang.tar.gz", SKIP,
      "downloads a pinned slangc release from GitHub (network); the same test runs locally as plain `cargo test`"
      + " when slangc is on PATH"),
