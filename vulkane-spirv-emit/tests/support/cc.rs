@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copied verbatim from `unpopped-cpu-c` 0.43.2 `tests/support/cc.rs` (same author, MIT OR Apache-2.0; test-only, not
-// packaged: Cargo.toml `include` omits `tests/`). Only this note and the `allow` below were added.
-#![allow(dead_code)]
+// Copied from `unpopped-cpu-c` 0.43.2 `tests/support/cc.rs` (same author, MIT OR Apache-2.0; test-only, not
+// packaged: Cargo.toml `include` omits `tests/`). Changes: this note, the `allow` below, and `compile`
+// split into `compile_vcvars` / `compile_direct` (same commands, for the complexity gate).
 //! Host C compiler discovery and driving, shared by the compile-and-run tests
 //! (moved verbatim from `cpu_end_to_end.rs` so the kernel-layer differential can use it).
+#![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -127,36 +128,46 @@ impl CCompiler {
         // file's whole job is to mutate the environment of the process that
         // calls it. Spawning `cl` directly after running it in a *different*
         // process would inherit nothing.
-        if let Some(vcvars) = &self.vcvars {
-            let opt = if optimize { "/O2" } else { "/Od" };
-            // Driven through a generated .bat rather than `cmd /C "<line>"`.
-            // Rust escapes arguments for `CreateProcess`, `cmd` then applies its
-            // own quoting rules to what arrives, and a command line carrying
-            // three quoted Windows paths does not survive both. The failure mode
-            // is silent: `cmd` exits non-zero having printed nothing at all, so
-            // the compile looks like it failed rather than like it never ran.
-            // A batch file has exactly one quoting layer.
-            let bat = src.with_extension("build.bat");
-            let script = format!(
-                "@echo off\r\ncall \"{}\" >nul 2>&1\r\ncl /nologo {opt} \"{}\" /Fe:\"{}\"\r\n",
-                vcvars.display(),
-                src.display(),
-                exe.display()
-            );
-            std::fs::write(&bat, script).map_err(|e| format!("write build script: {e}"))?;
-            let out = Command::new(&bat)
-                .current_dir(src.parent().unwrap_or(Path::new(".")))
-                .output()
-                .map_err(|e| format!("spawn build script failed: {e}"))?;
-            if out.status.success() {
-                return Ok(());
-            }
-            return Err(format!(
-                "compile failed (via vcvars)\n--- stdout ---\n{}\n--- stderr ---\n{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ));
+        match &self.vcvars {
+            Some(vcvars) => Self::compile_vcvars(vcvars, src, exe, optimize),
+            None => self.compile_direct(src, exe, optimize),
         }
+    }
+
+    /// Enter a Visual Studio install through its `vcvars64.bat` and run `cl`.
+    fn compile_vcvars(vcvars: &Path, src: &Path, exe: &Path, optimize: bool) -> Result<(), String> {
+        let opt = if optimize { "/O2" } else { "/Od" };
+        // Driven through a generated .bat rather than `cmd /C "<line>"`.
+        // Rust escapes arguments for `CreateProcess`, `cmd` then applies its
+        // own quoting rules to what arrives, and a command line carrying
+        // three quoted Windows paths does not survive both. The failure mode
+        // is silent: `cmd` exits non-zero having printed nothing at all, so
+        // the compile looks like it failed rather than like it never ran.
+        // A batch file has exactly one quoting layer.
+        let bat = src.with_extension("build.bat");
+        let script = format!(
+            "@echo off\r\ncall \"{}\" >nul 2>&1\r\ncl /nologo {opt} \"{}\" /Fe:\"{}\"\r\n",
+            vcvars.display(),
+            src.display(),
+            exe.display()
+        );
+        std::fs::write(&bat, script).map_err(|e| format!("write build script: {e}"))?;
+        let out = Command::new(&bat)
+            .current_dir(src.parent().unwrap_or(Path::new(".")))
+            .output()
+            .map_err(|e| format!("spawn build script failed: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "compile failed (via vcvars)\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ))
+    }
+
+    /// Run the compiler found on `PATH`.
+    fn compile_direct(&self, src: &Path, exe: &Path, optimize: bool) -> Result<(), String> {
         let mut c = Command::new(self.cmd);
         if self.msvc {
             c.arg("-nologo")

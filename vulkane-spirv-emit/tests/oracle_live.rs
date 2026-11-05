@@ -15,9 +15,12 @@
 //! Without a device, or without a host C compiler, the test follows `VULKANE_REQUIRE_DEVICE`
 //! (device) and `CI` (compiler, see `support/cc.rs`) rather than passing silently.
 //!
-//! The second test, `slang_and_spirv_emitters_agree_on_a_device`, is the Slang-vs-SPIR-V cross-check: the
-//! same cases through `vulkane-slang-emit` (compiled by `slangc`) and this emitter, both on the device.
+//! The second test, `slang_and_spirv_emitters_agree_on_a_device`, is the Slang-vs-SPIR-V cross-check:
+//! the same cases through `vulkane-slang-emit` (compiled by `slangc`) and this emitter, both on the
+//! device. The cases, tolerances and domains live in `support/cases.rs`.
 
+#[path = "support/cases.rs"]
+mod cases;
 #[path = "support/cc.rs"]
 mod cc;
 #[path = "../../vulkane/tests/common/mod.rs"]
@@ -25,364 +28,104 @@ mod cc;
 mod common;
 #[path = "support/gpu.rs"]
 mod gpu;
+#[path = "support/host_c.rs"]
+mod host_c;
 
-use std::fmt::Write as _;
 use std::process::Command;
 
-use unpopped::ir::{BinaryOp, OpDef, UnaryOp, input};
 use unpopped::try_generate;
 use unpopped_cpu_c::CpuC;
-use unpopped_vocab::{ArchSku, ElementKind, OpCategory, OperandDesc, StructureKey, structure_key};
+use unpopped_vocab::ElementKind;
 use vulkane_spirv_emit::SpirV;
 
-/// How closely the device must match the host for one op.
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum Tol {
-    /// Bit-identical (NaN equals NaN).
-    Exact,
-    /// Bit-identical except that `+0` and `-0` are the same: SPIR-V does not specify the sign of a
-    /// zero result (`OpFRem`), and a host `fmod` keeps the dividend's.
-    ZeroSign,
-    /// `|got - want| <= rel * |want| + abs`, for functions whose accuracy Vulkan only bounds.
-    Close { rel: f32, abs: f32 },
+use cases::{Case, Tol, agree, cases as all_cases};
+
+/// A kernel ready to run on the device: its entry-point name and SPIR-V words.
+type Module = (String, Vec<u32>);
+
+/// Disagreements found so far, split by whether the op is specified on that input row.
+#[derive(Default)]
+struct Tally {
+    /// In-domain cells compared.
+    compared: usize,
+    /// In-domain disagreements: these fail the test.
+    bad: Vec<String>,
+    /// Out-of-domain disagreements: reported only.
+    undefined: Vec<String>,
 }
 
-const CLOSE: Tol = Tol::Close {
-    rel: 1e-5,
-    abs: 1e-5,
-};
-/// Vulkan bounds `sin`/`cos` by an absolute error of 2^-11 on [-pi, pi] and says nothing tighter.
-const TRIG: Tol = Tol::Close {
-    rel: 1e-4,
-    abs: 5e-4,
-};
-
-fn agree(tol: Tol, dt: ElementKind, got: u32, want: u32) -> bool {
-    if got == want {
-        return true;
-    }
-    if dt != ElementKind::F32 {
-        return false;
-    }
-    let (g, w) = (f32::from_bits(got), f32::from_bits(want));
-    if g.is_nan() && w.is_nan() {
-        return true;
-    }
-    match tol {
-        Tol::Exact => false,
-        Tol::ZeroSign => g == 0.0 && w == 0.0,
-        Tol::Close { rel, abs } => {
-            if g.is_infinite() || w.is_infinite() {
-                return g == w;
+impl Tally {
+    /// Check row `j` of `c` against each `(what, got, want)` pair.
+    fn cell(&mut self, c: &Case, j: usize, checks: &[(&str, u32, u32)]) {
+        let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
+        let in_domain = c.domain.holds(&row);
+        self.compared += usize::from(in_domain);
+        for &(what, got, want) in checks {
+            if agree(c.tol, c.dt, got, want) {
+                continue;
             }
-            (g - w).abs() <= rel * w.abs() + abs
-        }
-    }
-}
-
-/// Which input rows the op is specified on. Outside it SPIR-V leaves the result undefined (or, for
-/// a signed-zero input, device-dependent), so a disagreement there is reported, not failed.
-#[derive(Copy, Clone, Debug)]
-enum Domain {
-    All,
-    /// GLSL.std.450 `Pow`: undefined for `x < 0` and for `x == 0 && y <= 0`.
-    Pow,
-    /// GLSL.std.450 `Atan2`: undefined for `x == 0 && y == 0`; a `-0` `y` is also excluded, because
-    /// whether a device keeps the sign of a zero input is not something SPIR-V promises.
-    Atan2,
-}
-
-impl Domain {
-    fn holds(self, row: &[u32]) -> bool {
-        let f = |i: usize| f32::from_bits(row[i]);
-        match self {
-            Domain::All => true,
-            Domain::Pow => f(0) > 0.0,
-            Domain::Atan2 => !(f(0) == 0.0 && f(1) == 0.0) && row[0] != (-0.0f32).to_bits(),
-        }
-    }
-}
-
-struct Case {
-    domain: Domain,
-    name: String,
-    dt: ElementKind,
-    tol: Tol,
-    def: OpDef,
-    key: StructureKey,
-    inputs: Vec<Vec<u32>>,
-}
-
-fn key(n_operands: usize, cat: OpCategory, dt: ElementKind) -> StructureKey {
-    // A small `align` defeats vectorization, so the plan is `Schedule::Scalar` for both backends.
-    let a = OperandDesc::new(1, &[1 << 20], &[1], dt, 4);
-    structure_key(cat, &vec![a; n_operands], ArchSku::Sm89)
-}
-
-const F32_VALUES: [f32; 13] = [
-    -3.5, -2.5, -1.0, -0.5, -0.0, 0.0, 0.25, 0.5, 1.0, 1.5, 2.5, 3.5, 10.0,
-];
-const INT_VALUES: [u32; 9] = [
-    0,
-    1,
-    0xFFFF_FFFF,
-    0x8000_0000,
-    0x7FFF_FFFF,
-    0x1234_5678,
-    0xDEAD_BEEF,
-    0x0000_FFFF,
-    7,
-];
-
-fn f32_bits() -> Vec<u32> {
-    F32_VALUES.iter().map(|v| v.to_bits()).collect()
-}
-
-/// All ordered pairs of `values` as two parallel columns.
-fn pairs(values: &[u32]) -> Vec<Vec<u32>> {
-    let (mut a, mut b) = (Vec::new(), Vec::new());
-    for &x in values {
-        for &y in values {
-            a.push(x);
-            b.push(y);
-        }
-    }
-    vec![a, b]
-}
-
-fn unary_tol(op: UnaryOp) -> Tol {
-    use UnaryOp::*;
-    match op {
-        Neg | Abs | Floor | Ceil | Trunc | Round | Relu | Step => Tol::Exact,
-        // `sign(+-0)` is 0, and which zero a device returns is not specified (Lavapipe: `-0`).
-        Sign => Tol::ZeroSign,
-        // Vulkan gives these no tight accuracy bound; Lavapipe's `asin`/`acos` are a few 1e-5 off.
-        Sin | Cos | Tan | Asin | Acos => TRIG,
-        _ => CLOSE,
-    }
-}
-
-fn binary_tol(op: BinaryOp) -> Tol {
-    use BinaryOp::*;
-    match op {
-        Max | Min | CmpEq | CmpNe | CmpLt | CmpLe | CmpGt | CmpGe | Rem => Tol::Exact,
-        // IEEE `maxNum`/`minNum` of `+0` and `-0` may return either zero.
-        RemTrunc | FmaxIeee | FminIeee => Tol::ZeroSign,
-        _ => CLOSE,
-    }
-}
-
-fn cases() -> Vec<Case> {
-    use BinaryOp as B;
-    use UnaryOp as U;
-    let f = ElementKind::F32;
-    let mut v = Vec::new();
-
-    for op in [
-        U::Neg,
-        U::Abs,
-        U::Sqr,
-        U::Sqrt,
-        U::Rsqrt,
-        U::Recip,
-        U::Exp,
-        U::Log,
-        U::Tanh,
-        U::Sigmoid,
-        U::Relu,
-        U::Silu,
-        U::Sin,
-        U::Cos,
-        U::Floor,
-        U::Ceil,
-        U::Round,
-        U::Sign,
-        U::Step,
-        U::Trunc,
-        U::Exp2,
-        U::Log2,
-        U::Expm1,
-        U::Log10,
-        U::Log1p,
-        U::Sinh,
-        U::Cosh,
-        U::Tan,
-        U::Asin,
-        U::Acos,
-        U::Atan,
-    ] {
-        let name = format!("u_{op:?}_f32").to_lowercase();
-        v.push(Case {
-            domain: Domain::All,
-            def: OpDef::elementwise(&name, 1, &[f], input(0).unary(op)),
-            name,
-            dt: f,
-            tol: unary_tol(op),
-            key: key(2, OpCategory::UnaryElementwise, f),
-            inputs: vec![f32_bits()],
-        });
-    }
-
-    for op in [
-        B::Max,
-        B::Min,
-        B::Pow,
-        B::Rem,
-        B::RemTrunc,
-        B::Atan2,
-        B::FmaxIeee,
-        B::FminIeee,
-        B::CmpEq,
-        B::CmpNe,
-        B::CmpLt,
-        B::CmpLe,
-        B::CmpGt,
-        B::CmpGe,
-    ] {
-        let name = format!("b_{op:?}_f32").to_lowercase();
-        v.push(Case {
-            domain: match op {
-                B::Pow => Domain::Pow,
-                B::Atan2 => Domain::Atan2,
-                _ => Domain::All,
-            },
-            def: OpDef::elementwise(&name, 2, &[f], input(0).binary(op, input(1))),
-            name,
-            dt: f,
-            tol: binary_tol(op),
-            key: key(3, OpCategory::BinaryElementwise, f),
-            inputs: pairs(&f32_bits()),
-        });
-    }
-
-    type Build = fn() -> unpopped::ir::Expr;
-    let arith: [(&str, Build); 4] = [
-        ("add", || input(0) + input(1)),
-        ("sub", || input(0) - input(1)),
-        ("mul", || input(0) * input(1)),
-        ("div", || input(0) / input(1)),
-    ];
-    for (tag, build) in arith {
-        let name = format!("a_{tag}_f32");
-        v.push(Case {
-            domain: Domain::All,
-            def: OpDef::elementwise(&name, 2, &[f], build()),
-            name,
-            dt: f,
-            tol: if tag == "div" { CLOSE } else { Tol::Exact },
-            key: key(3, OpCategory::BinaryElementwise, f),
-            inputs: pairs(&f32_bits()),
-        });
-    }
-
-    for dt in [ElementKind::I32, ElementKind::U32] {
-        let tag = if dt == ElementKind::I32 { "i32" } else { "u32" };
-        for op in [B::BitAnd, B::BitOr, B::BitXor, B::Shl, B::Shr] {
-            let name = format!("b_{op:?}_{tag}").to_lowercase();
-            v.push(Case {
-                domain: Domain::All,
-                def: OpDef::elementwise(&name, 2, &[dt], input(0).binary(op, input(1))),
-                name,
-                dt,
-                tol: Tol::Exact,
-                key: key(3, OpCategory::BinaryElementwise, dt),
-                inputs: pairs(&INT_VALUES),
-            });
-        }
-        let name = format!("a_mixed_{tag}");
-        v.push(Case {
-            domain: Domain::All,
-            def: OpDef::elementwise(&name, 2, &[dt], input(0) * input(1) + input(0) - input(1)),
-            name,
-            dt,
-            tol: Tol::Exact,
-            key: key(3, OpCategory::BinaryElementwise, dt),
-            inputs: pairs(&INT_VALUES),
-        });
-    }
-    v
-}
-
-fn ctype(dt: ElementKind) -> &'static str {
-    match dt {
-        ElementKind::F32 => "float",
-        ElementKind::I32 => "int",
-        ElementKind::U32 => "unsigned int",
-        other => panic!("{other:?} is not run by this oracle"),
-    }
-}
-
-/// One C program holding every case's kernel; it prints `case <index>` then each output cell as
-/// eight hex digits of its bit pattern.
-fn c_program(cases: &[Case], sources: &[(String, String)]) -> String {
-    let mut s = String::from("#include <stdio.h>\n#include <string.h>\n#include <math.h>\n");
-    for (_, src) in sources {
-        s.push_str(src);
-        s.push('\n');
-    }
-    s.push_str("int main(void) {\n");
-    for (ci, (case, (kname, _))) in cases.iter().zip(sources).enumerate() {
-        let n = case.inputs[0].len();
-        let ct = ctype(case.dt);
-        for (k, col) in case.inputs.iter().enumerate() {
-            let lits: Vec<String> = col.iter().map(|w| format!("{w}u")).collect();
-            let _ = writeln!(
-                s,
-                "    static const unsigned in{ci}_{k}[{n}] = {{{}}};",
-                lits.join(", ")
+            let line = format!(
+                "{} {what} ({:?}) inputs {row:x?}: {got:#010x} vs {want:#010x}",
+                c.name, c.tol
             );
+            if in_domain {
+                self.bad.push(line);
+            } else {
+                self.undefined.push(line);
+            }
         }
-        let _ = writeln!(s, "    static unsigned out{ci}[{n}];");
-        let args: Vec<String> = (0..case.inputs.len())
-            .map(|k| format!("(const {ct}*)in{ci}_{k}"))
-            .collect();
-        let _ = writeln!(s, "    {kname}({}, ({ct}*)out{ci}, {n});", args.join(", "));
-        let _ = writeln!(
-            s,
-            "    printf(\"case {ci}\\n\"); for (int i = 0; i < {n}; ++i) printf(\"%08x\\n\", out{ci}[i]);"
+    }
+
+    /// Print the out-of-domain report and fail on any in-domain disagreement.
+    fn finish(&self, tag: &str, against: &str, kernels: usize) {
+        eprintln!(
+            "{tag}: {} cells outside the ops' specified domains disagree (reported, not failed):\n{}",
+            self.undefined.len(),
+            self.undefined.join("\n")
+        );
+        assert!(
+            self.bad.is_empty(),
+            "{} of {} in-domain cells disagree with {against}:\n{}",
+            self.bad.len(),
+            self.compared,
+            self.bad.join("\n")
+        );
+        eprintln!(
+            "{tag}: {} in-domain cells over {kernels} kernels agree with {against}",
+            self.compared
         );
     }
-    s.push_str("    return 0;\n}\n");
-    s
 }
 
-/// Compile and run the C program; the per-case output columns.
-fn host_results(cc: &cc::CCompiler, cases: &[Case], sources: &[(String, String)]) -> Vec<Vec<u32>> {
-    let dir = std::env::temp_dir().join(format!("vulkane_cpu_c_oracle_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let c_file = dir.join("oracle.c");
-    let exe = dir.join("oracle.exe");
-    std::fs::write(&c_file, c_program(cases, sources)).unwrap();
-    cc.compile(&c_file, &exe, false)
-        .unwrap_or_else(|e| panic!("the CPU-C oracle program did not compile:\n{e}"));
-    let out = Command::new(&exe).output().expect("run the oracle program");
-    assert!(
-        out.status.success(),
-        "oracle program exited {:?}",
-        out.status
-    );
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let mut cols: Vec<Vec<u32>> = Vec::new();
-    for line in text.lines() {
-        if line.starts_with("case ") {
-            cols.push(Vec::new());
-        } else {
-            cols.last_mut()
-                .expect("a result before any case header")
-                .push(u32::from_str_radix(line.trim(), 16).expect("hex cell"));
-        }
+/// Each case's SPIR-V module and its `unpopped-cpu-c` kernel `(name, C source)`.
+fn generate(cases: &[Case]) -> (Vec<Module>, Vec<(String, String)>) {
+    let (mut spirv, mut c_sources) = (Vec::new(), Vec::new());
+    for c in cases {
+        let s = try_generate(&c.def, &c.key, &SpirV)
+            .unwrap_or_else(|e| panic!("{}: the SPIR-V backend declined: {e:?}", c.name));
+        spirv.push((s.name.clone(), s.words().expect("SPIR-V words").to_vec()));
+        let k = try_generate(&c.def, &c.key, &CpuC)
+            .unwrap_or_else(|e| panic!("{}: the CPU-C backend declined: {e:?}", c.name));
+        c_sources.push((k.name.clone(), k.source.clone()));
     }
-    let _ = std::fs::remove_dir_all(&dir);
-    cols
+    (spirv, c_sources)
+}
+
+fn columns(c: &Case) -> Vec<&[u32]> {
+    c.inputs.iter().map(Vec::as_slice).collect()
 }
 
 #[test]
 fn agree_has_a_control_that_can_fail() {
     let one = 1.0f32.to_bits();
     let next = f32::from_bits(one + 1).to_bits();
+    let close = Tol::Close {
+        rel: 1e-5,
+        abs: 1e-5,
+    };
     assert!(!agree(Tol::Exact, ElementKind::F32, one, next));
-    assert!(agree(CLOSE, ElementKind::F32, one, next));
-    assert!(!agree(CLOSE, ElementKind::F32, one, 2.0f32.to_bits()));
+    assert!(agree(close, ElementKind::F32, one, next));
+    assert!(!agree(close, ElementKind::F32, one, 2.0f32.to_bits()));
     assert!(!agree(Tol::Exact, ElementKind::I32, 1, 2));
     assert!(agree(
         Tol::Exact,
@@ -390,6 +133,13 @@ fn agree_has_a_control_that_can_fail() {
         f32::NAN.to_bits(),
         (-f32::NAN).to_bits()
     ));
+    assert!(agree(
+        Tol::ZeroSign,
+        ElementKind::F32,
+        0.0f32.to_bits(),
+        (-0.0f32).to_bits()
+    ));
+    assert!(!agree(Tol::ZeroSign, ElementKind::F32, one, next));
 }
 
 #[test]
@@ -402,71 +152,19 @@ fn emitted_spirv_matches_the_cpu_c_oracle_on_a_device() {
     let Some(gpu) = gpu::Gpu::open("cpu_c_oracle") else {
         return; // skip already declared
     };
+    let cases = all_cases();
+    let (spirv, c_sources) = generate(&cases);
+    let host = host_c::host_results(&cc, &cases, &c_sources);
 
-    let cases = cases();
-    let mut spirv = Vec::new();
-    let mut sources = Vec::new();
-    for c in &cases {
-        let words = try_generate(&c.def, &c.key, &SpirV)
-            .unwrap_or_else(|e| panic!("{}: the SPIR-V backend declined: {e:?}", c.name));
-        let c_kernel = try_generate(&c.def, &c.key, &CpuC)
-            .unwrap_or_else(|e| panic!("{}: the CPU-C backend declined: {e:?}", c.name));
-        spirv.push((
-            words.name.clone(),
-            words.words().expect("SPIR-V words").to_vec(),
-        ));
-        sources.push((c_kernel.name.clone(), c_kernel.source.clone()));
-    }
-
-    let host = host_results(&cc, &cases, &sources);
-    assert_eq!(host.len(), cases.len(), "the oracle printed every case");
-
-    let mut compared = 0usize;
-    let (mut bad, mut undefined) = (Vec::new(), Vec::new());
+    let mut tally = Tally::default();
     for (i, c) in cases.iter().enumerate() {
-        let (name, words) = &spirv[i];
-        let inputs: Vec<&[u32]> = c.inputs.iter().map(Vec::as_slice).collect();
-        let got = gpu.run(name, words, &inputs);
+        let got = gpu.run(&spirv[i].0, &spirv[i].1, &columns(c));
         assert_eq!(got.len(), host[i].len(), "{}: result length", c.name);
         for (j, (&g, &w)) in got.iter().zip(&host[i]).enumerate() {
-            let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
-            let in_domain = c.domain.holds(&row);
-            compared += usize::from(in_domain);
-            if !agree(c.tol, c.dt, g, w) {
-                let args: Vec<String> = c
-                    .inputs
-                    .iter()
-                    .map(|col| format!("{:#010x}", col[j]))
-                    .collect();
-                let line = format!(
-                    "{} ({:?}) inputs [{}]: device {g:#010x}, host {w:#010x}",
-                    c.name,
-                    c.tol,
-                    args.join(", ")
-                );
-                if in_domain {
-                    bad.push(line);
-                } else {
-                    undefined.push(line);
-                }
-            }
+            tally.cell(c, j, &[("device vs cpu-c", g, w)]);
         }
     }
-    assert!(
-        bad.is_empty(),
-        "{} of {compared} cells disagree with unpopped-cpu-c:\n{}",
-        bad.len(),
-        bad.join("\n")
-    );
-    eprintln!(
-        "cpu_c_oracle: {} cells outside the ops' specified domains disagree (reported, not failed):\n{}",
-        undefined.len(),
-        undefined.join("\n")
-    );
-    eprintln!(
-        "cpu_c_oracle: {compared} in-domain device cells over {} kernels agree with unpopped-cpu-c",
-        cases.len()
-    );
+    tally.finish("cpu_c_oracle", "unpopped-cpu-c", cases.len());
 }
 
 /// `slangc` compiles one emitted Slang kernel to SPIR-V words; `None` when `slangc` is absent
@@ -513,6 +211,33 @@ fn slangc_words(
     )
 }
 
+/// Each case compiled through Slang. `Err` after a declared skip (no `slangc`); otherwise one entry
+/// per case: the module, or `None` for a typed decline (collected in the second element).
+#[allow(clippy::type_complexity)]
+fn slang_modules(cases: &[Case]) -> Result<(Vec<Option<Vec<u32>>>, Vec<String>), ()> {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut modules, mut declined) = (Vec::new(), Vec::new());
+    for c in cases {
+        match try_generate(&c.def, &c.key, &vulkane_slang_emit::Slang) {
+            Ok(sl) => {
+                let Some(words) = slangc_words(dir.path(), &sl.name, &sl.source, c.dt) else {
+                    eprintln!(
+                        "SKIP: `slangc` not on PATH (set VULKANE_REQUIRE_SLANGC to make this fatal)"
+                    );
+                    return Err(());
+                };
+                modules.push(Some(words));
+            }
+            Err(e) => {
+                // A typed decline is a finding about the Slang emitter, not a disagreement.
+                declined.push(format!("{}: {e:?}", c.name));
+                modules.push(None);
+            }
+        }
+    }
+    Ok((modules, declined))
+}
+
 /// The cross-check: the same `OpDef` through the Slang emitter (compiled by `slangc`) and the
 /// SPIR-V emitter, both run on the device. Each is held to the host C result, and the two are held
 /// to each other, with the same per-op tolerance and domain as the oracle above.
@@ -526,86 +251,47 @@ fn slang_and_spirv_emitters_agree_on_a_device() {
     let Some(gpu) = gpu::Gpu::open("slang_spirv_cross") else {
         return;
     };
-    let cases = cases();
-    let dir = tempfile::tempdir().unwrap();
-    let (mut spirv, mut slang, mut sources) = (Vec::new(), Vec::new(), Vec::new());
-    let mut slang_declined: Vec<String> = Vec::new();
-    for c in &cases {
-        let s = try_generate(&c.def, &c.key, &SpirV)
-            .unwrap_or_else(|e| panic!("{}: SPIR-V declined: {e:?}", c.name));
-        spirv.push((s.name.clone(), s.words().expect("words").to_vec()));
-        match try_generate(&c.def, &c.key, &vulkane_slang_emit::Slang) {
-            Ok(sl) => {
-                let Some(words) = slangc_words(dir.path(), &sl.name, &sl.source, c.dt) else {
-                    eprintln!(
-                        "SKIP: `slangc` not on PATH (set VULKANE_REQUIRE_SLANGC to make this fatal)"
-                    );
-                    return;
-                };
-                slang.push(Some((sl.name.clone(), words)));
-            }
-            Err(e) => {
-                // A typed decline is a finding about the Slang emitter, not a disagreement.
-                slang_declined.push(format!("{}: {e:?}", c.name));
-                slang.push(None);
-            }
-        }
-        let k = try_generate(&c.def, &c.key, &CpuC)
-            .unwrap_or_else(|e| panic!("{}: CPU-C declined: {e:?}", c.name));
-        sources.push((k.name.clone(), k.source.clone()));
-    }
-    let host = host_results(&cc, &cases, &sources);
+    let cases = all_cases();
+    let (spirv, c_sources) = generate(&cases);
+    let Ok((slang, declined)) = slang_modules(&cases) else {
+        return;
+    };
+    let host = host_c::host_results(&cc, &cases, &c_sources);
 
-    let (mut compared, mut bad, mut undefined) = (0usize, Vec::new(), Vec::new());
+    let mut tally = Tally::default();
     for (i, c) in cases.iter().enumerate() {
-        let inputs: Vec<&[u32]> = c.inputs.iter().map(Vec::as_slice).collect();
-        let Some((_, slang_words)) = &slang[i] else {
+        let Some(words) = &slang[i] else {
             continue;
         };
-        let a = gpu.run(&spirv[i].0, &spirv[i].1, &inputs);
+        let a = gpu.run(&spirv[i].0, &spirv[i].1, &columns(c));
         // `slangc` names every SPIR-V entry point `main`, whatever `-entry` selected.
-        let b = gpu.run("main", slang_words, &inputs);
+        let b = gpu.run("main", words, &columns(c));
         for j in 0..a.len() {
-            let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
-            let in_domain = c.domain.holds(&row);
-            compared += usize::from(in_domain);
-            for (what, x, y) in [
-                ("slang vs spirv", b[j], a[j]),
-                ("slang vs host", b[j], host[i][j]),
-            ] {
-                if !agree(c.tol, c.dt, x, y) {
-                    let line = format!(
-                        "{} {what} ({:?}) inputs {:x?}: {x:#010x} vs {y:#010x}",
-                        c.name, c.tol, row
-                    );
-                    if in_domain {
-                        bad.push(line);
-                    } else {
-                        undefined.push(line);
-                    }
-                }
-            }
+            tally.cell(
+                c,
+                j,
+                &[
+                    ("slang vs spirv", b[j], a[j]),
+                    ("slang vs host", b[j], host[i][j]),
+                ],
+            );
         }
     }
     eprintln!(
         "slang_spirv_cross: the Slang emitter declined {} of {} cases (not compared):\n{}",
-        slang_declined.len(),
+        declined.len(),
         cases.len(),
-        slang_declined.join("\n")
-    );
-    eprintln!(
-        "slang_spirv_cross: {} out-of-domain disagreements (reported, not failed)",
-        undefined.len()
+        declined.join("\n")
     );
     // Pinned: `slang_binary` spells only I32/I64 integer ops, so every U32 bitwise/shift op is a
     // typed decline today (the SPIR-V emitter spells them). Fixing that makes this fail, on purpose:
     // drop the names from here and the cases join the comparison.
-    let declined_names: Vec<&str> = slang_declined
+    let names: Vec<&str> = declined
         .iter()
         .map(|d| d.split(':').next().unwrap())
         .collect();
     assert_eq!(
-        declined_names,
+        names,
         [
             "b_bitand_u32",
             "b_bitor_u32",
@@ -615,14 +301,9 @@ fn slang_and_spirv_emitters_agree_on_a_device() {
         ],
         "the set of cases the Slang emitter declines changed"
     );
-    assert!(
-        bad.is_empty(),
-        "{} disagreements over {compared} in-domain cells:\n{}",
-        bad.len(),
-        bad.join("\n")
-    );
-    eprintln!(
-        "slang_spirv_cross: {compared} in-domain cells over {} kernels agree (slang vs spirv and slang vs host)",
-        cases.len() - slang_declined.len()
+    tally.finish(
+        "slang_spirv_cross",
+        "SPIR-V and host C",
+        cases.len() - declined.len(),
     );
 }

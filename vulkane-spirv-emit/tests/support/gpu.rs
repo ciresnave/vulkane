@@ -8,9 +8,9 @@
 
 use vulkane::safe::{
     AccessFlags, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
-    DescriptorPool, DescriptorPoolSize, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorType, DeviceMemory, Fence, MemoryPropertyFlags, PipelineLayout, PipelineStage,
-    ShaderModule, ShaderStageFlags,
+    DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, DescriptorType, DeviceMemory, Fence, MemoryPropertyFlags,
+    PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags,
 };
 use vulkane_spirv_emit::WORKGROUP_SIZE;
 
@@ -93,6 +93,66 @@ impl Gpu {
         })
     }
 
+    /// One storage-buffer binding per buffer, in order, each covering `bytes`.
+    fn bind(
+        &self,
+        bufs: &[&Buffer],
+        bytes: u64,
+    ) -> (DescriptorSetLayout, DescriptorPool, DescriptorSet) {
+        let device = &self.device;
+        let count = bufs.len() as u32;
+        let binding = |binding| DescriptorSetLayoutBinding {
+            binding,
+            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+            stage_flags: ShaderStageFlags::COMPUTE,
+        };
+        let bindings: Vec<_> = (0..count).map(binding).collect();
+        let set_layout = DescriptorSetLayout::new(device, &bindings).unwrap();
+        let pool = DescriptorPool::new(
+            device,
+            1,
+            &[DescriptorPoolSize {
+                descriptor_type: DescriptorType::STORAGE_BUFFER,
+                descriptor_count: count,
+            }],
+        )
+        .unwrap();
+        let dset = pool.allocate(&set_layout).unwrap();
+        for (i, buf) in bufs.iter().enumerate() {
+            dset.write_buffer(i as u32, DescriptorType::STORAGE_BUFFER, buf, 0, bytes);
+        }
+        (set_layout, pool, dset)
+    }
+
+    /// Record one dispatch of `groups` workgroups, submit it and wait.
+    fn dispatch(
+        &self,
+        pipeline: &ComputePipeline,
+        layout: &PipelineLayout,
+        dset: &DescriptorSet,
+        groups: u32,
+    ) {
+        let cmd_pool = CommandPool::new(&self.device, self.qf).unwrap();
+        let mut cmd = cmd_pool.allocate_primary().unwrap();
+        {
+            let mut rec = cmd.begin().unwrap();
+            rec.bind_compute_pipeline(pipeline);
+            rec.bind_compute_descriptor_sets(layout, 0, &[dset]);
+            rec.dispatch(groups, 1, 1);
+            rec.memory_barrier(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::HOST,
+                AccessFlags::SHADER_WRITE,
+                AccessFlags::HOST_READ,
+            );
+            rec.end().unwrap();
+        }
+        let fence = Fence::new(&self.device).unwrap();
+        self.queue.submit(&[&cmd], Some(&fence)).unwrap();
+        fence.wait(u64::MAX).unwrap();
+    }
+
     /// Run `words` (entry point `name`) over `inputs` (equal length, 32-bit cells) and return the
     /// output cells, one per input element.
     pub(crate) fn run(&self, name: &str, words: &[u32], inputs: &[&[u32]]) -> Vec<u32> {
@@ -112,52 +172,14 @@ impl Gpu {
         let (o_buf, mut o_mem) = host_buffer(device, &self.physical, bytes);
         write_words(&mut o_mem, &vec![SENTINEL; padded]);
 
-        let count = inputs.len() as u32 + 1;
-        let binding = |binding| DescriptorSetLayoutBinding {
-            binding,
-            descriptor_type: DescriptorType::STORAGE_BUFFER,
-            descriptor_count: 1,
-            stage_flags: ShaderStageFlags::COMPUTE,
-        };
-        let bindings: Vec<_> = (0..count).map(binding).collect();
-        let set_layout = DescriptorSetLayout::new(device, &bindings).unwrap();
-        let pool = DescriptorPool::new(
-            device,
-            1,
-            &[DescriptorPoolSize {
-                descriptor_type: DescriptorType::STORAGE_BUFFER,
-                descriptor_count: count,
-            }],
-        )
-        .unwrap();
-        let dset = pool.allocate(&set_layout).unwrap();
-        for (i, (buf, _)) in held.iter().enumerate() {
-            dset.write_buffer(i as u32, DescriptorType::STORAGE_BUFFER, buf, 0, bytes);
-        }
-        dset.write_buffer(count - 1, DescriptorType::STORAGE_BUFFER, &o_buf, 0, bytes);
+        let mut bufs: Vec<&Buffer> = held.iter().map(|(b, _)| b).collect();
+        bufs.push(&o_buf);
+        let (set_layout, _pool, dset) = self.bind(&bufs, bytes);
 
         let layout = PipelineLayout::new(device, &[&set_layout]).unwrap();
         let shader = ShaderModule::from_spirv(device, words).unwrap();
         let pipeline = ComputePipeline::new(device, &layout, &shader, name).unwrap();
-
-        let cmd_pool = CommandPool::new(device, self.qf).unwrap();
-        let mut cmd = cmd_pool.allocate_primary().unwrap();
-        {
-            let mut rec = cmd.begin().unwrap();
-            rec.bind_compute_pipeline(&pipeline);
-            rec.bind_compute_descriptor_sets(&layout, 0, &[&dset]);
-            rec.dispatch(groups as u32, 1, 1);
-            rec.memory_barrier(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::HOST,
-                AccessFlags::SHADER_WRITE,
-                AccessFlags::HOST_READ,
-            );
-            rec.end().unwrap();
-        }
-        let fence = Fence::new(device).unwrap();
-        self.queue.submit(&[&cmd], Some(&fence)).unwrap();
-        fence.wait(u64::MAX).unwrap();
+        self.dispatch(&pipeline, &layout, &dset, groups as u32);
 
         let m = o_mem.map().unwrap();
         let raw = m.as_slice();
