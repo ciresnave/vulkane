@@ -23,6 +23,8 @@ unpopped-vocab = "0.43.2"
 vulkane-spirv-parse = { path = "../vulkane-spirv-parse" }
 # The live-device shift test opens a device through the safe wrapper (and its shared `tests/common`).
 vulkane            = { path = "../vulkane" }
+# G4.2: the host reference the device results are compared with.
+unpopped-cpu-c     = "0.43.2"
 
 [lints.rust]
 missing_docs                  = "deny"
