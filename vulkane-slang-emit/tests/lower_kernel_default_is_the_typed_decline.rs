@@ -15,7 +15,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError};
-use unpopped::exec::{LaunchShape, Scope};
+use unpopped::exec::Scope;
 use unpopped::kernel::{Block, KernelFn, Stmt};
 use unpopped::plan::KernelPlan;
 use unpopped_cpu_c::CpuC;
@@ -46,12 +46,11 @@ fn empty() -> KernelFn {
     KernelFn::new("k", ElementKind::F32, vec![], vec![], Block(vec![]))
 }
 
-/// A kernel `CpuC` must refuse: it has a launch and a barrier.
+/// A kernel `CpuC` must refuse: a barrier with no launch. Since unpopped 0.41 `CpuC` lowers a barrier inside
+/// a launch, so the launch this cell used to carry would now be accepted; "a Barrier needs a launch" still refuses.
 fn barrier() -> KernelFn {
-    let mut k = empty().with_launch(LaunchShape::new([1, 1, 1], [1, 1, 1]));
-    k.body.0.push(Stmt::Barrier {
-        scope: Scope::Block,
-    });
+    let mut k = empty();
+    k.body.0.push(Stmt::barrier(Scope::Block));
     k
 }
 

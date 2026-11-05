@@ -22,12 +22,12 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 convert = ["unpopped/convert"]
 
 [dependencies]
-unpopped       = "0.40.0"
-unpopped-vocab = "0.40.0"
+unpopped       = "0.43.2"
+unpopped-vocab = "0.43.2"
 
 [dev-dependencies]
 # The conformance cells (tests/) compare against the C reference emitter.
-unpopped-cpu-c = "0.40.0"
+unpopped-cpu-c = "0.43.2"
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = { workspace = true }
 # The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
