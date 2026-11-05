@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! vulkane = { version = "0.16", features = ["shaderc"] }
+//! vulkane = { version = "0.20", features = ["shaderc"] }
 //! ```
 //!
 //! # When to use this vs. `naga`

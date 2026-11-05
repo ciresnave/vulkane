@@ -12,7 +12,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! vulkane = { version = "0.16", features = ["fetch-spec"] }
+//! vulkane = { version = "0.20", features = ["fetch-spec"] }
 //! ```
 //!
 //! # What's new in 0.10
