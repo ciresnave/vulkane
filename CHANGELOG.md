@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.21.1] - unreleased
+## [0.21.2] - unreleased
+
+### Fixed - `vulkane-slang-emit` masks the `Shl`/`Shr` count (Unpopped integer rule 3)
+
+`Shl` and `Shr` on `i32`/`i64` were spelled with the raw count (`a << b`). Once Slang lowers to SPIR-V a count of the operand width or more is poison (SPIR-V 3.3.14), so the result for such counts, and for negative counts, was whatever the device chose. They now spell `a << (b & 31)` for `i32` and `a << (b & 63)` for `i64`, as `docs/int-div-shift-semantics.md` rule 3 requires (count bits read as unsigned, modulo the width). Checked by `int_shift_count_is_masked_to_the_width`, which pins the exact spelling at both widths with `BitAnd` beside it unchanged as the control. Slang integer `Div`/`Rem` were already declined, so the plan gate for them stays shut. This mirrors the `vulkane-spirv-emit` fix in 0.20.2. Every crate moves to 0.21.2 with the series.
+
+## [0.21.1] - 2026-11-05
 
 ### Fixed - docs and package metadata
 
 The seven cited dependency lines (README x4, `lib.rs`, `safe/naga.rs`, `safe/shaderc.rs`) cite `vulkane = "0.21"`, which crates.io now serves (the `cited_versions` gate). `vulkane-kernels-source` declares `rust-version = "1.85"` (edition 2024's own floor; it has no dependencies and compiles there, and the minimality gate rejected 1.88 because it also compiles on 1.87). Every crate moves to 0.21.1 with the series.
 
-## [vulkane_derive 0.1.3] - unreleased
+## [vulkane_derive 0.1.3] - 2026-11-05
 
 `vulkane_derive` ships a README (`readme = "README.md"`). It keeps its own number and moves 0.1.2 -> 0.1.3, because a README changes the package contents of a version crates.io already serves (the version-collision gate).
 
