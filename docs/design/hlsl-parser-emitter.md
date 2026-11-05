@@ -33,6 +33,34 @@ Vulkane `origin/main` `9fa47db`, 2026-10-30; crates.io API the same day; Vulkan 
 First step of the implementation PR: parse the proxy corpus (the 131 DXC-accepted files, plus 3-5 hand-written pure-HLSL
 files with `groupshared`, semantics and `register`) with `tree-sitter-hlsl` and count ERROR/MISSING nodes, with a control.
 
+#### H1 measured, 2026-11-05 (Vulkane `origin/main` `a7bbe49`; `tree-sitter-hlsl` 0.2.0 with `tree-sitter` 0.27)
+
+Method: a throwaway binary parses each file and counts nodes with `is_error()` or `is_missing()`. `dxc` 1.9.0.5347 re-run over the
+147 kernels with the flags above reproduces the earlier split: **131 accepted, 16 rejected**.
+
+| input | files | clean (0 ERROR, 0 MISSING) |
+|---|---|---|
+| the 131 DXC-accepted `.slang` files, as they are | 131 | **0**; each has exactly 1 ERROR, at its `[shader("compute")]` line |
+| the same 131 with that one line deleted | 131 | **131** |
+
+Controls: `int main(` parses to 1 ERROR (the check can fail); a hand-written pure-HLSL file and 11 one-construct probes show which constructs
+the grammar handles. Clean: `groupshared`, `RWStructuredBuffer<T> x : register(u1);`, `[numthreads(..)]` with `SV_DispatchThreadID` /
+`SV_GroupIndex` parameters, a struct with `SV_Position` / `TEXCOORD0` semantics, `tbuffer`, a plain `cbuffer`. A parse is not vacuous:
+`softmax.hlsl` (stripped) yields a `function_definition`, 7 `attribute`-named, 3 `template_type` and 3 `for_statement` nodes.
+
+Two grammar gaps, both on constructs `dxc` accepts (`cbuffer P : register(b0) { uint n; };` compiles with `-spirv`):
+
+1. **`[shader("compute")]`** (an attribute with a string argument) is an ERROR. It is Slang/DXC-library syntax, absent from pure compute
+   HLSL, so it does not block kernels; the corpus needs it stripped (or the parser must tolerate it).
+2. **`cbuffer N : register(bK[, spaceM]) { .. }`** reports `MISSING ;` at line 1 (3 probes: `register(b0)`, `register(b0, space1)`, with
+   and without a trailing `;`). The same `cbuffer` without `: register(..)` is clean. This is a real HLSL idiom, so it is a grammar bug
+   to report upstream or patch, not a corpus artefact.
+
+**Decision H1: A stands** (`tree-sitter-hlsl`), with the two gaps above carried as known residue. Not measured: the 16 rejected files,
+the other `register` forms (`packoffset`, `t`/`s` registers on `cbuffer`/`tbuffer`), the grammar's lineage with `tree-sitter-slang`,
+`spirv-val` over all 131 DXC outputs. Next in the sequence: step 2, `vulkane-hlsl-parse`, which starts by deciding whether to
+vendor a patched grammar or tolerate gap 2 in the lift.
+
 ### H2. Corpus
 
 HLSL has no corpus in the portfolio. Recommendation: **the 131 DXC-accepted `.slang` files are the working corpus**,
