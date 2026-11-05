@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-spirv-emit"
-version      = "0.20.2"
+version      = "0.21.0"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -15,8 +15,8 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
 rspirv         = "0.13.0"
-unpopped       = "0.40.0"
-unpopped-vocab = "0.40.0"
+unpopped       = "0.43.2"
+unpopped-vocab = "0.43.2"
 
 [dev-dependencies]
 # Reflection of the emitted module: entry point, workgroup size, bindings.

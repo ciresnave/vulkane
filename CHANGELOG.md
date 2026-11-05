@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - unreleased
+
+### Changed (Breaking) - `unpopped` 0.43.2
+
+`vulkane-slang-emit`, `vulkane-slang-parse` and `vulkane-spirv-emit` move from `unpopped`/`unpopped-vocab`/`unpopped-cpu-c` 0.40.0 to 0.43.2 (public dependencies, so Breaking; unblocks Baracuda's move to 0.43 with one vocab copy). Our code needed no change: no exhaustive `ReduceOp` or `Stmt` match (`ReduceOp` is now `#[non_exhaustive]`; `Stmt::ExternCall`, `AtomicCas`, `Fence` and `Call` are refused typed by Unpopped until an emitter implements them). Consumers building `Stmt::Barrier { scope }` must use `Stmt::barrier(scope)`; our `lower_kernel_default_is_the_typed_decline` test does, and its `CpuC` refusal cell now uses a barrier without a launch, since 0.43 `CpuC` lowers a barrier inside a launch. Every crate moves to 0.21.0 with the series.
+
 ## [0.20.2] - unreleased
 
 ### Fixed - `vulkane-spirv-emit` masks the `Shl`/`Shr` count (Unpopped integer rule 3)
