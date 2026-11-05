@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pure HLSL (no Slang syntax): elementwise multiply, explicit registers.
 StructuredBuffer<float> input0 : register(t0);
 StructuredBuffer<float> input1 : register(t1);

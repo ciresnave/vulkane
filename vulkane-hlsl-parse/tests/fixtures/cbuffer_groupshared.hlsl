@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pure HLSL: cbuffer with register, groupshared, semantics, GroupIndex. Residue (groupshared) for the lifters.
 cbuffer Params : register(b0)
 {

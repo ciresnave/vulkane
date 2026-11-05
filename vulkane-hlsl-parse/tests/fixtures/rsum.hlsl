@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pure HLSL: serial sum reduction.
 StructuredBuffer<float> input0 : register(t0);
 RWStructuredBuffer<float> output : register(u0);

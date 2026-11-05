@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Pure HLSL: struct with semantics and a tbuffer; a helper function plus a kernel.
 struct Vertex
 {
