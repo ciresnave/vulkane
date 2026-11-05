@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.4] - unreleased
+
 ### Added - `vulkane-slang-emit` spells the `u32` bitwise and shift ops
 
-`BitAnd`, `BitOr`, `BitXor`, `Shl` and `Shr` at `ElementKind::U32` were typed declines (`slang_binary` routed only `I32`/`I64` to the integer speller); they now lower through it, so a `u32` shift count is masked to 5 bits (Unpopped integer rule 3) and `>>` on `uint` is logical. Found by the Slang-vs-SPIR-V cross-check in `vulkane-spirv-emit/tests/oracle_live.rs`, which now compares all 61 cases (4324 in-domain cells agree, Slang against SPIR-V and against the host C) and fails on any Slang decline. Version to be allocated by the PM.
+`BitAnd`, `BitOr`, `BitXor`, `Shl` and `Shr` at `ElementKind::U32` were typed declines (`slang_binary` routed only `I32`/`I64` to the integer speller, the gap the 0.21.3 cross-check found); they now lower through it, so a `u32` shift count is masked to 5 bits (Unpopped integer rule 3) and `>>` on `uint` is logical. Not breaking: a typed decline becomes a spelling. The cross-check in `vulkane-spirv-emit/tests/oracle_live.rs` now compares all 61 cases (4324 in-domain cells agree, Slang against SPIR-V and against the host C) and fails on any Slang decline. Every crate moves to 0.21.4 with the series.
 
 ## [0.21.3] - unreleased
 
