@@ -598,12 +598,16 @@ fn slang_binary_int(
     b: String,
     dtype: ElementKind,
 ) -> Result<Spelling, LowerError> {
+    // Unpopped integer rule 3 (docs/int-div-shift-semantics.md): the shift count
+    // is taken modulo the operand width N (`count & (N - 1)`). A raw `<<` is
+    // poison at a count >= N once Slang lowers to SPIR-V.
+    let mask = if dtype == ElementKind::I64 { 63 } else { 31 };
     let spelled = match op {
         BinaryOp::BitAnd => format!("({a} & {b})"),
         BinaryOp::BitOr => format!("({a} | {b})"),
         BinaryOp::BitXor => format!("({a} ^ {b})"),
-        BinaryOp::Shl => format!("({a} << {b})"),
-        BinaryOp::Shr => format!("({a} >> {b})"),
+        BinaryOp::Shl => format!("({a} << ({b} & {mask}))"),
+        BinaryOp::Shr => format!("({a} >> ({b} & {mask}))"),
         // Carries the dtype, because "no integer lowering for this op" is a claim
         // about the PAIR: the logical ops are the Bool surface and decline here at
         // every integer dtype, which is a different fact from an op nothing spells.
@@ -706,6 +710,21 @@ mod tests {
             "{msg}"
         );
         assert!(!msg.contains("wait on vocabulary v5"), "{msg}");
+    }
+
+    /// Unpopped integer rule 3: the shift count is masked to N-1 (31 for I32, 63 for I64). Control:
+    /// BitAnd beside it is spelled raw, so the test can tell a mask from no change.
+    #[test]
+    fn int_shift_count_is_masked_to_the_width() {
+        let s = |op, dt| match slang_binary_int(op, "a".into(), "b".into(), dt).unwrap() {
+            Spelling::Spelled(x) => x,
+            _ => panic!("declined"),
+        };
+        assert_eq!(s(BinaryOp::Shl, ElementKind::I32), "(a << (b & 31))");
+        assert_eq!(s(BinaryOp::Shr, ElementKind::I32), "(a >> (b & 31))");
+        assert_eq!(s(BinaryOp::Shl, ElementKind::I64), "(a << (b & 63))");
+        assert_eq!(s(BinaryOp::Shr, ElementKind::I64), "(a >> (b & 63))");
+        assert_eq!(s(BinaryOp::BitAnd, ElementKind::I32), "(a & b)");
     }
 
     /// A NaN or infinity constant must not emit a C macro Slang does not define. Control: the
