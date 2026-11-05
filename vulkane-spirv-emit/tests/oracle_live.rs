@@ -14,6 +14,9 @@
 //!
 //! Without a device, or without a host C compiler, the test follows `VULKANE_REQUIRE_DEVICE`
 //! (device) and `CI` (compiler, see `support/cc.rs`) rather than passing silently.
+//!
+//! The second test, `slang_and_spirv_emitters_agree_on_a_device`, is the Slang-vs-SPIR-V cross-check: the
+//! same cases through `vulkane-slang-emit` (compiled by `slangc`) and this emitter, both on the device.
 
 #[path = "support/cc.rs"]
 mod cc;
@@ -461,5 +464,163 @@ fn emitted_spirv_matches_the_cpu_c_oracle_on_a_device() {
     eprintln!(
         "cpu_c_oracle: {compared} in-domain device cells over {} kernels agree with unpopped-cpu-c",
         cases.len()
+    );
+}
+
+/// `slangc` compiles one emitted Slang kernel to SPIR-V words; `None` when `slangc` is absent
+/// (a failure under `VULKANE_REQUIRE_SLANGC`).
+fn slangc_words(
+    dir: &std::path::Path,
+    name: &str,
+    source: &str,
+    dt: ElementKind,
+) -> Option<Vec<u32>> {
+    let src = dir.join(format!("{name}.slang"));
+    let spv = dir.join(format!("{name}.spv"));
+    std::fs::write(&src, source).unwrap();
+    let out = Command::new("slangc")
+        .arg(&src)
+        .args([
+            "-entry", name, "-stage", "compute", "-target", "spirv", "-o",
+        ])
+        .arg(&spv)
+        .args(vulkane_slang_emit::required_slangc_args(dt))
+        .output();
+    let out = match out {
+        Ok(o) => o,
+        Err(e) => {
+            assert!(
+                std::env::var_os("VULKANE_REQUIRE_SLANGC").is_none(),
+                "VULKANE_REQUIRE_SLANGC is set but `slangc` could not be run: {e}"
+            );
+            return None;
+        }
+    };
+    assert!(
+        out.status.success(),
+        "slangc failed for {name}:\n{}\n--- source ---\n{source}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let bytes = std::fs::read(&spv).unwrap();
+    assert_eq!(bytes.len() % 4, 0, "{name}: SPIR-V is whole words");
+    Some(
+        bytes
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
+            .collect(),
+    )
+}
+
+/// The cross-check: the same `OpDef` through the Slang emitter (compiled by `slangc`) and the
+/// SPIR-V emitter, both run on the device. Each is held to the host C result, and the two are held
+/// to each other, with the same per-op tolerance and domain as the oracle above.
+#[test]
+fn slang_and_spirv_emitters_agree_on_a_device() {
+    common::require_serialization_lock();
+    let Some(cc) = cc::find_compiler() else {
+        eprintln!("SKIP: no host C compiler");
+        return;
+    };
+    let Some(gpu) = gpu::Gpu::open("slang_spirv_cross") else {
+        return;
+    };
+    let cases = cases();
+    let dir = tempfile::tempdir().unwrap();
+    let (mut spirv, mut slang, mut sources) = (Vec::new(), Vec::new(), Vec::new());
+    let mut slang_declined: Vec<String> = Vec::new();
+    for c in &cases {
+        let s = try_generate(&c.def, &c.key, &SpirV)
+            .unwrap_or_else(|e| panic!("{}: SPIR-V declined: {e:?}", c.name));
+        spirv.push((s.name.clone(), s.words().expect("words").to_vec()));
+        match try_generate(&c.def, &c.key, &vulkane_slang_emit::Slang) {
+            Ok(sl) => {
+                let Some(words) = slangc_words(dir.path(), &sl.name, &sl.source, c.dt) else {
+                    eprintln!(
+                        "SKIP: `slangc` not on PATH (set VULKANE_REQUIRE_SLANGC to make this fatal)"
+                    );
+                    return;
+                };
+                slang.push(Some((sl.name.clone(), words)));
+            }
+            Err(e) => {
+                // A typed decline is a finding about the Slang emitter, not a disagreement.
+                slang_declined.push(format!("{}: {e:?}", c.name));
+                slang.push(None);
+            }
+        }
+        let k = try_generate(&c.def, &c.key, &CpuC)
+            .unwrap_or_else(|e| panic!("{}: CPU-C declined: {e:?}", c.name));
+        sources.push((k.name.clone(), k.source.clone()));
+    }
+    let host = host_results(&cc, &cases, &sources);
+
+    let (mut compared, mut bad, mut undefined) = (0usize, Vec::new(), Vec::new());
+    for (i, c) in cases.iter().enumerate() {
+        let inputs: Vec<&[u32]> = c.inputs.iter().map(Vec::as_slice).collect();
+        let Some((_, slang_words)) = &slang[i] else {
+            continue;
+        };
+        let a = gpu.run(&spirv[i].0, &spirv[i].1, &inputs);
+        // `slangc` names every SPIR-V entry point `main`, whatever `-entry` selected.
+        let b = gpu.run("main", slang_words, &inputs);
+        for j in 0..a.len() {
+            let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
+            let in_domain = c.domain.holds(&row);
+            compared += usize::from(in_domain);
+            for (what, x, y) in [
+                ("slang vs spirv", b[j], a[j]),
+                ("slang vs host", b[j], host[i][j]),
+            ] {
+                if !agree(c.tol, c.dt, x, y) {
+                    let line = format!(
+                        "{} {what} ({:?}) inputs {:x?}: {x:#010x} vs {y:#010x}",
+                        c.name, c.tol, row
+                    );
+                    if in_domain {
+                        bad.push(line);
+                    } else {
+                        undefined.push(line);
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "slang_spirv_cross: the Slang emitter declined {} of {} cases (not compared):\n{}",
+        slang_declined.len(),
+        cases.len(),
+        slang_declined.join("\n")
+    );
+    eprintln!(
+        "slang_spirv_cross: {} out-of-domain disagreements (reported, not failed)",
+        undefined.len()
+    );
+    // Pinned: `slang_binary` spells only I32/I64 integer ops, so every U32 bitwise/shift op is a
+    // typed decline today (the SPIR-V emitter spells them). Fixing that makes this fail, on purpose:
+    // drop the names from here and the cases join the comparison.
+    let declined_names: Vec<&str> = slang_declined
+        .iter()
+        .map(|d| d.split(':').next().unwrap())
+        .collect();
+    assert_eq!(
+        declined_names,
+        [
+            "b_bitand_u32",
+            "b_bitor_u32",
+            "b_bitxor_u32",
+            "b_shl_u32",
+            "b_shr_u32"
+        ],
+        "the set of cases the Slang emitter declines changed"
+    );
+    assert!(
+        bad.is_empty(),
+        "{} disagreements over {compared} in-domain cells:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    eprintln!(
+        "slang_spirv_cross: {compared} in-domain cells over {} kernels agree (slang vs spirv and slang vs host)",
+        cases.len() - slang_declined.len()
     );
 }
