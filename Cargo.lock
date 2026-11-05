@@ -1688,6 +1688,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-hlsl"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ef1d03e58f55c1e313ac3418540f941a49a59605bd9447e1441091fafbd5df6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-language"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1839,6 +1849,16 @@ dependencies = [
  "vulkan_gen",
  "vulkane_derive",
  "winit",
+]
+
+[[package]]
+name = "vulkane-hlsl-parse"
+version = "0.21.5"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-hlsl",
+ "unpopped",
+ "unpopped-vocab",
 ]
 
 [[package]]

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.21.5] - unreleased
 
+### Added - `vulkane-hlsl-parse` (ROADMAP 3c step 2)
+
+New crate: `parse_hlsl` (tree-sitter-hlsl 0.2), `HLSL_RESIDUE` and the `HLSL` `Frontend`, so Unpopped's `lift_*` walkers read HLSL kernels. Five hand-written pure-HLSL fixtures (each compiles with dxc) cover `register`, `cbuffer`, `groupshared`, semantics and `tbuffer`. Decision: the grammar gaps are tolerated, not patched. New measurement: `tbuffer N : register(tK)` has the same `MISSING ;` gap as `cbuffer`. Both gaps are pinned by tests so an upstream fix is noticed. Not yet published.
+
 ### Changed - HLSL design note records the H1 measurement (docs only)
 
 `docs/design/hlsl-parser-emitter.md` now holds the `tree-sitter-hlsl` 0.2.0 result over the DXC-accepted kernels: 131 of 131 parse clean once the Slang-only `[shader("compute")]` line is removed (0 of 131 as they are), and `cbuffer N : register(..) { .. }` reports `MISSING ;`, a grammar gap. No code changes. Every crate moves to 0.21.5 with the series.
