@@ -47,7 +47,7 @@
 //! ## v1 scope (honest boundary)
 //!
 //! - Dtypes: `F32`/`F32Strict`→`float`, `F64`→`double`, `I32`→`int`,
-//!   `I64`→`int64_t`. `F16`/`Bf16`/`S8`/`U8`/`U32` are declined (no clean scalar
+//!   `U32`→`uint`, `I64`→`int64_t`. `F16`/`Bf16`/`S8`/`U8` are declined (no clean scalar
 //!   Slang type in the base profile) — a typed decline via [`Backend::supports_dtype`].
 //! - Schedule: [`Schedule::Scalar`] only (the contiguous single-output Elementwise
 //!   path). Every other schedule panics — the honest v1 boundary, same convention
@@ -518,7 +518,7 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
 }
 
 /// Lower a non-infix binary op for `dtype` in Slang. f32/f64 share the overloaded
-/// fp speller; I32/I64 route to the raw-operator int speller.
+/// fp speller; I32/U32/I64 route to the raw-operator int speller.
 fn slang_binary(
     op: BinaryOp,
     a: String,
@@ -528,7 +528,7 @@ fn slang_binary(
     match dtype {
         ElementKind::F32 | ElementKind::F32Strict => slang_binary_fp(op, a, b, "float"),
         ElementKind::F64 => slang_binary_fp(op, a, b, "double"),
-        ElementKind::I32 | ElementKind::I64 => slang_binary_int(op, a, b, dtype),
+        ElementKind::I32 | ElementKind::U32 | ElementKind::I64 => slang_binary_int(op, a, b, dtype),
         other => Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
             op: DeclinedOp::Binary(op),
             dtype: other,
@@ -589,7 +589,7 @@ fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> Result<Spell
     Ok(Spelling::Spelled(spelled))
 }
 
-/// Slang integer binary speller (I32/I64) — the raw operators, matching the CUDA
+/// Slang integer binary speller (I32/U32/I64) — the raw operators, matching the CUDA
 /// `binary_int` speller. Logical ops are U8(Bool)-only (declined in v1), so they
 /// backstop-panic here.
 fn slang_binary_int(
@@ -725,6 +725,33 @@ mod tests {
         assert_eq!(s(BinaryOp::Shl, ElementKind::I64), "(a << (b & 63))");
         assert_eq!(s(BinaryOp::Shr, ElementKind::I64), "(a >> (b & 63))");
         assert_eq!(s(BinaryOp::BitAnd, ElementKind::I32), "(a & b)");
+        // `uint`: the same mask at 32 bits; Slang's `>>` on `uint` is logical.
+        assert_eq!(s(BinaryOp::Shl, ElementKind::U32), "(a << (b & 31))");
+        assert_eq!(s(BinaryOp::Shr, ElementKind::U32), "(a >> (b & 31))");
+    }
+
+    /// `slang_binary` reaches the integer speller for `U32`, so all five bitwise/shift ops lower
+    /// there (they were typed declines until 0.22.0).
+    #[test]
+    fn u32_bitwise_and_shift_ops_lower() {
+        for op in [
+            BinaryOp::BitAnd,
+            BinaryOp::BitOr,
+            BinaryOp::BitXor,
+            BinaryOp::Shl,
+            BinaryOp::Shr,
+        ] {
+            let sp = slang_binary(op, "a".into(), "b".into(), ElementKind::U32).unwrap();
+            assert!(matches!(sp, Spelling::Spelled(_)), "{op:?} declined at U32");
+        }
+        // Control: the logical ops stay the Bool surface and decline at U32.
+        let sp = slang_binary(
+            BinaryOp::LogicalAnd,
+            "a".into(),
+            "b".into(),
+            ElementKind::U32,
+        );
+        assert!(matches!(sp.unwrap(), Spelling::Declined(_)));
     }
 
     /// A NaN or infinity constant must not emit a C macro Slang does not define. Control: the

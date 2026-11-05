@@ -293,23 +293,12 @@ fn slang_and_spirv_emitters_agree_on_a_device() {
         cases.len(),
         declined.join("\n")
     );
-    // Pinned: `slang_binary` spells only I32/I64 integer ops, so every U32 bitwise/shift op is a
-    // typed decline today (the SPIR-V emitter spells them). Fixing that makes this fail, on purpose:
-    // drop the names from here and the cases join the comparison.
-    let names: Vec<&str> = declined
-        .iter()
-        .map(|d| d.split(':').next().unwrap())
-        .collect();
-    assert_eq!(
-        names,
-        [
-            "b_bitand_u32",
-            "b_bitor_u32",
-            "b_bitxor_u32",
-            "b_shl_u32",
-            "b_shr_u32"
-        ],
-        "the set of cases the Slang emitter declines changed"
+    // Pinned: the Slang emitter spells every case here (U32 bitwise/shift ops were typed declines
+    // until `slang_binary` routed U32 to the integer speller). A new decline is a regression.
+    assert!(
+        declined.is_empty(),
+        "the Slang emitter declined cases the SPIR-V emitter spells:\n{}",
+        declined.join("\n")
     );
     tally.finish(
         "slang_spirv_cross",
