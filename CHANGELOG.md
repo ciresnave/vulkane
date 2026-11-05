@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.3] - unreleased
+
 ### Added - `vulkane-spirv-emit` behaviour oracle against `unpopped-cpu-c` (G4.2)
 
-`tests/cpu_c_oracle_live.rs` lowers the same `OpDef` with `unpopped-cpu-c` (C, compiled and run on the host) and with the SPIR-V emitter (run on a live device) and compares the result bits: 4324 in-domain `f32`/`i32`/`u32` cells over 61 kernels agree (integer ops, comparisons, min/max and rounding bit-exact; transcendentals within a stated tolerance). `Pow` (x<=0), `Atan2` at (0,0) and with a `-0` y, and the sign of a zero `RemTrunc` result are unspecified by SPIR-V and are reported, not failed (33 cells here). Test-only; no published artifact changes.
+`tests/cpu_c_oracle_live.rs` lowers the same `OpDef` with `unpopped-cpu-c` (C, compiled and run on the host) and with the SPIR-V emitter (run on a live device) and compares the result bits: 4324 in-domain `f32`/`i32`/`u32` cells over 61 kernels agree (integer ops, comparisons, min/max and rounding bit-exact; transcendentals within a stated tolerance). `Pow` (x<=0), `Atan2` at (0,0) and with a `-0` y, and the sign of a zero `RemTrunc` result are unspecified by SPIR-V and are reported, not failed (33 cells here). Test-only: no library code changes. Every crate moves to 0.21.3 with the series.
 
 ## [0.21.2] - unreleased
 
