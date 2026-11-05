@@ -238,6 +238,34 @@ fn slang_modules(cases: &[Case]) -> Result<(Vec<Option<Vec<u32>>>, Vec<String>),
     Ok((modules, declined))
 }
 
+/// Run every case the Slang emitter spelled on the device through both emitters and tally the
+/// Slang result against the SPIR-V result and against the host C result.
+fn cross_check(
+    gpu: &gpu::Gpu,
+    cases: &[Case],
+    spirv: &[Module],
+    slang: &[Option<Vec<u32>>],
+    host: &[Vec<u32>],
+) -> Tally {
+    let mut tally = Tally::default();
+    for (i, c) in cases.iter().enumerate() {
+        let Some(words) = &slang[i] else {
+            continue;
+        };
+        let a = gpu.run(&spirv[i].0, &spirv[i].1, &columns(c));
+        // `slangc` names every SPIR-V entry point `main`, whatever `-entry` selected.
+        let b = gpu.run("main", words, &columns(c));
+        for j in 0..a.len() {
+            let checks = [
+                ("slang vs spirv", b[j], a[j]),
+                ("slang vs host", b[j], host[i][j]),
+            ];
+            tally.cell(c, j, &checks);
+        }
+    }
+    tally
+}
+
 /// The cross-check: the same `OpDef` through the Slang emitter (compiled by `slangc`) and the
 /// SPIR-V emitter, both run on the device. Each is held to the host C result, and the two are held
 /// to each other, with the same per-op tolerance and domain as the oracle above.
@@ -258,25 +286,7 @@ fn slang_and_spirv_emitters_agree_on_a_device() {
     };
     let host = host_c::host_results(&cc, &cases, &c_sources);
 
-    let mut tally = Tally::default();
-    for (i, c) in cases.iter().enumerate() {
-        let Some(words) = &slang[i] else {
-            continue;
-        };
-        let a = gpu.run(&spirv[i].0, &spirv[i].1, &columns(c));
-        // `slangc` names every SPIR-V entry point `main`, whatever `-entry` selected.
-        let b = gpu.run("main", words, &columns(c));
-        for j in 0..a.len() {
-            tally.cell(
-                c,
-                j,
-                &[
-                    ("slang vs spirv", b[j], a[j]),
-                    ("slang vs host", b[j], host[i][j]),
-                ],
-            );
-        }
-    }
+    let tally = cross_check(&gpu, &cases, &spirv, &slang, &host);
     eprintln!(
         "slang_spirv_cross: the Slang emitter declined {} of {} cases (not compared):\n{}",
         declined.len(),
