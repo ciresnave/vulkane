@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.5] - unreleased
+
+### Changed - HLSL design note records the H1 measurement (docs only)
+
+`docs/design/hlsl-parser-emitter.md` now holds the `tree-sitter-hlsl` 0.2.0 result over the DXC-accepted kernels: 131 of 131 parse clean once the Slang-only `[shader("compute")]` line is removed (0 of 131 as they are), and `cbuffer N : register(..) { .. }` reports `MISSING ;`, a grammar gap. No code changes. Every crate moves to 0.21.5 with the series.
+
 ## [0.21.4] - unreleased
 
 ### Added - `vulkane-slang-emit` spells the `u32` bitwise and shift ops
