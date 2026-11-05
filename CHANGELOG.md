@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.21.0] - unreleased
+## [0.21.1] - unreleased
+
+### Fixed - docs and package metadata
+
+The seven cited dependency lines (README x4, `lib.rs`, `safe/naga.rs`, `safe/shaderc.rs`) cite `vulkane = "0.21"`, which crates.io now serves (the `cited_versions` gate). `vulkane-kernels-source` declares `rust-version = "1.88"`; `vulkane_derive` ships a README (`readme = "README.md"`). Every crate moves to 0.21.1 with the series; `vulkane_derive` keeps its own number.
+
+## [0.21.0] - 2026-11-05
 
 ### Changed (Breaking) - `unpopped` 0.43.2
 

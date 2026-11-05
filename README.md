@@ -84,7 +84,7 @@ Vulkane exposes Vulkan through two complementary APIs:
 
 ```toml
 [dependencies]
-vulkane = { version = "0.20", features = ["fetch-spec"] }
+vulkane = { version = "0.21", features = ["fetch-spec"] }
 ```
 
 ```rust
@@ -175,7 +175,7 @@ cargo run -p vulkane --features fetch-spec,derive --example derive_vertex
 Enable the `derive` feature to auto-generate vertex input layouts:
 
 ```toml
-vulkane = { version = "0.20", features = ["fetch-spec", "derive"] }
+vulkane = { version = "0.21", features = ["fetch-spec", "derive"] }
 ```
 
 ```rust
@@ -258,7 +258,7 @@ Zero external build dependencies. Best choice when:
 - WGSL's combined image-samplers fit your rendering code.
 
 ```toml
-vulkane = { version = "0.20", features = ["naga"] }
+vulkane = { version = "0.21", features = ["naga"] }
 ```
 
 ```rust
@@ -286,7 +286,7 @@ Wraps the Khronos reference compiler. Best choice when:
   `Performance`) or explicit macro defines / include resolution.
 
 ```toml
-vulkane = { version = "0.20", features = ["shaderc"] }
+vulkane = { version = "0.21", features = ["shaderc"] }
 ```
 
 ```rust

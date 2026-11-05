@@ -1,7 +1,8 @@
 [package]
 name         = "vulkane-kernels-source"
-version      = "0.21.0"
+version      = "0.21.1"
 edition      = "2024"
+rust-version = "1.88"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
 description  = "GPU kernel source files (.slang / .glsl) for Vulkane and its consumers. Compile ahead of time with kernels/compile.sh; compiled SPIR-V is the consumer's to build and ship."

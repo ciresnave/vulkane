@@ -14,6 +14,7 @@ categories = ["graphics", "development-tools::procedural-macro-helpers"]
 repository = "https://github.com/ciresnave/vulkane"
 homepage = "https://github.com/ciresnave/vulkane"
 documentation = "https://docs.rs/vulkane_derive"
+readme = "README.md"
 
 [lib]
 proc-macro = true
