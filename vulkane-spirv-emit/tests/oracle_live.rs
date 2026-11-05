@@ -153,8 +153,11 @@ fn pairs(values: &[u32]) -> Vec<Vec<u32>> {
 fn unary_tol(op: UnaryOp) -> Tol {
     use UnaryOp::*;
     match op {
-        Neg | Abs | Floor | Ceil | Trunc | Round | Relu | Sign | Step => Tol::Exact,
-        Sin | Cos | Tan => TRIG,
+        Neg | Abs | Floor | Ceil | Trunc | Round | Relu | Step => Tol::Exact,
+        // `sign(+-0)` is 0, and which zero a device returns is not specified (Lavapipe: `-0`).
+        Sign => Tol::ZeroSign,
+        // Vulkan gives these no tight accuracy bound; Lavapipe's `asin`/`acos` are a few 1e-5 off.
+        Sin | Cos | Tan | Asin | Acos => TRIG,
         _ => CLOSE,
     }
 }
@@ -162,10 +165,9 @@ fn unary_tol(op: UnaryOp) -> Tol {
 fn binary_tol(op: BinaryOp) -> Tol {
     use BinaryOp::*;
     match op {
-        Max | Min | FmaxIeee | FminIeee | CmpEq | CmpNe | CmpLt | CmpLe | CmpGt | CmpGe | Rem => {
-            Tol::Exact
-        }
-        RemTrunc => Tol::ZeroSign,
+        Max | Min | CmpEq | CmpNe | CmpLt | CmpLe | CmpGt | CmpGe | Rem => Tol::Exact,
+        // IEEE `maxNum`/`minNum` of `+0` and `-0` may return either zero.
+        RemTrunc | FmaxIeee | FminIeee => Tol::ZeroSign,
         _ => CLOSE,
     }
 }
