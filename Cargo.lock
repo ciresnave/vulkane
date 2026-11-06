@@ -1852,6 +1852,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vulkane-hlsl-emit"
+version = "0.21.5"
+dependencies = [
+ "tempfile",
+ "unpopped",
+ "unpopped-vocab",
+ "vulkane-hlsl-parse",
+ "vulkane-slang-emit",
+]
+
+[[package]]
 name = "vulkane-hlsl-parse"
 version = "0.21.5"
 dependencies = [

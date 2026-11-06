@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.21.5] - unreleased
 
+### Added - `vulkane-hlsl-emit` (ROADMAP 3c step 3)
+
+New crate: `Hlsl`, an Unpopped `Backend` for the scalar elementwise path, built as a thin layer over `vulkane-slang-emit` (the Slang text for that path is already HLSL): it changes the entry prefix (`unpopped_hlsl_`), the header and the compiler-argument line (`required_dxc_args`: `-denorm preserve` for f32), and the tests assert the bodies are byte-identical to the Slang emitter's. No `register(..)` clauses, because under `dxc -spirv` `t0`/`t1`/`u0` collide on binding 0. Checked by `dxc -T cs_6_2 -spirv` over f32/f64/i32/u32/i64 (with a rejected-file control; needs `dxc`, skips without it unless `VULKANE_REQUIRE_DXC` is set, so CI does not run it yet) and by re-lifting through the HLSL frontend. Not yet published. Not yet done: the G4.2-style GPU oracle against `unpopped-cpu-c`.
+
 ### Added - `vulkane-hlsl-parse` (ROADMAP 3c step 2)
 
 New crate: `parse_hlsl` (tree-sitter-hlsl 0.2), `HLSL_RESIDUE` and the `HLSL` `Frontend`, so Unpopped's `lift_*` walkers read HLSL kernels. Five hand-written pure-HLSL fixtures (each compiles with dxc) cover `register`, `cbuffer`, `groupshared`, semantics and `tbuffer`. Decision: the grammar gaps are tolerated, not patched. New measurement: `tbuffer N : register(tK)` has the same `MISSING ;` gap as `cbuffer`. Both gaps are pinned by tests so an upstream fix is noticed. Not yet published.

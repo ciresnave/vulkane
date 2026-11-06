@@ -86,7 +86,7 @@ and the SPIR-V passes `spirv-val` (negative control as above); run on the GPU an
 
 1. ~~Measurement PR: `tree-sitter-hlsl` coverage over the corpus (H1)~~ **Done 2026-11-05** (PR #143); result and decision under H1 above.
 2. **Done 2026-11-05 (in review): the 5 fixtures are written (all dxc-clean) and the grammar gaps are tolerated, not vendor-patched; new finding: `tbuffer N : register(tK)` has the same `MISSING ;` gap as `cbuffer`; tests pin both gaps.** `vulkane-hlsl-parse` with the pure-HLSL additions to the corpus (H2): **the 3-5 hand-written pure-HLSL fixtures the H1 text asked for were not written in step 1** (it used one multi-construct file and 11 one-construct probes), so they are step 2's first deliverable.
-3. `vulkane-hlsl-emit` scalar elementwise (H3, H4).
+3. **In review 2026-11-06: `vulkane-hlsl-emit` is a wrapper over the Slang emitter (PM ruling 2026-11-06: depend on the Slang owner's published emitter, do not copy spellers); dxc-compiles f32/f64/i32/u32/i64 and re-lifts through the HLSL frontend. The GPU oracle (H4) is not done.** `vulkane-hlsl-emit` scalar elementwise (H3, H4).
 4. Lifting via `lift_*` for files that survive the residue rule.
 
 ## Not decided here
