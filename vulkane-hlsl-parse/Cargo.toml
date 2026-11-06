@@ -1,0 +1,42 @@
+[package]
+name         = "vulkane-hlsl-parse"
+version      = "0.21.5"
+edition      = "2024"
+# 1.90: the same `tree-sitter-language` shim as `vulkane-slang-parse` (the highest `rust-version` in the
+# dependency tree; re-measure with the collision/minimal-rust-version gate before publishing).
+rust-version = "1.90"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The HLSL front end for Unpopped: a tree-sitter HLSL parser, the HLSL residue list and the `HLSL` Frontend that lifts HLSL compute kernels into Unpopped's IR. Vulkane owns HLSL."
+keywords     = ["kernel", "parser", "compiler", "hlsl", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+# `Frontend`, the `lift_*` walkers and `LiftError` live in unpopped's `convert` module.
+unpopped         = { version = "0.43.2", features = ["convert"] }
+# MUST be the same tree-sitter minor that `unpopped` uses: `Frontend::parse` returns a
+# `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build.
+# REVISIT TRIGGER: every `unpopped` release that moves tree-sitter; bump this the same day (D5).
+tree-sitter      = "0.27"
+tree-sitter-hlsl = "0.2"
+
+[dev-dependencies]
+unpopped-vocab = "0.43.2"
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"
