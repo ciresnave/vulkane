@@ -23,6 +23,10 @@ vulkane-slang-emit  = { version = "0.21.6", path = "../vulkane-slang-emit" }
 unpopped            = { version = "0.43.2", features = ["convert"] }
 vulkane-hlsl-parse  = { path = "../vulkane-hlsl-parse" }
 tempfile            = { workspace = true }
+# The GPU oracle (H4): same harness and cases as the SPIR-V emitter's G4.2 test, HLSL compiled by `dxc`.
+vulkane             = { path = "../vulkane" }
+vulkane-spirv-emit  = { path = "../vulkane-spirv-emit" }
+unpopped-cpu-c      = "0.43.2"
 
 [lints.rust]
 missing_docs                  = "deny"
