@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.7] - unreleased
+
+### Added - HLSL GPU oracle (ROADMAP 3c, H4)
+
+`vulkane-hlsl-emit/tests/oracle_live.rs`: the same cases, tolerances and domains as the SPIR-V emitter's G4.2 oracle, with the HLSL compiled by `dxc` and run on a live device against `unpopped-cpu-c`. Under `gpu-run.ps1`: 4324 in-domain cells over 61 kernels agree. `f64` is not run (the shared test device does not request `shaderFloat64`). Test-only; no library change.
+
 ## [0.21.6] - unreleased
 
 ### Added - `vulkane-hlsl-emit` (ROADMAP 3c step 3)
