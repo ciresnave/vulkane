@@ -1,0 +1,39 @@
+[package]
+name         = "vulkane-hlsl-emit"
+version      = "0.21.6"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The HLSL compute-shader emitter for Unpopped: IR to HLSL source for DXC (StructuredBuffer operands, a [numthreads] entry), a thin layer over vulkane-slang-emit. Vulkane owns HLSL."
+keywords     = ["kernel", "codegen", "compiler", "hlsl", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+unpopped            = "0.43.2"
+unpopped-vocab      = "0.43.2"
+vulkane-slang-emit  = { version = "0.21.6", path = "../vulkane-slang-emit" }
+
+[dev-dependencies]
+# The round-trip test lifts emitted HLSL back to the IR with the HLSL frontend (needs unpopped's `convert`).
+unpopped            = { version = "0.43.2", features = ["convert"] }
+vulkane-hlsl-parse  = { path = "../vulkane-hlsl-parse" }
+tempfile            = { workspace = true }
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"
