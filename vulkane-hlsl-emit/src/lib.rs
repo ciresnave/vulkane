@@ -218,23 +218,13 @@ mod tests {
             ElementKind::I64,
         ] {
             let (k, _) = pair(dt);
-            let src = tmp.path().join(format!("{}.hlsl", k.name));
-            std::fs::write(&src, &k.source).expect("write .hlsl");
-            let out = Command::new("dxc")
-                .args([
-                    "-T",
-                    "cs_6_2",
-                    "-E",
-                    &k.name,
-                    "-spirv",
-                    "-fspv-target-env=vulkan1.1",
-                ])
-                .args(required_dxc_args(dt))
-                .arg(&src)
-                .arg("-Fo")
-                .arg(tmp.path().join("out.spv"))
-                .output()
-                .expect("run dxc");
+            let out = run_dxc(
+                tmp.path(),
+                &k.name,
+                &k.source,
+                &k.name,
+                required_dxc_args(dt),
+            );
             assert!(
                 out.status.success(),
                 "dxc failed for '{}':\n{}\n--- source ---\n{}",
@@ -246,14 +236,35 @@ mod tests {
         }
         assert_eq!(n, 5);
         // Negative control: a broken file is rejected, so the loop above can fail.
-        let bad = tmp.path().join("bad.hlsl");
-        std::fs::write(&bad, "void main( {").unwrap();
-        let out = Command::new("dxc")
-            .args(["-T", "cs_6_2", "-E", "main", "-spirv"])
-            .arg(&bad)
-            .output()
-            .expect("run dxc");
+        let out = run_dxc(tmp.path(), "bad", "void main( {", "main", &[]);
         assert!(!out.status.success(), "dxc must reject a broken file");
+    }
+
+    /// Compile `src` (written as `<stem>.hlsl` in `dir`) with `dxc` to SPIR-V for `entry`.
+    fn run_dxc(
+        dir: &std::path::Path,
+        stem: &str,
+        src: &str,
+        entry: &str,
+        extra: &[&str],
+    ) -> std::process::Output {
+        let path = dir.join(format!("{stem}.hlsl"));
+        std::fs::write(&path, src).expect("write .hlsl");
+        std::process::Command::new("dxc")
+            .args([
+                "-T",
+                "cs_6_2",
+                "-E",
+                entry,
+                "-spirv",
+                "-fspv-target-env=vulkan1.1",
+            ])
+            .args(extra)
+            .arg(&path)
+            .arg("-Fo")
+            .arg(dir.join("out.spv"))
+            .output()
+            .expect("run dxc")
     }
 
     #[test]
