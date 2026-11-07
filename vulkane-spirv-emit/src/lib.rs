@@ -26,8 +26,8 @@
 //!
 //! A float kernel declares `DenormPreserve` for its width (capability `DenormPreserve`, extension
 //! `SPV_KHR_float_controls`), the module-level equivalent of the `-denorm-mode-fp32 preserve`
-//! argument `vulkane-slang-emit` asks its consumer to pass. A device that cannot honour it
-//! must refuse the pipeline; whether a device does is a measurement (see `vulkane-slang-emit`'s
+//! argument `fishstringer-slang-emit` asks its consumer to pass. A device that cannot honour it
+//! must refuse the pipeline; whether a device does is a measurement (see `fishstringer-slang-emit`'s
 //! module docs), not something to read off feature bits.
 //!
 //! ## v1 scope (honest boundary)

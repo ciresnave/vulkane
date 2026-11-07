@@ -371,6 +371,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
+name = "fishstringer-kernels-source"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d706a7797f25a3249fd3a742d030ec21b084ce13d568728d08c28c7e6980a157"
+
+[[package]]
+name = "fishstringer-slang-emit"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b872decc75fcf55dbdd24f90dff2717c27dcf9de8cdfb8b59cefc8470828d89d"
+dependencies = [
+ "unpopped",
+ "unpopped-vocab",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1837,8 +1853,9 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
+ "fishstringer-kernels-source",
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
  "naga",
@@ -1853,21 +1870,21 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
+ "fishstringer-slang-emit",
  "tempfile",
  "unpopped",
  "unpopped-cpu-c",
  "unpopped-vocab",
  "vulkane",
  "vulkane-hlsl-parse",
- "vulkane-slang-emit",
  "vulkane-spirv-emit",
 ]
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -1877,11 +1894,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.21.8"
+version = "0.21.9"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
  "tempfile",
  "unpopped",
@@ -1892,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1902,21 +1919,21 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
+ "fishstringer-slang-emit",
  "rspirv",
  "tempfile",
  "unpopped",
  "unpopped-cpu-c",
  "unpopped-vocab",
  "vulkane",
- "vulkane-slang-emit",
  "vulkane-spirv-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.21.8"
+version = "0.21.9"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
