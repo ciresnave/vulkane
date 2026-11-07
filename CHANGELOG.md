@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 FishStringer owns Slang (CireSnave 2026-11-06) and published `fishstringer-slang-emit`, `fishstringer-slang-parse` and `fishstringer-kernels-source` 0.0.12 (re-read from crates.io 2026-11-07: unyanked, MIT OR Apache-2.0). `vulkane-hlsl-emit` and `vulkane-spirv-emit` (dev) now depend on `fishstringer-slang-emit = "~0.0.12"` (tilde: hlsl-emit asserts the emitter's output shape), and `softmax_f64_live` reads `softmax_f64.slang` from `fishstringer-kernels-source` (dev-dependency, located with `cargo metadata`). Checked against the published crates on a device: HLSL oracle, SPIR-V oracle and Slang-vs-SPIR-V cross-check each 4324 in-domain cells over 61 kernels agree; `softmax_f64_live` 21576 outputs, worst relative error 3.2e-15. Nothing is deleted here: the in-repo Slang crates and `.slang` files go in step 2, after this is green.
 
+## [0.21.8] - unreleased
+
+### Docs - WGSL parser measurement (ROADMAP 3d step 1)
+
+`docs/design/wgsl-parser-emitter.md` W1 decided by measurement over the 5 graphics examples plus 3 new compute fixtures (`docs/design/wgsl-measurement/`): `wgsl-parse` 0.6.0 parses 8/8; `tree-sitter-wgsl-bevy` 0.1.4 fails the 2 compute fixtures (no `workgroupBarrier();`, `>>=`, `requires`). No library change.
+
 ## [0.21.7] - unreleased
 
 ### Added - HLSL GPU oracle (ROADMAP 3c, H4)
