@@ -1,11 +1,11 @@
 [package]
 name         = "vulkane-hlsl-emit"
-version      = "0.21.7"
+version      = "0.21.9"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
-description  = "The HLSL compute-shader emitter for Unpopped: IR to HLSL source for DXC (StructuredBuffer operands, a [numthreads] entry), a thin layer over vulkane-slang-emit. Vulkane owns HLSL."
+description  = "The HLSL compute-shader emitter for Unpopped: IR to HLSL source for DXC (StructuredBuffer operands, a [numthreads] entry), a thin layer over fishstringer-slang-emit. Vulkane owns HLSL."
 keywords     = ["kernel", "codegen", "compiler", "hlsl", "shader"]
 categories   = ["compilers", "development-tools", "graphics"]
 repository   = "https://github.com/ciresnave/vulkane"
@@ -16,7 +16,8 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 [dependencies]
 unpopped            = "0.43.2"
 unpopped-vocab      = "0.43.2"
-vulkane-slang-emit  = { version = "0.21.7", path = "../vulkane-slang-emit" }
+# FishStringer owns Slang (CireSnave 2026-11-06). `~` not `^`: this crate asserts the emitter's output shape.
+fishstringer-slang-emit = "~0.0.12"
 
 [dev-dependencies]
 # The round-trip test lifts emitted HLSL back to the IR with the HLSL frontend (needs unpopped's `convert`).

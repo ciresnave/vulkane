@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-spirv-emit"
-version      = "0.21.7"
+version      = "0.21.9"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -26,7 +26,7 @@ vulkane            = { path = "../vulkane" }
 # G4.2: the host reference the device results are compared with.
 unpopped-cpu-c     = "0.43.2"
 # Cross-check: the Slang emitter, compiled by `slangc`, against this one on the same device.
-vulkane-slang-emit = { path = "../vulkane-slang-emit" }
+fishstringer-slang-emit = "~0.0.12"
 tempfile           = { workspace = true }
 
 [lints.rust]

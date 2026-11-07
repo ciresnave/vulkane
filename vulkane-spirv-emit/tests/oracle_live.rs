@@ -16,7 +16,7 @@
 //! (device) and `CI` (compiler, see `support/cc.rs`) rather than passing silently.
 //!
 //! The second test, `slang_and_spirv_emitters_agree_on_a_device`, is the Slang-vs-SPIR-V cross-check:
-//! the same cases through `vulkane-slang-emit` (compiled by `slangc`) and this emitter, both on the
+//! the same cases through `fishstringer-slang-emit` (compiled by `slangc`) and this emitter, both on the
 //! device. The cases, tolerances and domains live in `support/cases.rs`.
 
 #[path = "support/cases.rs"]
@@ -184,7 +184,7 @@ fn slangc_words(
             "-entry", name, "-stage", "compute", "-target", "spirv", "-o",
         ])
         .arg(&spv)
-        .args(vulkane_slang_emit::required_slangc_args(dt))
+        .args(fishstringer_slang_emit::required_slangc_args(dt))
         .output();
     let out = match out {
         Ok(o) => o,
@@ -218,7 +218,7 @@ fn slang_modules(cases: &[Case]) -> Result<(Vec<Option<Vec<u32>>>, Vec<String>),
     let dir = tempfile::tempdir().unwrap();
     let (mut modules, mut declined) = (Vec::new(), Vec::new());
     for c in cases {
-        match try_generate(&c.def, &c.key, &vulkane_slang_emit::Slang) {
+        match try_generate(&c.def, &c.key, &fishstringer_slang_emit::Slang) {
             Ok(sl) => {
                 let Some(words) = slangc_words(dir.path(), &sl.name, &sl.source, c.dt) else {
                     eprintln!(

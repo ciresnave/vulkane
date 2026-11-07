@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.21.7"
+version = "0.21.9"
 edition = "2024"
 # 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
 # and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
@@ -76,6 +76,8 @@ ureq = "3"
 winit = "0.30"
 tempfile = { workspace = true }
 raw-window-handle = "0.6"
+# `softmax_f64_live` compiles this crate's `kernels/softmax_f64.slang` (FishStringer owns Slang, CireSnave 2026-11-06).
+fishstringer-kernels-source = "~0.0.12"
 
 [package.metadata.docs.rs]
 # ⚠️ NOT `all-features = true`. It was, and docs.rs has not successfully built

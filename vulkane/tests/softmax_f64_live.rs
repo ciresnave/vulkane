@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Numerical check of `vulkane-kernels-source/kernels/softmax_f64.slang` on a
+//! Numerical check of `fishstringer-kernels-source`'s `kernels/softmax_f64.slang` on a
 //! live device (issue #106, ROADMAP row 1c).
 //!
 //! The kernel used to fail `spirv-val` (`GLSL.std.450 Exp` on `double`); #119 made it
@@ -63,12 +63,40 @@ fn slangc_or_skip() -> Option<PathBuf> {
     found
 }
 
+/// The published `fishstringer-kernels-source` package's `kernels/<name>`: the crate has no Rust
+/// API, so its directory is read from `cargo metadata` (which resolves the locked dev-dependency).
+fn kernel_source(name: &str) -> String {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let out = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .arg("--manifest-path")
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .output()
+        .expect("run cargo metadata");
+    assert!(out.status.success(), "cargo metadata failed");
+    let json = String::from_utf8(out.stdout).expect("utf8 metadata");
+    let manifest = json
+        .split("\"manifest_path\":\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .find(|p| p.contains("fishstringer-kernels-source"))
+        .expect("fishstringer-kernels-source is in the dependency graph")
+        .replace("\\\\", "/")
+        .replace('\\', "/");
+    let dir = manifest.trim_end_matches("/Cargo.toml");
+    let src = format!("{dir}/kernels/{name}");
+    assert!(
+        std::path::Path::new(&src).is_file(),
+        "kernel source not found: {src}"
+    );
+    src
+}
+
 /// Compile the kernel exactly as `compile.sh` does (`-target spirv -profile glsl_450
 /// -entry main`). `softmax_f64.slang` has no in-function `OpExtInstImport`, so
 /// `hoist_extinst_imports.py` is a no-op for it; the assertion below keeps that true.
 fn compile_kernel(slangc: &PathBuf) -> Vec<u8> {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let src = format!("{manifest}/../vulkane-kernels-source/kernels/softmax_f64.slang");
+    let src = kernel_source("softmax_f64.slang");
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("softmax_f64.spv");
     let st = Command::new(slangc)
