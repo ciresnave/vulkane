@@ -75,6 +75,84 @@ fn dxc_words(dir: &Path, c: &Case, name: &str, source: &str) -> Option<Vec<u32>>
     )
 }
 
+/// A kernel ready to run on the device: its entry-point name and SPIR-V words.
+type Module = (String, Vec<u32>);
+
+/// Each case's `dxc`-compiled HLSL module and its `unpopped-cpu-c` kernel `(name, C source)`.
+/// `None` after a declared skip (no `dxc`).
+fn generate(cases: &[Case]) -> Option<(Vec<Module>, Vec<(String, String)>)> {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut modules, mut c_sources) = (Vec::new(), Vec::new());
+    for c in cases {
+        let h = try_generate(&c.def, &c.key, &Hlsl)
+            .unwrap_or_else(|e| panic!("{}: the HLSL backend declined: {e:?}", c.name));
+        let Some(words) = dxc_words(dir.path(), c, &h.name, &h.source) else {
+            eprintln!("SKIP: `dxc` not on PATH (set VULKANE_REQUIRE_DXC to make this fatal)");
+            return None;
+        };
+        modules.push((h.name.clone(), words));
+        let k = try_generate(&c.def, &c.key, &CpuC)
+            .unwrap_or_else(|e| panic!("{}: the CPU-C backend declined: {e:?}", c.name));
+        c_sources.push((k.name.clone(), k.source.clone()));
+    }
+    Some((modules, c_sources))
+}
+
+/// Disagreements found so far, split by whether the op is specified on that input row.
+#[derive(Default)]
+struct Tally {
+    /// In-domain cells compared.
+    compared: usize,
+    /// In-domain disagreements: these fail the test.
+    bad: Vec<String>,
+    /// Out-of-domain disagreements: reported only.
+    undefined: usize,
+}
+
+impl Tally {
+    /// Check device cell `got` against host cell `want` on row `j` of `c`.
+    fn cell(&mut self, c: &Case, j: usize, got: u32, want: u32) {
+        let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
+        let in_domain = c.domain.holds(&row);
+        self.compared += usize::from(in_domain);
+        if agree(c.tol, c.dt, got, want) {
+            return;
+        }
+        if in_domain {
+            self.bad.push(format!(
+                "{} inputs {row:x?}: {got:#010x} vs {want:#010x}",
+                c.name
+            ));
+        } else {
+            self.undefined += 1;
+        }
+    }
+
+    /// Fail on any in-domain disagreement, and on a run that compared nothing (Pip, PR #146).
+    fn finish(&self, kernels: usize) {
+        assert!(self.compared > 0, "no in-domain cell was compared");
+        eprintln!(
+            "hlsl_cpu_c_oracle: {} out-of-domain cells disagree (reported, not failed)",
+            self.undefined
+        );
+        assert!(
+            self.bad.is_empty(),
+            "{} of {} in-domain cells disagree with unpopped-cpu-c:
+{}",
+            self.bad.len(),
+            self.compared,
+            self.bad.join(
+                "
+"
+            )
+        );
+        eprintln!(
+            "hlsl_cpu_c_oracle: {} in-domain cells over {kernels} kernels agree",
+            self.compared
+        );
+    }
+}
+
 #[test]
 fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
     common::require_serialization_lock();
@@ -90,56 +168,20 @@ fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
         !cases.is_empty(),
         "the shared case list is empty: nothing would be compared"
     );
-    let dir = tempfile::tempdir().unwrap();
-    let (mut modules, mut c_sources) = (Vec::new(), Vec::new());
-    for c in &cases {
-        let h = try_generate(&c.def, &c.key, &Hlsl)
-            .unwrap_or_else(|e| panic!("{}: the HLSL backend declined: {e:?}", c.name));
-        let Some(words) = dxc_words(dir.path(), c, &h.name, &h.source) else {
-            eprintln!("SKIP: `dxc` not on PATH (set VULKANE_REQUIRE_DXC to make this fatal)");
-            return;
-        };
-        modules.push((h.name.clone(), words));
-        let k = try_generate(&c.def, &c.key, &CpuC)
-            .unwrap_or_else(|e| panic!("{}: the CPU-C backend declined: {e:?}", c.name));
-        c_sources.push((k.name.clone(), k.source.clone()));
-    }
+    let Some((modules, c_sources)) = generate(&cases) else {
+        return;
+    };
     let host = host_c::host_results(&cc, &cases, &c_sources);
 
-    let (mut compared, mut bad, mut undefined) = (0usize, Vec::new(), 0usize);
+    let mut tally = Tally::default();
     for (i, c) in cases.iter().enumerate() {
         let cols: Vec<&[u32]> = c.inputs.iter().map(Vec::as_slice).collect();
         // `dxc -E <name>` keeps the entry-point name, unlike `slangc`.
         let got = gpu.run(&modules[i].0, &modules[i].1, &cols);
         assert_eq!(got.len(), host[i].len(), "{}: result length", c.name);
         for (j, (&g, &w)) in got.iter().zip(&host[i]).enumerate() {
-            let row: Vec<u32> = c.inputs.iter().map(|col| col[j]).collect();
-            let in_domain = c.domain.holds(&row);
-            compared += usize::from(in_domain);
-            if agree(c.tol, c.dt, g, w) {
-                continue;
-            }
-            if in_domain {
-                bad.push(format!(
-                    "{} inputs {row:x?}: {g:#010x} vs {w:#010x}",
-                    c.name
-                ));
-            } else {
-                undefined += 1;
-            }
+            tally.cell(c, j, g, w);
         }
     }
-    // A run that compared nothing is not a pass (Pip, PR #146).
-    assert!(compared > 0, "no in-domain cell was compared");
-    eprintln!("hlsl_cpu_c_oracle: {undefined} out-of-domain cells disagree (reported, not failed)");
-    assert!(
-        bad.is_empty(),
-        "{} of {compared} in-domain cells disagree with unpopped-cpu-c:\n{}",
-        bad.len(),
-        bad.join("\n")
-    );
-    eprintln!(
-        "hlsl_cpu_c_oracle: {compared} in-domain cells over {} kernels agree",
-        cases.len()
-    );
+    tally.finish(cases.len());
 }
