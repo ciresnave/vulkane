@@ -1837,7 +1837,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "kiss-vulkan-vocab",
  "libloading 0.9.0",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "tempfile",
  "unpopped",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -1877,11 +1877,11 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.21.7"
+version = "0.21.8"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "tempfile",
  "unpopped",
@@ -1892,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "rspirv",
  "tempfile",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.21.7"
+version = "0.21.8"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",

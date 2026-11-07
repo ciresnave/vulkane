@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Probe harness for docs/design/wgsl-parser-emitter.md W1 (kept as .txt: not part of the build).
+// Cargo deps: tree-sitter 0.27, tree-sitter-wgsl-bevy 0.1.4. Run over corpus/ (the 5 examples + the 3 here).
+fn errs(n: tree_sitter::Node, src: &str, out: &mut Vec<String>) {
+    if n.is_error() || n.is_missing() {
+        let s = n.start_position();
+        let line = src.lines().nth(s.row).unwrap_or("");
+        out.push(format!("  {}:{} {} `{}`", s.row + 1, s.column, if n.is_missing() { "MISSING" } else { "ERROR" }, line.trim()));
+        return;
+    }
+    let mut c = n.walk();
+    for ch in n.children(&mut c) { if ch.has_error() { errs(ch, src, out); } }
+}
+fn main() {
+    let mut ts = tree_sitter::Parser::new();
+    ts.set_language(&tree_sitter_wgsl_bevy::LANGUAGE.into()).unwrap();
+    for f in ["corpus/c_reduction.wgsl", "corpus/c_scan.wgsl"] {
+        let src = std::fs::read_to_string(f).unwrap();
+        let t = ts.parse(&src, None).unwrap();
+        let mut v = vec![]; errs(t.root_node(), &src, &mut v);
+        println!("{f}"); for l in v { println!("{l}"); }
+    }
+    // one-construct probes
+    let probes = [
+        ("struct trailing ;", "struct P { n: u32 };"),
+        ("struct no ;", "struct P { n: u32 }"),
+        ("workgroup_size(256,1,1)", "@compute @workgroup_size(256, 1, 1) fn f() {}"),
+        ("for loop", "fn f() { for (var s: u32 = 1u; s > 0u; s = s >> 1u) { } }"),
+        ("compound >>=", "fn f() { var d: u32 = 1u; d >>= 1u; }"),
+        ("compound *=", "fn f() { var d: u32 = 1u; d *= 2u; }"),
+        ("enable f16", "enable f16;"),
+        ("requires", "requires readonly_and_readwrite_storage_textures;"),
+        ("var<workgroup>", "var<workgroup> t: array<f32, 256>;"),
+        ("var<uniform>", "@group(0) @binding(0) var<uniform> p: vec4<f32>;"),
+        ("local_invocation_index", "@compute @workgroup_size(1) fn f(@builtin(local_invocation_index) li: u32) {}"),
+        ("workgroupBarrier()", "fn f() { workgroupBarrier(); }"),
+        ("var v: f32 = 0.0", "fn f() { var v: f32 = 0.0; }"),
+    ];
+    for (n, s) in probes {
+        let t = ts.parse(s, None).unwrap();
+        println!("probe {:<28} {}", n, if t.root_node().has_error() { "ERROR" } else { "ok" });
+    }
+}

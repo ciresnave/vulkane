@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-hlsl-emit"
-version      = "0.21.7"
+version      = "0.21.8"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -16,7 +16,7 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 [dependencies]
 unpopped            = "0.43.2"
 unpopped-vocab      = "0.43.2"
-vulkane-slang-emit  = { version = "0.21.7", path = "../vulkane-slang-emit" }
+vulkane-slang-emit  = { version = "0.21.8", path = "../vulkane-slang-emit" }
 
 [dev-dependencies]
 # The round-trip test lifts emitted HLSL back to the IR with the HLSL frontend (needs unpopped's `convert`).
