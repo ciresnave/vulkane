@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-spirv-emit"
-version      = "0.21.6"
+version      = "0.21.7"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
