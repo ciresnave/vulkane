@@ -86,6 +86,10 @@ fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
         return; // skip already declared
     };
     let cases = all_cases();
+    assert!(
+        !cases.is_empty(),
+        "the shared case list is empty: nothing would be compared"
+    );
     let dir = tempfile::tempdir().unwrap();
     let (mut modules, mut c_sources) = (Vec::new(), Vec::new());
     for c in &cases {
@@ -125,6 +129,8 @@ fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
             }
         }
     }
+    // A run that compared nothing is not a pass (Pip, PR #146).
+    assert!(compared > 0, "no in-domain cell was compared");
     eprintln!("hlsl_cpu_c_oracle: {undefined} out-of-domain cells disagree (reported, not failed)");
     assert!(
         bad.is_empty(),

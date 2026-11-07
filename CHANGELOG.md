@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - HLSL GPU oracle (ROADMAP 3c, H4)
 
-`vulkane-hlsl-emit/tests/oracle_live.rs`: the same cases, tolerances and domains as the SPIR-V emitter's G4.2 oracle, with the HLSL compiled by `dxc` and run on a live device against `unpopped-cpu-c`. Under `gpu-run.ps1`: 4324 in-domain cells over 61 kernels agree. `f64` is not run (the shared test device does not request `shaderFloat64`). Test-only; no library change.
+`vulkane-hlsl-emit/tests/oracle_live.rs`: the same cases, tolerances and domains as the SPIR-V emitter's G4.2 oracle, with the HLSL compiled by `dxc` and run on a live device against `unpopped-cpu-c`. Under `gpu-run.ps1`: 4324 in-domain cells over 61 kernels agree. `f64` is not run (the shared test device does not request `shaderFloat64`). Test-only; no library change. CI job `hlsl-oracle` runs it on Lavapipe with a pinned `dxc` (v1.9.2609, sha256-checked) and `VULKANE_REQUIRE_DXC`/`VULKANE_REQUIRE_DEVICE` set, so a missing dxc or device is a failure; a control step proves the oracle goes red without dxc. The test also asserts it compared at least one cell.
 
 ## [0.21.6] - unreleased
 

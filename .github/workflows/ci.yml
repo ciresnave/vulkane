@@ -769,6 +769,56 @@ jobs:
       - name: Characterisation tests
         run: cd vulkane-kernels-source/kernels && python3 -m unittest test_hoist_extinst_imports
 
+  # H4, the HLSL behaviour oracle (`vulkane-hlsl-emit/tests/oracle_live.rs`): every emitted kernel is
+  # compiled by `dxc` and run on Lavapipe against `unpopped-cpu-c`. dxc is Microsoft's own release,
+  # pinned by version AND sha256 (the digest GitHub records for the asset, re-computed by hand on
+  # 2026-11-07 from a download: identical). Pinned to ubuntu-24.04 for the loader crash of #130 (ROADMAP 1e).
+  # A missing device or dxc is a failure, never a green skip: the control step proves it.
+  hlsl-oracle:
+    name: vulkane-hlsl-emit (pinned dxc, Lavapipe oracle)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
+      - name: Install Lavapipe (runner provisioning)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+          vulkaninfo --summary
+      - name: Unpack pinned dxc (not yet on PATH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=v1.9.2609
+          sha=96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1
+          curl -fsSL -o dxc.tar.gz "https://github.com/microsoft/DirectXShaderCompiler/releases/download/${v}/linux_dxc_2026_09_28.x86_x64.tar.gz"
+          echo "${sha}  dxc.tar.gz" | sha256sum -c -
+          mkdir dxc && tar xzf dxc.tar.gz -C dxc
+      # CONTROL: with dxc absent from PATH and VULKANE_REQUIRE_DXC set, the oracle must FAIL (and
+      # say why). If this step ever passes, the oracle can skip silently again.
+      - name: Control - the oracle fails without dxc
+        shell: bash
+        env:
+          VULKANE_REQUIRE_DEVICE: "1"
+          VULKANE_REQUIRE_DXC: "1"
+        run: |
+          if cargo test -p vulkane-hlsl-emit --test oracle_live emitted_hlsl_matches > control.log 2>&1; then
+            cat control.log; echo "control FAILED: the oracle passed without dxc"; exit 1
+          fi
+          grep -q "VULKANE_REQUIRE_DXC is set but" control.log || { cat control.log; echo "control FAILED: it failed for another reason"; exit 1; }
+      - name: Put pinned dxc on PATH
+        shell: bash
+        run: |
+          echo "$PWD/dxc/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$PWD/dxc/lib" >> "$GITHUB_ENV"
+      - name: dxc runs
+        run: dxc -help | head -3
+      - name: Test vulkane-hlsl-emit (compile + device oracle)
+        env:
+          VULKANE_REQUIRE_DEVICE: "1"
+          VULKANE_REQUIRE_DXC: "1"
+        run: cargo test -p vulkane-hlsl-emit --locked -- --nocapture
+
   format:
     name: rustfmt
     runs-on: ubuntu-latest
