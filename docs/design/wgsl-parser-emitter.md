@@ -38,6 +38,26 @@ Recommendation: measure A and B on the 5 files plus a hand-written compute corpu
 its error rate on that set is zero, otherwise B and ask the Unpopped lane about a non-tree-sitter seam (a question that
 SPIR-V already forces, so it should be asked once for all languages).
 
+**Measured 2026-11-07 (step 1; `origin/main` `d7ccc45`; tree-sitter 0.27.2, `tree-sitter-wgsl-bevy` 0.1.4, `wgsl-parse` 0.6.0).**
+Corpus: the 5 graphics examples plus 3 hand-written compute fixtures in `wgsl-measurement/` (elementwise, workgroup
+reduction with `workgroupBarrier()`, scan with `enable f16;` / `requires` / `>>=`). All 8 parse AND validate under `naga`
+30.0.1 `wgsl-in` (control: `fn ( {{` is rejected), so every rejection below is the parser's, not the input's.
+
+| parser | files with errors (of 8) | what fails |
+|---|---|---|
+| A. `tree-sitter-wgsl-bevy` | **2** (both compute fixtures; the 5 graphics files and the elementwise fixture are clean) | (1) `workgroupBarrier();` as a statement: ERROR at every call site; (2) `d >>= 1u` compound assignment; (3) `requires <ext>;` directive. One-construct probes isolate each (control: `*=`, `enable f16;`, `struct` with and without a trailing `;`, `@workgroup_size(256, 1, 1)`, `for`, `var<workgroup>`, `var<uniform>` and `@builtin(local_invocation_index)` all parse clean). |
+| B. `wgsl-parse` | **0** | nothing; it also rejects the garbage control. |
+
+**Decision (W1): B, `wgsl-parse`.** The recommendation's own criterion (A only if its error rate is zero) is not met, and the
+gap that decides it is `workgroupBarrier();`: every reduction and scan needs it, so A cannot read the kernels this crate
+exists for. Patching A means vendoring a grammar (the HLSL precedent was to tolerate gaps, which is not an option when the
+gap is the synchronisation primitive). Consequence, as predicted above: `wgsl-parse` is not a `tree_sitter::Tree`, so it
+cannot be an Unpopped `Frontend` today. Step 2 therefore either (i) ships `vulkane-wgsl-parse` as a Rust-AST crate with its own
+reflection and no `lift_*`, or (ii) waits on the Unpopped lane's answer to the non-tree-sitter seam question (the same one
+SPIR-V and GLSL raise); this note recommends (i) first, since nothing consumes WGSL yet. Not measured: `wgsl-parse` on error
+tolerance and spans beyond "it rejects garbage"; whether A's three gaps are fixed on `tree-sitter-wgsl-bevy` main (unreleased
+commits were not tried); the harness is `wgsl-measurement/probe_harness.rs.txt` (A only; B is one `str::parse` call).
+
 ### W2. Corpus
 
 None exists for compute. Recommendation: the parser PR adds a small hand-written WGSL compute corpus (elementwise,
@@ -63,7 +83,7 @@ corpus compiles iff the original does.
 
 ## Proposed sequence (each its own PR; none starts before this note merges)
 
-1. Measurement PR: A vs B over the corpus (W1, W2), decision recorded here.
+1. ~~Measurement PR: A vs B over the corpus (W1, W2), decision recorded here.~~ **Done 2026-11-07**: B (`wgsl-parse`); the 3 compute fixtures are committed in `wgsl-measurement/` and step 2 adopts them.
 2. `vulkane-wgsl-parse` with the compute corpus.
 3. `vulkane-wgsl-emit` for the dtypes WGSL has, typed declines for the rest (W3).
 4. Lifting once at least one consumer exists; until then this row stays parser plus emitter only.
