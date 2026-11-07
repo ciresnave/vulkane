@@ -212,6 +212,16 @@ POLICIES = [
      + " with the SDK's spirv-val on PATH"),
     ("slangc -v", SKIP,
      "asserts the CI-installed slangc version; a local slangc is whatever the SDK ships"),
+    ("dxc.tar.gz", SKIP,
+     "downloads a pinned dxc release from GitHub (network); the oracle runs locally as plain `cargo test`"
+     + " when the SDK's dxc is on PATH"),
+    ("control.log", SKIP,
+     "CI-only control: expects dxc ABSENT from PATH so the oracle must fail; a local box has the SDK's dxc,"
+     + " so running it here would report a false 'control FAILED'"),
+    ("$GITHUB_ENV", SKIP,
+     "CI plumbing: puts the unpacked dxc on the runner's PATH/LD_LIBRARY_PATH; meaningless locally"),
+    ("dxc -help", SKIP,
+     "asserts the CI-installed dxc runs; a local dxc is whatever the SDK ships"),
     ("unittest test_hoist_extinst_imports", RUN,
      "text-in/text-out characterisation tests of a Python script; needs no"
      + " network and no device, so a local run answers what a runner answers"),
