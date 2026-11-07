@@ -37,7 +37,14 @@ fn dxc_words(dir: &Path, c: &Case, name: &str, source: &str) -> Option<Vec<u32>>
     let spv = dir.join(format!("{name}.spv"));
     std::fs::write(&src, source).unwrap();
     let out = Command::new("dxc")
-        .args(["-T", "cs_6_2", "-E", name, "-spirv", "-fspv-target-env=vulkan1.1"])
+        .args([
+            "-T",
+            "cs_6_2",
+            "-E",
+            name,
+            "-spirv",
+            "-fspv-target-env=vulkan1.1",
+        ])
         .args(required_dxc_args(c.dt))
         .arg(&src)
         .arg("-Fo")
@@ -109,7 +116,10 @@ fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
                 continue;
             }
             if in_domain {
-                bad.push(format!("{} inputs {row:x?}: {g:#010x} vs {w:#010x}", c.name));
+                bad.push(format!(
+                    "{} inputs {row:x?}: {g:#010x} vs {w:#010x}",
+                    c.name
+                ));
             } else {
                 undefined += 1;
             }
@@ -122,5 +132,8 @@ fn emitted_hlsl_matches_the_cpu_c_oracle_on_a_device() {
         bad.len(),
         bad.join("\n")
     );
-    eprintln!("hlsl_cpu_c_oracle: {compared} in-domain cells over {} kernels agree", cases.len());
+    eprintln!(
+        "hlsl_cpu_c_oracle: {compared} in-domain cells over {} kernels agree",
+        cases.len()
+    );
 }
