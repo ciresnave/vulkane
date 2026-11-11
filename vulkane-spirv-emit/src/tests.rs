@@ -496,3 +496,124 @@ fn unsupported_dtypes_and_schedules_are_typed_declines() {
         "{err:?}"
     );
 }
+
+/// The ids on one disassembly line: `%r = Op %t %a %b` gives `["%r", "%t", "%a", "%b"]`.
+fn operands_of(src: &str, opcode: &str) -> Vec<String> {
+    let line = src
+        .lines()
+        .find(|l| l.contains(&format!("= {opcode} ")))
+        .unwrap_or_else(|| panic!("no {opcode}:\n{src}"));
+    line.split_whitespace()
+        .filter(|w| w.starts_with('%'))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The defining line of `id` (`id = ...`).
+fn def_of<'a>(src: &'a str, id: &str) -> &'a str {
+    src.lines()
+        .find(|l| l.trim_start().starts_with(&format!("{id} = ")))
+        .unwrap_or_else(|| panic!("{id} is never defined:\n{src}"))
+}
+
+fn is_constant(src: &str, id: &str, value: &str) -> bool {
+    let l = def_of(src, id);
+    l.contains("OpConstant") && l.trim_end().ends_with(&format!(" {value}"))
+}
+
+/// Does some `OpIEqual` compare against the constant `value`?
+fn compares_with(src: &str, value: &str) -> bool {
+    src.lines().any(|l| {
+        l.contains("OpIEqual") && {
+            let c = l.split_whitespace().last().unwrap();
+            c.starts_with('%') && is_constant(src, c, value)
+        }
+    })
+}
+
+/// Integer `Div` is total (Unpopped rules 1 and 2): the divisor is `select(bad, 1, b)`, so a zero
+/// divisor, and signed `MIN / -1`, divide by one and give the dividend. SPIR-V leaves both
+/// undefined, and a device that does not trap cannot show a missing guard, so the guard is pinned
+/// structurally: the `OpSDiv`/`OpUDiv` divisor is an `OpSelect` taking the constant `1` when its
+/// condition holds, and the condition tests the divisor against `0` (and, signed, `MIN` and `-1`).
+#[test]
+fn integer_div_divides_by_one_on_a_zero_divisor_and_on_min_over_minus_one() {
+    for (dt, div, signed) in [
+        (ElementKind::I32, "OpSDiv", true),
+        (ElementKind::U32, "OpUDiv", false),
+    ] {
+        let def = OpDef::elementwise("d", 2, &[dt], input(0) / input(1));
+        let k = try_generate(&def, &binary_key(dt), &SpirV).unwrap_or_else(|e| panic!("{e:?}"));
+        assert_valid(&k);
+        let src = &k.source;
+        let divisor = operands_of(src, div)[3].clone();
+        let sel = operands_of(src, "OpSelect");
+        assert_eq!(
+            sel[0], divisor,
+            "{dt:?}: the divisor is not a select:\n{src}"
+        );
+        assert!(
+            is_constant(src, &sel[3], "1"),
+            "{dt:?}: the guarded divisor is not 1:\n{src}"
+        );
+        assert!(
+            compares_with(src, "0"),
+            "{dt:?}: the divisor is never compared with 0:\n{src}"
+        );
+        if signed {
+            assert!(
+                def_of(src, &sel[2]).contains("OpLogicalOr"),
+                "{dt:?}: the condition is not zero-or-overflow:\n{src}"
+            );
+            assert!(
+                compares_with(src, "-2147483648") && compares_with(src, "-1"),
+                "{dt:?}: no MIN / -1 test:\n{src}"
+            );
+        }
+    }
+}
+
+/// The comparison, `Select` and `ConstInt` leaves an integer `Rem` composition needs; signed and
+/// unsigned order differently, so `CmpLt` is `OpSLessThan` at i32 and `OpULessThan` at u32.
+#[test]
+fn integer_rem_composition_select_and_comparisons_validate() {
+    use unpopped::ir::konst_int;
+    for dt in [ElementKind::I32, ElementKind::U32] {
+        let (a, b) = (input(0), input(1));
+        let composed = a.clone() - (a / b.clone()) * b.clone();
+        let rem = b
+            .binary(BinaryOp::CmpEq, konst_int(0, dt))
+            .select(konst_int(0, dt), composed);
+        let def = OpDef::elementwise("rem", 2, &[dt], rem);
+        assert_valid(
+            &try_generate(&def, &binary_key(dt), &SpirV).unwrap_or_else(|e| panic!("{e:?}")),
+        );
+        for cmp in [
+            BinaryOp::CmpLt,
+            BinaryOp::CmpLe,
+            BinaryOp::CmpGt,
+            BinaryOp::CmpGe,
+            BinaryOp::CmpNe,
+        ] {
+            let def = OpDef::elementwise("c", 2, &[dt], input(0).binary(cmp, input(1)));
+            assert_valid(&try_generate(&def, &binary_key(dt), &SpirV).unwrap());
+        }
+    }
+    for (dt, want) in [
+        (ElementKind::I32, "OpSLessThan"),
+        (ElementKind::U32, "OpULessThan"),
+    ] {
+        let def = OpDef::elementwise("lt", 2, &[dt], input(0).binary(BinaryOp::CmpLt, input(1)));
+        let k = try_generate(&def, &binary_key(dt), &SpirV).unwrap();
+        assert!(
+            k.source.contains(want),
+            "{dt:?} CmpLt must be {want}:\n{}",
+            k.source
+        );
+    }
+}
+
+#[test]
+fn the_spirv_backend_opts_in_to_total_integer_ops() {
+    assert!(SpirV.total_integer_ops());
+}

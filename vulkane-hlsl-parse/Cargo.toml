@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-hlsl-parse"
-version      = "0.22.0"
+version      = "0.22.2"
 edition      = "2024"
 # 1.90: the same `tree-sitter-language` shim as `fishstringer-slang-parse`, formerly this repository's `vulkane-slang-parse` (the highest `rust-version` in the
 # dependency tree; re-measure with the collision/minimal-rust-version gate before publishing).
