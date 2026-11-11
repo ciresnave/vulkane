@@ -1922,11 +1922,6 @@ name = "vulkane-slang-emit"
 version = "0.22.0"
 dependencies = [
  "fishstringer-slang-emit 0.0.17",
- "tempfile",
- "unpopped",
- "unpopped-cpu-c",
- "unpopped-vocab",
- "vulkane-slang-parse",
 ]
 
 [[package]]
