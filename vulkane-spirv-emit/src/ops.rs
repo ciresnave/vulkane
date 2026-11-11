@@ -451,7 +451,7 @@ impl Em {
             BinaryOp::BitXor => lo(self.b.bitwise_xor(t, None, a, b)),
             BinaryOp::Shl => self.shift_left(a, b),
             BinaryOp::Shr => self.shift_right(a, b),
-            _ => return Ok(None),
+            _ => return self.int_compare(op, a, b),
         };
         r.map(Some)
     }
@@ -492,14 +492,112 @@ impl Em {
         lo(r).map(Some)
     }
 
-    /// Integer division is device-UB at zero; the plan gate rejects it upstream, and it is not
-    /// spelled here.
+    /// An integer constant of the compute dtype (`I32`/`U32`: the low 32 bits of `v`).
+    pub(crate) fn iconst(&mut self, v: i64) -> Word {
+        self.b.constant_bit32(self.t, v as u32)
+    }
+
+    /// `cond ? 1 : 0` in the integer compute dtype (the integer twin of [`Em::flag`]).
+    fn int_flag(&mut self, cond: Word) -> Result<Word, LowerError> {
+        let (one, zero) = (self.iconst(1), self.iconst(0));
+        lo(self.b.select(self.t, None, cond, one, zero))
+    }
+
+    /// The six comparisons at `I32` (signed) or `U32` (unsigned), as `1` / `0`.
+    fn int_compare(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
+        let bl = self.boolean;
+        let ordered = if self.fam == Family::I32 {
+            self.signed_order(op, a, b)
+        } else {
+            self.unsigned_order(op, a, b)
+        };
+        let cond = match op {
+            BinaryOp::CmpEq => self.b.i_equal(bl, None, a, b),
+            BinaryOp::CmpNe => self.b.i_not_equal(bl, None, a, b),
+            _ => match ordered {
+                Some(c) => c,
+                None => return Ok(None),
+            },
+        };
+        self.int_flag(lo(cond)?).map(Some)
+    }
+
+    /// `<`, `<=`, `>`, `>=` on signed operands; `None` for any other op.
+    fn signed_order(
+        &mut self,
+        op: BinaryOp,
+        a: Word,
+        b: Word,
+    ) -> Option<Result<Word, rspirv::dr::Error>> {
+        let bl = self.boolean;
+        Some(match op {
+            BinaryOp::CmpLt => self.b.s_less_than(bl, None, a, b),
+            BinaryOp::CmpLe => self.b.s_less_than_equal(bl, None, a, b),
+            BinaryOp::CmpGt => self.b.s_greater_than(bl, None, a, b),
+            BinaryOp::CmpGe => self.b.s_greater_than_equal(bl, None, a, b),
+            _ => return None,
+        })
+    }
+
+    /// `<`, `<=`, `>`, `>=` on unsigned operands; `None` for any other op.
+    fn unsigned_order(
+        &mut self,
+        op: BinaryOp,
+        a: Word,
+        b: Word,
+    ) -> Option<Result<Word, rspirv::dr::Error>> {
+        let bl = self.boolean;
+        Some(match op {
+            BinaryOp::CmpLt => self.b.u_less_than(bl, None, a, b),
+            BinaryOp::CmpLe => self.b.u_less_than_equal(bl, None, a, b),
+            BinaryOp::CmpGt => self.b.u_greater_than(bl, None, a, b),
+            BinaryOp::CmpGe => self.b.u_greater_than_equal(bl, None, a, b),
+            _ => return None,
+        })
+    }
+
+    /// `b == 0`, or (signed) also `a == MIN && b == -1`: the divisions the total rule redefines.
+    fn div_is_special(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let bl = self.boolean;
+        let zero = self.iconst(0);
+        let by_zero = lo(self.b.i_equal(bl, None, b, zero))?;
+        if self.fam != Family::I32 {
+            return Ok(by_zero);
+        }
+        let min = self.iconst(i64::from(i32::MIN));
+        let neg1 = self.iconst(-1);
+        let a_min = lo(self.b.i_equal(bl, None, a, min))?;
+        let b_neg1 = lo(self.b.i_equal(bl, None, b, neg1))?;
+        let overflow = lo(self.b.logical_and(bl, None, a_min, b_neg1))?;
+        lo(self.b.logical_or(bl, None, by_zero, overflow))
+    }
+
+    /// Integer `a / b` by the total rule (`docs/int-div-shift-semantics.md` rules 1 and 2): a zero
+    /// divisor gives `a`, and so does `MIN / -1` (signed), the wrapping answer. SPIR-V leaves both
+    /// undefined but does not trap (3.3.13), so an unconditional select is allowed, unlike C: the
+    /// divisor is replaced by `1` when it is one of those cases, and `a / 1 == a`.
+    fn int_div(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let t = self.t;
+        let bad = self.div_is_special(a, b)?;
+        let one = self.iconst(1);
+        let safe = lo(self.b.select(t, None, bad, one, b))?;
+        if self.fam == Family::I32 {
+            lo(self.b.s_div(t, None, a, safe))
+        } else {
+            lo(self.b.u_div(t, None, a, safe))
+        }
+    }
+
+    /// Integer division is total (rules 1 and 2, see [`Em::int_div`]); the plan gate admits it
+    /// only for a backend that declares `total_integer_ops`, and this one does. The
+    /// other arithmetic wraps.
     fn arith_int(&mut self, op: ArithOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
         let t = self.t;
         let r = match op {
             ArithOp::Add => self.b.i_add(t, None, a, b),
             ArithOp::Sub => self.b.i_sub(t, None, a, b),
             ArithOp::Mul => self.b.i_mul(t, None, a, b),
+            ArithOp::Div => return self.int_div(a, b).map(Some),
             _ => return Ok(None),
         };
         lo(r).map(Some)
@@ -523,11 +621,10 @@ impl Em {
 
     pub(crate) fn select(&mut self, c: Word, a: Word, b: Word) -> Result<Spelling, LowerError> {
         if !self.fam.is_float() {
-            return Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
-                op: DeclinedOp::Select,
-                dtype: self.dtype,
-                why: "v1 select is float-only (f32/f64)".to_string(),
-            }));
+            // `c != 0`, the integer twin of the float form below (an integer has no NaN).
+            let zero = self.iconst(0);
+            let cond = lo(self.b.i_not_equal(self.boolean, None, c, zero))?;
+            return Ok(sp(lo(self.b.select(self.t, None, cond, a, b))?));
         }
         // `c != 0.0`, unordered: a NaN condition selects `a`, as the Slang speller's `!=` does.
         let zero = self.fconst(0.0);
@@ -550,7 +647,34 @@ impl Em {
     /// A constant as a SPIR-V constant id. NaN and the infinities keep their IEEE bit patterns,
     /// so no C macro spelling is involved.
     pub(crate) fn constant(&mut self, v: f64) -> Spelling {
+        if !self.fam.is_float() {
+            // An f64 literal in an integer kernel would be a silent float-to-int conversion; the
+            // plan gate rejects it, and this is the typed backstop (an integer literal is `ConstInt`).
+            return Spelling::Declined(Decline::UnsupportedDtypeForOp {
+                op: DeclinedOp::Integer,
+                dtype: self.dtype,
+                why: "a float `Const` in an integer kernel; use `ConstInt`".to_string(),
+            });
+        }
         sp(self.fconst(v))
+    }
+
+    /// An exact integer constant (`ScalarExpr::ConstInt`) at the integer compute dtype. A leaf of
+    /// another type, or a value the 32-bit dtype cannot hold exactly, is declined, not truncated.
+    pub(crate) fn constant_int(&mut self, v: i64, t: ElementKind) -> Spelling {
+        let fits = match self.fam {
+            Family::I32 => i32::try_from(v).is_ok(),
+            Family::U32 => u32::try_from(v).is_ok(),
+            _ => false,
+        };
+        if t != self.dtype || !fits {
+            return Spelling::Declined(Decline::UnsupportedDtypeForOp {
+                op: DeclinedOp::Integer,
+                dtype: self.dtype,
+                why: format!("ConstInt({v}, {t:?}) is not exact at {:?}", self.dtype),
+            });
+        }
+        sp(self.iconst(v))
     }
 
     /// Store `value` to `output[i]` and close the function.

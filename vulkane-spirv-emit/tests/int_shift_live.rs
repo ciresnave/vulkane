@@ -5,9 +5,9 @@
 //! logical on `u32`. SPIR-V alone makes a count `>= 32` poison (3.3.14), so without the emitted
 //! mask a device is free to return anything for those rows.
 //!
-//! Integer `Div` is not covered here: Unpopped's `Backend::lower` still panics on it for
-//! integer dtypes (the plan gate is closed until the emitters adopt the guards, ROADMAP E16),
-//! so the emitter cannot be handed one.
+//! Integer `Div` and `Rem` are covered by `int_div_live.rs` (the backend opted in to Unpopped's
+//! plan gate with `total_integer_ops`; ROADMAP E16). Before that, `Backend::lower` panicked on it for
+//! integer dtypes, so the emitter could not be handed one.
 //!
 //! Without a device the test follows `VULKANE_REQUIRE_DEVICE` like every other live test.
 

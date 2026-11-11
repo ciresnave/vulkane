@@ -36,6 +36,10 @@
 //!   [`Backend::supports_dtype`].
 //! - `F64` spells only the ops GLSL.std.450 defines at 64 bits (`Sqrt`, `FAbs`, rounding, `NMin`/`NMax`,
 //!   comparisons, `FRem`); the transcendentals are declined at `F64`, not approximated.
+//! - Integers (`I32`/`U32`) follow Unpopped's total rule (`docs/int-div-shift-semantics.md`; the
+//!   backend declares [`Backend::total_integer_ops`]): `Div` by zero and signed `MIN / -1` give the
+//!   dividend, an integer `Rem` is Unpopped's `Select` composition over it, and a shift count is
+//!   masked to the width. Comparisons give `1`/`0` in the dtype; `ConstInt` is exact or declined.
 //! - Schedule: `Scalar` only, single output, no runtime `Param`s.
 //! - The same declined set as `unpopped-slang`: `Erf`, `Erfc`, `Gelu`, `Lgamma`, `Cbrt`, `Asinh`,
 //!   `Acosh`, `Atanh`, `Copysign`, `Nextafter`, `Fma`, `Cast`, `Bitcast`, so the emitters can be
@@ -51,7 +55,7 @@ use rspirv::binary::{Assemble, Disassemble};
 use rspirv::dr::Builder;
 use rspirv::spirv::{ExecutionMode, ExecutionModel, FunctionControl, Word};
 use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, lower_dag};
-use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
+use unpopped::cfamily::dtype_tag;
 use unpopped::ir::{DagNode, ExprDag, NodeId, ScalarExpr};
 use unpopped::plan::{KernelPlan, Schedule};
 use unpopped_vocab::{ElementKind, TargetId};
@@ -86,6 +90,13 @@ impl Backend for SpirV {
         "vulkane"
     }
 
+    /// Integer `Div`, `Rem` (the `Select` composition), `Shl`/`Shr` and `ConstInt` at `I32`/`U32`
+    /// follow `docs/int-div-shift-semantics.md` (Unpopped ROADMAP E16): guarded divisor, masked
+    /// count. Opting in opens the plan gate for them; the boundary vectors pin each guard.
+    fn total_integer_ops(&self) -> bool {
+        true
+    }
+
     fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> DtypeSupport {
         dtype_ok(dtype, target)
     }
@@ -101,10 +112,6 @@ impl Backend for SpirV {
             });
         }
         check_shape(plan)?;
-        // Same plan-gate backstop as the C-family emitters: infix int `/` and f64 `Const`.
-        if unpopped::plan::is_int_dtype(plan.dtype) {
-            assert_no_int_div_or_const(plan.body, plan.dtype, false, false);
-        }
         match plan.schedule {
             Schedule::Scalar => emit_scalar(plan),
             other => Err(LowerError::UnsupportedSchedule {
@@ -180,6 +187,7 @@ fn lower_body(em: &RefCell<Em>, body: &ScalarExpr) -> Result<Word, LowerError> {
         e.select(c, a, b)
     };
     let constant = |v: f64| Ok(em.borrow_mut().constant(v));
+    let const_int = |v: i64, t: ElementKind| Ok(em.borrow_mut().constant_int(v, t));
     // The declaration half of hoisting: record the name, emit no text (the value is an SSA id).
     let temp = |_ctype: &str, name: &str, rhs: &str| {
         let mut e = em.borrow_mut();
@@ -194,6 +202,7 @@ fn lower_body(em: &RefCell<Em>, body: &ScalarExpr) -> Result<Word, LowerError> {
             .arith(&arith)
             .select(&select)
             .constant(&constant)
+            .const_int(&const_int)
             .temp(&temp)
             .build(),
     )?;
