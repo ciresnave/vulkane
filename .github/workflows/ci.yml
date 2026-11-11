@@ -295,8 +295,8 @@ jobs:
         run: cargo test --workspace --features fetch-spec,derive,kiss-target
 
       # `softmax_f64_live` compiles `softmax_f64.slang` with slangc and runs it on the device
-      # against a CPU f64 softmax (issue #106, ROADMAP 1c). slangc is the same pinned release
-      # (version + sha256) the slang-emit job uses. Linux only: that is where Lavapipe is. Both
+      # against a CPU f64 softmax (issue #106, ROADMAP 1c). slangc is the Slang project's own
+      # release, pinned by version AND sha256. Linux only: that is where Lavapipe is. Both
       # requirement variables are set, so a missing slangc or device is a failure, not a green skip.
       - name: Install pinned slangc (runner provisioning)
         if: runner.os == 'Linux'
@@ -708,35 +708,6 @@ jobs:
       - name: No NUL byte in any tracked text file
         run: python3 .github/nul_gate.py
 
-  # `vulkane-slang-emit`'s slangc-gated test, plus its `convert` feature, which no other job builds.
-  # slangc is the Slang project's own release, pinned by version AND sha256 (the digest GitHub
-  # records for the asset, re-computed by hand on 2026-10-30 from a download: identical). The test
-  # is fatal without slangc here because VULKANE_REQUIRE_SLANGC is set.
-  slang-emit:
-    name: vulkane-slang-emit (pinned slangc, convert)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch HEAD)
-      - name: Install pinned slangc (runner provisioning)
-        shell: bash
-        run: |
-          set -euo pipefail
-          v=2026.20
-          sha=e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9
-          curl -fsSL -o slang.tar.gz "https://github.com/shader-slang/slang/releases/download/v${v}/slang-${v}-linux-x86_64.tar.gz"
-          echo "${sha}  slang.tar.gz" | sha256sum -c -
-          mkdir slang && tar xzf slang.tar.gz -C slang
-          echo "$PWD/slang/bin" >> "$GITHUB_PATH"
-      - name: slangc runs and is the pinned version
-        shell: bash
-        run: slangc -v 2>&1 | tee /dev/stderr | grep -q '2026.20'
-      - name: Test vulkane-slang-emit
-        shell: bash
-        env:
-          VULKANE_REQUIRE_SLANGC: "1"
-        run: cargo test -p vulkane-slang-emit --features convert
-
   # `vulkane-spirv-parse`'s spirv-val tests: verdict before/after a parse+encode, and the invalid-module
   # negative case (#106); also `vulkane-spirv-emit`'s: every emitted module must pass spirv-val. spirv-val comes from the runner's `spirv-tools` package; the tests are fatal
   # without it because VULKANE_REQUIRE_SPIRV_VAL is set.
@@ -758,16 +729,6 @@ jobs:
         env:
           VULKANE_REQUIRE_SPIRV_VAL: "1"
         run: cargo test -p vulkane-spirv-emit --locked
-
-  # Characterisation tests for the SPIR-V post-process script that ships in `vulkane-kernels-source`
-  # (ROADMAP row 1d). Text-in/text-out: no SPIR-V tools needed.
-  kernels-scripts:
-    name: Kernel scripts (hoist_extinst_imports)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Characterisation tests
-        run: cd vulkane-kernels-source/kernels && python3 -m unittest test_hoist_extinst_imports
 
   # H4, the HLSL behaviour oracle (`vulkane-hlsl-emit/tests/oracle_live.rs`): every emitted kernel is
   # compiled by `dxc` and run on Lavapipe against `unpopped-cpu-c`. dxc is Microsoft's own release,

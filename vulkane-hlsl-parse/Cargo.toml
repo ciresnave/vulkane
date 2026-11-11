@@ -1,8 +1,8 @@
 [package]
 name         = "vulkane-hlsl-parse"
-version      = "0.21.9"
+version      = "0.22.0"
 edition      = "2024"
-# 1.90: the same `tree-sitter-language` shim as `vulkane-slang-parse` (the highest `rust-version` in the
+# 1.90: the same `tree-sitter-language` shim as `fishstringer-slang-parse`, formerly this repository's `vulkane-slang-parse` (the highest `rust-version` in the
 # dependency tree; re-measure with the collision/minimal-rust-version gate before publishing).
 rust-version = "1.90"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
