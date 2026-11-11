@@ -387,6 +387,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "fishstringer-slang-emit"
+version = "0.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c18c17e4f81f8a4f3003327012f614e507c78fff166ce454305f132bbea0f1b"
+dependencies = [
+ "unpopped",
+ "unpopped-vocab",
+]
+
+[[package]]
+name = "fishstringer-slang-parse"
+version = "0.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54272b296dd9cfb9899e5d234518079223c97987f2b4f36bbce920061b4938b6"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-slang",
+ "unpopped",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1720,6 +1741,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
 
 [[package]]
+name = "tree-sitter-slang"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667fe30ff3ed3af5134e21b7a2aa7978aa0b00bd9f9a8481f0a899c1caceb004"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1862,7 +1893,7 @@ dependencies = [
 name = "vulkane-hlsl-emit"
 version = "0.22.0"
 dependencies = [
- "fishstringer-slang-emit",
+ "fishstringer-slang-emit 0.0.14",
  "tempfile",
  "unpopped",
  "unpopped-cpu-c",
@@ -1887,10 +1918,29 @@ name = "vulkane-kernels-source"
 version = "0.22.0"
 
 [[package]]
+name = "vulkane-slang-emit"
+version = "0.22.0"
+dependencies = [
+ "fishstringer-slang-emit 0.0.17",
+ "tempfile",
+ "unpopped",
+ "unpopped-cpu-c",
+ "unpopped-vocab",
+ "vulkane-slang-parse",
+]
+
+[[package]]
+name = "vulkane-slang-parse"
+version = "0.22.0"
+dependencies = [
+ "fishstringer-slang-parse",
+]
+
+[[package]]
 name = "vulkane-spirv-emit"
 version = "0.22.0"
 dependencies = [
- "fishstringer-slang-emit",
+ "fishstringer-slang-emit 0.0.14",
  "rspirv",
  "tempfile",
  "unpopped",

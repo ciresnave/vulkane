@@ -8,6 +8,8 @@
     "vulkane-hlsl-parse",
     "vulkane-kernels-source",
     "vulkane-spirv-emit",
+    "vulkane-slang-emit",
+    "vulkane-slang-parse",
     "vulkane-spirv-parse",
   ]
   resolver = "2"

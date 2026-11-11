@@ -1,0 +1,20 @@
+[package]
+name         = "vulkane-slang-parse"
+version      = "0.22.0"
+edition      = "2024"
+rust-version = "1.90"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "DEPRECATED: moved to fishstringer-slang-parse; this crate re-exports it. FishStringer owns Slang."
+keywords     = ["slang", "shader", "deprecated"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ThinkersJournal/fishstringer"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*"]
+
+[dependencies]
+fishstringer-slang-parse = "0.0.17"
+
+[lints.rust]
+missing_docs = "deny"
