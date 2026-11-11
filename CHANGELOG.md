@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - unreleased
+
+PM-allocated (2026-11-11): `vulkane-wgsl-parse` (#150) merged without a bump at 0.21.9 and is brought to the workspace number here, so every crate moves to 0.22.2.
+
 ### Added - `vulkane-spirv-emit` spells integer `Div`/`Rem` and opts in to Unpopped's total integer rule (Unpopped ROADMAP E16)
 
 `SpirV` now returns `true` from `Backend::total_integer_ops`, so Unpopped's plan gate admits integer `Div`, `ConstInt`, `Select` and the six comparisons at `i32`/`u32` for it. Division follows `docs/int-div-shift-semantics.md` rules 1 and 2: the divisor is `select(bad, 1, b)` where `bad` is `b == 0` (and, signed, `a == MIN && b == -1`), so a zero divisor and `MIN / -1` give the dividend (SPIR-V 3.3.13 leaves them undefined but does not trap, so an unconditional select is allowed, unlike C). Integer `Rem` is Unpopped's `Select(b == 0, 0, a - (a / b) * b)` composition over it. Comparisons give `1`/`0` in the compute dtype (`OpSLessThan` family at `i32`, `OpULessThan` family at `u32`); `Select` tests `c != 0`; a float `Const` in an integer kernel is now a typed decline (the `assert_no_int_div_or_const` panic backstop is gone with the gate it backstopped). Shifts were already masked in 0.20.2.
