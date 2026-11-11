@@ -2,7 +2,7 @@
 name         = "vulkane-wgsl-parse"
 version      = "0.21.9"
 edition      = "2024"
-rust-version = "1.85"
+rust-version = "1.97.1"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
 description  = "A WGSL front end: parses WGSL into an owned Rust AST and reflects entry points and resource bindings. Vulkane owns WGSL."
