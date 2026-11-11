@@ -11,6 +11,7 @@
     "vulkane-slang-parse",
     "vulkane-spirv-emit",
     "vulkane-spirv-parse",
+    "vulkane-wgsl-parse",
   ]
   resolver = "2"
 
