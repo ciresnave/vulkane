@@ -4,7 +4,7 @@
 //! Vulkane owns HLSL in the CireSnave ecosystem (ruling 2026-10-30), so the language's parser lives
 //! here; the emitter will be `vulkane-hlsl-emit`. Unpopped keeps the language-neutral half:
 //! [`Frontend`] and the `lift_*` walkers in `unpopped::convert`, which this crate feeds with a
-//! grammar binding, exactly as `vulkane-slang-parse` does for Slang.
+//! grammar binding, exactly as `fishstringer-slang-parse` (formerly `vulkane-slang-parse`) does for Slang.
 //!
 //! * [`parse_hlsl`] - HLSL source to an error-tolerant tree-sitter CST.
 //! * [`HLSL_RESIDUE`] - constructs refused as inexpressible (shared memory, barriers, atomics).

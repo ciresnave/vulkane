@@ -7,8 +7,6 @@
     "vulkane-hlsl-emit",
     "vulkane-hlsl-parse",
     "vulkane-kernels-source",
-    "vulkane-slang-emit",
-    "vulkane-slang-parse",
     "vulkane-spirv-emit",
     "vulkane-spirv-parse",
   ]

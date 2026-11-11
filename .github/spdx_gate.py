@@ -276,14 +276,6 @@ COPYRIGHT_ACKNOWLEDGED = {
         "`SPDX-License-Identifier: Apache-2.0 OR MIT` on line 6. `.xml` is not "
         "in EXTENSIONS so it is never stamped - and if `.xml` is ever added, "
         "this file needs a HOLDOUT entry FIRST. It is not ours to relicense.",
-    "vulkane-kernels-source/kernels/dequant_q4_km.slang":
-        "carries llama.cpp's MIT notice (Copyright (c) 2023-2026 The ggml "
-        "authors) because `get_scale_min_k4` is a Slang translation of "
-        "llama.cpp's function (ggml/src/ggml-quants.c at 9d57ce456c). MIT lets "
-        "us sublicense on condition the notice travels, and it does: in the "
-        "file's origin comment and with the licence text in the crate's "
-        "THIRD-PARTY-NOTICES.md. So the file keeps our dual-licence stamp "
-        "and is NOT a HOLDOUT; the rest of the file is first-party.",
 }
 
 

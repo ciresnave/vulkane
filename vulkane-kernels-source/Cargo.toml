@@ -1,12 +1,12 @@
 [package]
 name         = "vulkane-kernels-source"
-version      = "0.21.9"
+version      = "0.22.0"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
-description  = "GPU kernel source files (.slang / .glsl) for Vulkane and its consumers. Compile ahead of time with kernels/compile.sh; compiled SPIR-V is the consumer's to build and ship."
-keywords     = ["vulkan", "slang", "spir-v", "gpu", "kernels"]
+description  = "GLSL GPU kernel source files for Vulkane and its consumers (the Slang kernels live in fishstringer-kernels-source). Compile ahead of time with kernels/compile.sh; compiled SPIR-V is the consumer's to build and ship."
+keywords     = ["vulkan", "glsl", "spir-v", "gpu", "kernels"]
 categories   = ["graphics", "science"]
 repository   = "https://github.com/ciresnave/vulkane"
 homepage     = "https://github.com/ciresnave/vulkane"

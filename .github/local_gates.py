@@ -222,9 +222,6 @@ POLICIES = [
      "CI plumbing: puts the unpacked dxc on the runner's PATH/LD_LIBRARY_PATH; meaningless locally"),
     ("dxc -help", SKIP,
      "asserts the CI-installed dxc runs; a local dxc is whatever the SDK ships"),
-    ("unittest test_hoist_extinst_imports", RUN,
-     "text-in/text-out characterisation tests of a Python script; needs no"
-     + " network and no device, so a local run answers what a runner answers"),
     ("cargo package --list", RUN,
      "lists what WOULD be published without building or touching a device; the" +
      " bundled-vk.xml assertion it guards is worth running locally too"),
