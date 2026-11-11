@@ -1510,9 +1510,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.37"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "fishstringer-kernels-source",
  "kiss-vulkan-vocab",
@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "fishstringer-slang-emit 0.0.14",
  "tempfile",
@@ -2081,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -2091,25 +2091,25 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.22.2"
+version = "0.22.3"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "fishstringer-slang-emit 0.0.17",
 ]
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "fishstringer-slang-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "fishstringer-slang-emit 0.0.14",
  "rspirv",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-wgsl-parse"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "naga",
  "wgsl-parse",
