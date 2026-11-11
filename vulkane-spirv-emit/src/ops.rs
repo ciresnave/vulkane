@@ -505,21 +505,71 @@ impl Em {
 
     /// The six comparisons at `I32` (signed) or `U32` (unsigned), as `1` / `0`.
     fn int_compare(&mut self, op: BinaryOp, a: Word, b: Word) -> Result<Option<Word>, LowerError> {
-        let (bl, signed) = (self.boolean, self.fam == Family::I32);
-        let cond = match (op, signed) {
-            (BinaryOp::CmpEq, _) => self.b.i_equal(bl, None, a, b),
-            (BinaryOp::CmpNe, _) => self.b.i_not_equal(bl, None, a, b),
-            (BinaryOp::CmpLt, true) => self.b.s_less_than(bl, None, a, b),
-            (BinaryOp::CmpLe, true) => self.b.s_less_than_equal(bl, None, a, b),
-            (BinaryOp::CmpGt, true) => self.b.s_greater_than(bl, None, a, b),
-            (BinaryOp::CmpGe, true) => self.b.s_greater_than_equal(bl, None, a, b),
-            (BinaryOp::CmpLt, false) => self.b.u_less_than(bl, None, a, b),
-            (BinaryOp::CmpLe, false) => self.b.u_less_than_equal(bl, None, a, b),
-            (BinaryOp::CmpGt, false) => self.b.u_greater_than(bl, None, a, b),
-            (BinaryOp::CmpGe, false) => self.b.u_greater_than_equal(bl, None, a, b),
-            _ => return Ok(None),
+        let bl = self.boolean;
+        let ordered = if self.fam == Family::I32 {
+            self.signed_order(op, a, b)
+        } else {
+            self.unsigned_order(op, a, b)
+        };
+        let cond = match op {
+            BinaryOp::CmpEq => self.b.i_equal(bl, None, a, b),
+            BinaryOp::CmpNe => self.b.i_not_equal(bl, None, a, b),
+            _ => match ordered {
+                Some(c) => c,
+                None => return Ok(None),
+            },
         };
         self.int_flag(lo(cond)?).map(Some)
+    }
+
+    /// `<`, `<=`, `>`, `>=` on signed operands; `None` for any other op.
+    fn signed_order(
+        &mut self,
+        op: BinaryOp,
+        a: Word,
+        b: Word,
+    ) -> Option<Result<Word, rspirv::dr::Error>> {
+        let bl = self.boolean;
+        Some(match op {
+            BinaryOp::CmpLt => self.b.s_less_than(bl, None, a, b),
+            BinaryOp::CmpLe => self.b.s_less_than_equal(bl, None, a, b),
+            BinaryOp::CmpGt => self.b.s_greater_than(bl, None, a, b),
+            BinaryOp::CmpGe => self.b.s_greater_than_equal(bl, None, a, b),
+            _ => return None,
+        })
+    }
+
+    /// `<`, `<=`, `>`, `>=` on unsigned operands; `None` for any other op.
+    fn unsigned_order(
+        &mut self,
+        op: BinaryOp,
+        a: Word,
+        b: Word,
+    ) -> Option<Result<Word, rspirv::dr::Error>> {
+        let bl = self.boolean;
+        Some(match op {
+            BinaryOp::CmpLt => self.b.u_less_than(bl, None, a, b),
+            BinaryOp::CmpLe => self.b.u_less_than_equal(bl, None, a, b),
+            BinaryOp::CmpGt => self.b.u_greater_than(bl, None, a, b),
+            BinaryOp::CmpGe => self.b.u_greater_than_equal(bl, None, a, b),
+            _ => return None,
+        })
+    }
+
+    /// `b == 0`, or (signed) also `a == MIN && b == -1`: the divisions the total rule redefines.
+    fn div_is_special(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
+        let bl = self.boolean;
+        let zero = self.iconst(0);
+        let by_zero = lo(self.b.i_equal(bl, None, b, zero))?;
+        if self.fam != Family::I32 {
+            return Ok(by_zero);
+        }
+        let min = self.iconst(i64::from(i32::MIN));
+        let neg1 = self.iconst(-1);
+        let a_min = lo(self.b.i_equal(bl, None, a, min))?;
+        let b_neg1 = lo(self.b.i_equal(bl, None, b, neg1))?;
+        let overflow = lo(self.b.logical_and(bl, None, a_min, b_neg1))?;
+        lo(self.b.logical_or(bl, None, by_zero, overflow))
     }
 
     /// Integer `a / b` by the total rule (`docs/int-div-shift-semantics.md` rules 1 and 2): a zero
@@ -527,17 +577,8 @@ impl Em {
     /// undefined but does not trap (3.3.13), so an unconditional select is allowed, unlike C: the
     /// divisor is replaced by `1` when it is one of those cases, and `a / 1 == a`.
     fn int_div(&mut self, a: Word, b: Word) -> Result<Word, LowerError> {
-        let (t, bl) = (self.t, self.boolean);
-        let zero = self.iconst(0);
-        let mut bad = lo(self.b.i_equal(bl, None, b, zero))?;
-        if self.fam == Family::I32 {
-            let min = self.iconst(i64::from(i32::MIN));
-            let neg1 = self.iconst(-1);
-            let a_min = lo(self.b.i_equal(bl, None, a, min))?;
-            let b_neg1 = lo(self.b.i_equal(bl, None, b, neg1))?;
-            let overflow = lo(self.b.logical_and(bl, None, a_min, b_neg1))?;
-            bad = lo(self.b.logical_or(bl, None, bad, overflow))?;
-        }
+        let t = self.t;
+        let bad = self.div_is_special(a, b)?;
         let one = self.iconst(1);
         let safe = lo(self.b.select(t, None, bad, one, b))?;
         if self.fam == Family::I32 {
