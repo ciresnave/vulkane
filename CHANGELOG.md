@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - `vulkane-spirv-emit` spells integer `Div`/`Rem` and opts in to Unpopped's total integer rule (Unpopped ROADMAP E16)
+
+`SpirV` now returns `true` from `Backend::total_integer_ops`, so Unpopped's plan gate admits integer `Div`, `ConstInt`, `Select` and the six comparisons at `i32`/`u32` for it. Division follows `docs/int-div-shift-semantics.md` rules 1 and 2: the divisor is `select(bad, 1, b)` where `bad` is `b == 0` (and, signed, `a == MIN && b == -1`), so a zero divisor and `MIN / -1` give the dividend (SPIR-V 3.3.13 leaves them undefined but does not trap, so an unconditional select is allowed, unlike C). Integer `Rem` is Unpopped's `Select(b == 0, 0, a - (a / b) * b)` composition over it. Comparisons give `1`/`0` in the compute dtype (`OpSLessThan` family at `i32`, `OpULessThan` family at `u32`); `Select` tests `c != 0`; a float `Const` in an integer kernel is now a typed decline (the `assert_no_int_div_or_const` panic backstop is gone with the gate it backstopped). Shifts were already masked in 0.20.2.
+
+Checked three ways. `integer_div_divides_by_one_on_a_zero_divisor_and_on_min_over_minus_one` pins the guard's structure; two seeded mutants each turn it red (drop the guard; drop only the signed `MIN / -1` arm). `tests/int_div_live.rs` runs the emitted `Div` and the `Rem` composition on a device over the document's vectors (9 dividends x 8 divisors x 2 dtypes x 2 kernels = 288 results, all equal to the host's rule on an NVIDIA device). That live test could not tell a guarded kernel from an unguarded one if the device does not misbehave on the unguarded forms (the same limit as `int_shift_live.rs`), so it guards the device path, not the guard. Not done: 64-bit integers (the backend declines them as a dtype), and the same vectors on a second implementation (Lavapipe on a Linux job). Version allocated by the PM.
+
 ## [0.22.0] - unreleased
 
 ### Added - redirect crates `vulkane-slang-emit` / `vulkane-slang-parse` (ROADMAP 6)
