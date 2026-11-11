@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - unreleased
+
+### Added - redirect crates `vulkane-slang-emit` / `vulkane-slang-parse` (ROADMAP 6)
+
+Thin `pub use fishstringer_slang_*::*` crates (deprecated, `fishstringer-slang-*` 0.0.17, `convert` feature forwarded on emit) so a dependent migrates by renaming. The 0.21.1 emit tests (3 files, 12 tests) were run unchanged against the redirect and pass; unpublished, the PM publishes. Version stays at the workspace number for the PM to allocate.
+
+
+### Removed (BREAKING) - the Slang crates and kernels (Slang switch, step 2 of 2)
+
+FishStringer owns Slang (CireSnave 2026-11-06) and has published `fishstringer-slang-emit`, `fishstringer-slang-parse` and `fishstringer-kernels-source` (0.0.14; re-read on crates.io 2026-11-10, unyanked). **Removed from this workspace:** `vulkane-slang-emit`, `vulkane-slang-parse` (both ARE published on crates.io, through 0.21.1, and those releases stay; a redirect release is arranged separately), the 147 `.slang` kernels and `hoist_extinst_imports.py` with its test from `vulkane-kernels-source`, the `slang-emit` and `kernels-scripts` CI jobs, and the Slang branch of `compile.sh`. `vulkane-kernels-source` keeps the 27 `.glsl` kernels and a GLSL/WGSL `compile.sh`; its `THIRD-PARTY-NOTICES.md` is rewritten (the llama.cpp, webgpu-blas and candle dispositions went with the Slang files, and FishStringer's notices carry the licence texts). The dependents' pin moves `~0.0.12` to `~0.0.14`. Diffs of the published packages: 0.0.12 to 0.0.13 is only `kernels/no_contraction.py` (new `--out-dir` handling, plus its test) and manifests; 0.0.13 to 0.0.14 is only the new `kernels/spv_equiv.py` with its tests, README and `lib.rs` text, and manifests. No `.slang` file or emitter source changed in either step. **Breaking, hence 0.22.0 (pre-1.0 the second number is the major): `vulkane-kernels-source` 0.21.1 is on crates.io with the `.slang` files, and this release no longer ships them. Anyone who took them from `vulkane-kernels-source` must take them from `fishstringer-kernels-source`.**
+
 ## [0.21.9] - unreleased
 
 ### Changed - dependents move to FishStringer's published Slang crates (Slang switch, step 1 of 2)

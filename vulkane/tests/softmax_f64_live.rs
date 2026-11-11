@@ -94,7 +94,7 @@ fn kernel_source(name: &str) -> String {
 
 /// Compile the kernel exactly as `compile.sh` does (`-target spirv -profile glsl_450
 /// -entry main`). `softmax_f64.slang` has no in-function `OpExtInstImport`, so
-/// `hoist_extinst_imports.py` is a no-op for it; the assertion below keeps that true.
+/// FishStringer's `hoist_extinst_imports.py` is a no-op for it; the assertion below keeps that true.
 fn compile_kernel(slangc: &PathBuf) -> Vec<u8> {
     let src = kernel_source("softmax_f64.slang");
     let dir = tempfile::tempdir().expect("tempdir");

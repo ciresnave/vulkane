@@ -1,48 +1,23 @@
 [package]
 name         = "vulkane-slang-emit"
-version      = "0.21.9"
+version      = "0.22.0"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
-description  = "The Slang compute-shader emitter for Unpopped: IR to Slang source, with HLSL overloaded intrinsics, StructuredBuffer operands and a [numthreads] entry. Moved from unpopped-slang; Vulkane owns Slang."
-keywords     = ["kernel", "codegen", "compiler", "slang", "shader"]
+description  = "DEPRECATED: moved to fishstringer-slang-emit; this crate re-exports it. FishStringer owns Slang."
+keywords     = ["slang", "shader", "deprecated"]
 categories   = ["compilers", "development-tools", "graphics"]
 repository   = "https://github.com/ciresnave/vulkane"
-homepage     = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ThinkersJournal/fishstringer"
 readme       = "README.md"
-include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
-
-[features]
-# Lift emitted Slang back to the IR - the residue round-trip contract the "one IR,
-# N languages" hub rests on. Optional because it pulls tree-sitter grammars, which
-# compile C via the `cc` crate; the emit-only default build stays lean.
-# NOTE: this feature needs rustc 1.90 (`tree-sitter-language` 0.1.9 declares it); the crate's
-# `rust-version` of 1.85 holds for the default, emit-only build.
-convert = ["unpopped/convert"]
+include      = ["src/**", "README.md", "LICENSE-*"]
 
 [dependencies]
-unpopped       = "0.43.2"
-unpopped-vocab = "0.43.2"
+fishstringer-slang-emit = "0.0.17"
 
-[dev-dependencies]
-# The conformance cells (tests/) compare against the C reference emitter.
-unpopped-cpu-c = "0.43.2"
-# The slangc test writes its sources into a private, auto-removed directory.
-tempfile       = { workspace = true }
-# The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
-vulkane-slang-parse = { path = "../vulkane-slang-parse" }
+[features]
+convert = ["fishstringer-slang-emit/convert"]
 
 [lints.rust]
-missing_docs                    = "deny"
-missing_debug_implementations   = "warn"
-unreachable_pub                 = "warn"
-
-[lints.rustdoc]
-broken_intra_doc_links  = "deny"
-private_intra_doc_links = "deny"
-
-[lints.clippy]
-all                = { level = "warn", priority = -1 }
-too_many_arguments = "allow"
-type_complexity    = "allow"
+missing_docs = "deny"

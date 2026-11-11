@@ -426,18 +426,39 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fishstringer-kernels-source"
-version = "0.0.12"
+version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d706a7797f25a3249fd3a742d030ec21b084ce13d568728d08c28c7e6980a157"
+checksum = "1f7c1bf57a48bfeccc5924f4a86cf80b736e645321d5cef5399603530a04cc57"
 
 [[package]]
 name = "fishstringer-slang-emit"
-version = "0.0.12"
+version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b872decc75fcf55dbdd24f90dff2717c27dcf9de8cdfb8b59cefc8470828d89d"
+checksum = "a3ccce2feaf816b177c450caba5cd2ce405394da619d165d404a70b87ef93727"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
+]
+
+[[package]]
+name = "fishstringer-slang-emit"
+version = "0.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c18c17e4f81f8a4f3003327012f614e507c78fff166ce454305f132bbea0f1b"
+dependencies = [
+ "unpopped",
+ "unpopped-vocab",
+]
+
+[[package]]
+name = "fishstringer-slang-parse"
+version = "0.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54272b296dd9cfb9899e5d234518079223c97987f2b4f36bbce920061b4938b6"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-slang",
+ "unpopped",
 ]
 
 [[package]]
@@ -2029,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
  "fishstringer-kernels-source",
  "kiss-vulkan-vocab",
@@ -2046,9 +2067,9 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
- "fishstringer-slang-emit",
+ "fishstringer-slang-emit 0.0.14",
  "tempfile",
  "unpopped",
  "unpopped-cpu-c",
@@ -2060,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -2070,34 +2091,27 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.21.9"
+version = "0.22.0"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
- "tempfile",
- "unpopped",
- "unpopped-cpu-c",
- "unpopped-vocab",
- "vulkane-slang-parse",
+ "fishstringer-slang-emit 0.0.17",
 ]
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
- "tree-sitter",
- "tree-sitter-slang",
- "unpopped",
- "unpopped-vocab",
+ "fishstringer-slang-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
- "fishstringer-slang-emit",
+ "fishstringer-slang-emit 0.0.14",
  "rspirv",
  "tempfile",
  "unpopped",
@@ -2109,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.21.9"
+version = "0.22.0"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
