@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.5] — tooling: CHANGELOG fragments and version stamping
+
+Adopts the portfolio fragment-and-stamp kit (PM 2026-11-12). A PR now adds one `changelog.d/<topic>.md` fragment and never edits a `Cargo.toml` version, `Cargo.lock` or `CHANGELOG.md`; the gate runs `python tools/stamp-version.py <version>`. Added `tools/stamp-version.py`, `tools/check-fragment.py`, `tools/stamp-current.txt` (`vulkane/Cargo.toml`, so the nine crates at the project version are stamped and `kiss-vulkan-vocab`, `vulkan_gen` and `vulkane_derive` keep their own versions), `.github/workflows/changelog-fragment.yml` and `changelog.d/README.md`. Verified on a scratch copy: a real stamp moved all nine crates and their `Cargo.lock` entries and left no old version in any tracked `Cargo.toml`. Workspace version 0.22.5 is applied once by this PR with the kit itself.
+
 ## [0.22.4] - unreleased
 
 ### Documentation - ROADMAP rows 8-8k
