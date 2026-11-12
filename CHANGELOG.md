@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Rows for comprehensive kernel emission (`Backend::lower_kernel`) on the SPIR-V, GLSL, HLSL and WGSL emitters, one per construct family, each with owner, size, the typed decline where a target cannot express it, and the test that will show it. Docs only; no code. Version number is a placeholder for the PM to allocate (0.22.3 is the rustls bump, #103).
 
+## [0.22.3] - unreleased
+
+### Changed - dependencies
+
+`rustls` 0.23.37 to 0.23.46 in `Cargo.lock` (Dependabot #103; CireSnave's latest-versions rule). No source change. Workspace version 0.22.3 allocated by this lane at the PM's instruction; the PM confirms the number at gate.
+
 ## [0.22.2] - unreleased
 
 PM-allocated (2026-11-11): `vulkane-wgsl-parse` (#150) merged without a bump at 0.21.9 and is brought to the workspace number here, so every crate moves to 0.22.2.
