@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.4] - unreleased
+
+### Documentation - ROADMAP rows 8-8k
+
+Rows for comprehensive kernel emission (`Backend::lower_kernel`) on the SPIR-V, GLSL, HLSL and WGSL emitters, one per construct family, each with owner, size, the typed decline where a target cannot express it, and the test that will show it. Docs only; no code. Version number is a placeholder for the PM to allocate (0.22.3 is the rustls bump, #103).
+
 ## [0.22.3] - unreleased
 
 ### Changed - dependencies
