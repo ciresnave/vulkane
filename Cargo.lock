@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "fishstringer-kernels-source",
  "kiss-vulkan-vocab",
@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "fishstringer-slang-emit 0.0.14",
  "tempfile",
@@ -2081,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -2091,25 +2091,25 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.22.8"
+version = "0.22.9"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "fishstringer-slang-emit 0.0.17",
 ]
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "fishstringer-slang-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "fishstringer-slang-emit 0.0.14",
  "rspirv",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "rspirv",
  "thiserror 2.0.16",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-wgsl-emit"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "naga",
  "tempfile",
@@ -2144,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-wgsl-parse"
-version = "0.22.8"
+version = "0.22.9"
 dependencies = [
  "naga",
  "wgsl-parse",

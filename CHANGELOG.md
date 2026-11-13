@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.9] — Added `[architecture]` declaration in `.coderipper.toml` (ROADMAP row 9c, docs/config only)
+
+Declares the 13 workspace crates as components in two layers (12 leaf crates below, `vulkane` on top). ARC-001 and ARC-002 now reach a verdict instead of "not run": 3 edges judged, 0 findings, 0 cycles (coderipper 0.43.x, `--profile extended`, at this branch). ARC-003/004/006/007/012 stay "not run": they need policy/volatile/composition/budget declarations that this PR does not invent; they follow with row 9 (module groups inside `vulkane`, where the crate::safe cycle lives). No code changed.
+
 ## [0.22.8] — docs: ROADMAP rows 9-9c from the ARC/MOD census
 
 Schedules the vulkane findings of the portfolio ARC/MOD census (coderipper 0.43.54, `493cc106`): the two non-Info findings (MOD-001 on `vulkan_gen`, MOD-002 on the `crate::safe` cycle and the `tree_parser` pair), the Info findings, and the `[architecture]` declaration. Docs only; no code change.

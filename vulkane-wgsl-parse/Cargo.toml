@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-wgsl-parse"
-version      = "0.22.8"
+version      = "0.22.9"
 edition      = "2024"
 rust-version = "1.97.1"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
