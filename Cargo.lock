@@ -2130,6 +2130,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vulkane-wgsl-emit"
+version = "0.22.4"
+dependencies = [
+ "naga",
+ "tempfile",
+ "unpopped",
+ "unpopped-cpu-c",
+ "unpopped-vocab",
+ "vulkane",
+ "vulkane-spirv-emit",
+]
+
+[[package]]
 name = "vulkane-wgsl-parse"
 version = "0.22.4"
 dependencies = [

@@ -1,0 +1,42 @@
+[package]
+name         = "vulkane-wgsl-emit"
+version      = "0.22.4"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The WGSL compute-shader emitter for Unpopped: IR to WGSL source (var<storage> operands, a @compute @workgroup_size entry) with typed declines for what WGSL lacks. Vulkane owns WGSL."
+keywords     = ["kernel", "codegen", "compiler", "wgsl", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+[dependencies]
+unpopped       = "0.43.2"
+unpopped-vocab = "0.43.2"
+
+[dev-dependencies]
+# The validity oracle (ROADMAP 3d W4): every emitted module must validate in naga. One WGSL compiler only: Tint is not
+# installed here, and the test says so.
+naga = { version = "30.0", features = ["wgsl-in", "spv-out"] }
+# The GPU oracle: same harness and cases as the SPIR-V emitter's G4.2 test, WGSL compiled by naga.
+vulkane        = { path = "../vulkane" }
+unpopped-cpu-c = "0.43.2"
+vulkane-spirv-emit = { path = "../vulkane-spirv-emit" }
+tempfile       = { workspace = true }
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"
