@@ -9,7 +9,7 @@
 //!
 //! WGSL is not C-family (no ternary, `select(f, t, cond)`, `var<storage>` declarations, `@compute` entries), so the C
 //! spellers in `unpopped::cfamily` do not fit. The body math still lowers through the same language-neutral
-//! [`unpopped::backend::lower_dag`]; only the per-op spellers ([`spell`]) and the harness are WGSL's. That is the shape
+//! [`unpopped::backend::lower_dag`]; only the per-op spellers (the `spell` module) and the harness are WGSL's. That is the shape
 //! `fishstringer-slang-emit` has.
 //!
 //! ## Dtypes and declines
