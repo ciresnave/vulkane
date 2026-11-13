@@ -1,0 +1,18 @@
+# Architecture declaration (ROADMAP row 9c). Crate-granular: the workspace has
+# 13 members and one real edge set (`vulkane` -> its three build-time/derive/vocab
+# crates). Module groups inside `vulkane` come with row 9 (the crate::safe cycle).
+[architecture]
+style = "layered"
+
+[[architecture.layer]]
+name       = "leaf-crates"
+components = [
+  "kiss-vulkan-vocab", "vulkan_gen", "vulkane_derive",
+  "vulkane-kernels-source",
+  "vulkane-hlsl-parse", "vulkane-spirv-parse", "vulkane-slang-parse", "vulkane-wgsl-parse",
+  "vulkane-hlsl-emit", "vulkane-spirv-emit", "vulkane-slang-emit", "vulkane-wgsl-emit",
+]
+
+[[architecture.layer]]
+name       = "runtime"
+components = ["vulkane"]
