@@ -77,7 +77,7 @@ winit = "0.30"
 tempfile = { workspace = true }
 raw-window-handle = "0.6"
 # `softmax_f64_live` compiles this crate's `kernels/softmax_f64.slang` (FishStringer owns Slang, CireSnave 2026-11-06).
-fishstringer-kernels-source = "~0.0.14"
+fishstringer-kernels-source = "0.1.0"
 
 [package.metadata.docs.rs]
 # ⚠️ NOT `all-features = true`. It was, and docs.rs has not successfully built

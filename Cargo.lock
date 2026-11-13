@@ -426,25 +426,15 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fishstringer-kernels-source"
-version = "0.0.14"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f7c1bf57a48bfeccc5924f4a86cf80b736e645321d5cef5399603530a04cc57"
+checksum = "41a95861c10f554b53825f7db0357775ca47b346e9d3a79e46a8b6ce524b77a4"
 
 [[package]]
 name = "fishstringer-slang-emit"
-version = "0.0.14"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3ccce2feaf816b177c450caba5cd2ce405394da619d165d404a70b87ef93727"
-dependencies = [
- "unpopped",
- "unpopped-vocab",
-]
-
-[[package]]
-name = "fishstringer-slang-emit"
-version = "0.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c18c17e4f81f8a4f3003327012f614e507c78fff166ce454305f132bbea0f1b"
+checksum = "02f1a5b19896798d62a29ab6da750f25e3ddec418633a5340b62c35182cf7383"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -452,9 +442,9 @@ dependencies = [
 
 [[package]]
 name = "fishstringer-slang-parse"
-version = "0.0.17"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54272b296dd9cfb9899e5d234518079223c97987f2b4f36bbce920061b4938b6"
+checksum = "288797a4205eed6408143b4b5cd877f474661c5818bec6380851e14f0d19a9b6"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -1958,9 +1948,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.43.2"
+version = "0.45.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e23c70385388d37756a17fa4bc6f66bd4f26e2551fcb7e07c9b150e1b5d5a8ac"
+checksum = "0dff5272924148219d7b11acc7028eab249c9ed91e0ebd86bb636027a15ce0d0"
 dependencies = [
  "libm",
  "serde",
@@ -1971,9 +1961,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.43.2"
+version = "0.45.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cb84d0f3db04435bc8a73d8e3da478808e48c8f8d5ecd3a63826fda690695ba"
+checksum = "d6948ab4a82078b1a523cbca4f326517f3b169de66fa4eb4e1ab7e977c142e32"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -1981,9 +1971,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.43.2"
+version = "0.45.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3e08887b4d3ef4b9e1fb5f1adc26871f6b1a9bcaec9e65972649e5f8e826ad5"
+checksum = "cb1e241d0c39756c213bd9ca8122dbd1cc688283fa62f04cbed9d3342e7b1154"
 dependencies = [
  "float8",
  "half",
@@ -2069,7 +2059,7 @@ dependencies = [
 name = "vulkane-hlsl-emit"
 version = "0.22.9"
 dependencies = [
- "fishstringer-slang-emit 0.0.14",
+ "fishstringer-slang-emit",
  "tempfile",
  "unpopped",
  "unpopped-cpu-c",
@@ -2097,7 +2087,7 @@ version = "0.22.9"
 name = "vulkane-slang-emit"
 version = "0.22.9"
 dependencies = [
- "fishstringer-slang-emit 0.0.17",
+ "fishstringer-slang-emit",
 ]
 
 [[package]]
@@ -2111,7 +2101,7 @@ dependencies = [
 name = "vulkane-spirv-emit"
 version = "0.22.9"
 dependencies = [
- "fishstringer-slang-emit 0.0.14",
+ "fishstringer-slang-emit",
  "rspirv",
  "tempfile",
  "unpopped",
