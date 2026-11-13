@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-wgsl-emit"
-version      = "0.22.4"
+version      = "0.22.6"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
