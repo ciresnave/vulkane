@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.6] - unreleased
+
+### Added - `vulkane-wgsl-emit` (ROADMAP 3d step 3)
+
+The WGSL compute emitter for Unpopped: `Wgsl` lowers the scalar contiguous elementwise path at `f32`/`i32`/`u32` to a `@compute @workgroup_size(256, 1, 1)` module with `var<storage>` operands, through `lower_dag` with WGSL's own spellers (no ternary, `select`, `u32` shift counts). Dtypes and ops WGSL cannot express exactly are typed declines naming why, never approximations. Verified: every emitted module validates in naga and lowers to SPIR-V (9 tests, incl. a negative control); on a device, 4182 in-domain cells over 61 kernels agree with `unpopped-cpu-c`, and a seeded Relu mutant fails that oracle. One WGSL compiler only (naga). `Rem`/`RemTrunc` rows where the quotient is within a few ULP of an integer are reported, not failed: WGSL bounds `/` at 2.5 ULP and the test device returned `1.5 % 1.5 = 1.5`. Unpublished. Not measured: the cause of the `x % x` result (the float-controls explanation is a hypothesis), Tint, a second device.
+
 ## [0.22.4] - unreleased
 
 ### Documentation - ROADMAP rows 8-8k
