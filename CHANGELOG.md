@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.10] — Fixed the `parser::tree_parser` <-> `vulkan_spec_parser` module cycle in `vulkan_gen` (ROADMAP row 9a)
+
+`VulkanSpecification` moves to `parser::vk_types`, which both modules already read; `vulkan_spec_parser` re-exports it, so `vulkan_gen::VulkanSpecification` and `vulkan_gen::vulkan_spec_parser::VulkanSpecification` are unchanged. Removes the edge `tree_parser.rs:8` that closed the cycle. Verified: `cargo clippy -D warnings`, `cargo test -p vulkan_gen` (68 + 3 pass), docs with `-D warnings`. The rest of row 9a (vulkan_gen documentation and visibility) is a separate PR.
+
 ## [0.22.9] — Added `[architecture]` declaration in `.coderipper.toml` (ROADMAP row 9c, docs/config only)
 
 Declares the 13 workspace crates as components in two layers (12 leaf crates below, `vulkane` on top). ARC-001 and ARC-002 now reach a verdict instead of "not run": 3 edges judged, 0 findings, 0 cycles (coderipper 0.43.x, `--profile extended`, at this branch). ARC-003/004/006/007/012 stay "not run": they need policy/volatile/composition/budget declarations that this PR does not invent; they follow with row 9 (module groups inside `vulkane`, where the crate::safe cycle lives). No code changed.
