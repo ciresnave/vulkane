@@ -15,8 +15,8 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
 rspirv         = "0.13.0"
-unpopped       = "0.45.12"
-unpopped-vocab = "0.45.12"
+unpopped       = "0.45.17"
+unpopped-vocab = "0.45.17"
 
 [dev-dependencies]
 # Reflection of the emitted module: entry point, workgroup size, bindings.
@@ -24,7 +24,7 @@ vulkane-spirv-parse = { path = "../vulkane-spirv-parse" }
 # The live-device shift test opens a device through the safe wrapper (and its shared `tests/common`).
 vulkane            = { path = "../vulkane" }
 # G4.2: the host reference the device results are compared with.
-unpopped-cpu-c     = "0.45.12"
+unpopped-cpu-c     = "0.45.17"
 # Cross-check: the Slang emitter, compiled by `slangc`, against this one on the same device.
 fishstringer-slang-emit = "0.1.0"
 tempfile           = { workspace = true }

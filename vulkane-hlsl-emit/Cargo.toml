@@ -14,20 +14,20 @@ readme       = "README.md"
 include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
-unpopped            = "0.45.12"
-unpopped-vocab      = "0.45.12"
+unpopped            = "0.45.17"
+unpopped-vocab      = "0.45.17"
 # FishStringer owns Slang (CireSnave 2026-11-06). `~` not `^`: this crate asserts the emitter's output shape.
 fishstringer-slang-emit = "0.1.0"
 
 [dev-dependencies]
 # The round-trip test lifts emitted HLSL back to the IR with the HLSL frontend (needs unpopped's `convert`).
-unpopped            = { version = "0.45.12", features = ["convert"] }
+unpopped            = { version = "0.45.17", features = ["convert"] }
 vulkane-hlsl-parse  = { path = "../vulkane-hlsl-parse" }
 tempfile            = { workspace = true }
 # The GPU oracle (H4): same harness and cases as the SPIR-V emitter's G4.2 test, HLSL compiled by `dxc`.
 vulkane             = { path = "../vulkane" }
 vulkane-spirv-emit  = { path = "../vulkane-spirv-emit" }
-unpopped-cpu-c      = "0.45.12"
+unpopped-cpu-c      = "0.45.17"
 
 [lints.rust]
 missing_docs                  = "deny"

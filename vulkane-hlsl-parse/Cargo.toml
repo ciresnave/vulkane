@@ -17,7 +17,7 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
 [dependencies]
 # `Frontend`, the `lift_*` walkers and `LiftError` live in unpopped's `convert` module.
-unpopped         = { version = "0.45.12", features = ["convert"] }
+unpopped         = { version = "0.45.17", features = ["convert"] }
 # MUST be the same tree-sitter minor that `unpopped` uses: `Frontend::parse` returns a
 # `tree_sitter::Tree`, and cargo allows one `links = "tree-sitter"` package per build.
 # REVISIT TRIGGER: every `unpopped` release that moves tree-sitter; bump this the same day (D5).
@@ -25,7 +25,7 @@ tree-sitter      = "0.27"
 tree-sitter-hlsl = "0.2"
 
 [dev-dependencies]
-unpopped-vocab = "0.45.12"
+unpopped-vocab = "0.45.17"
 
 [lints.rust]
 missing_docs                  = "deny"

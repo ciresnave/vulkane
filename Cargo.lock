@@ -1948,9 +1948,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.45.12"
+version = "0.45.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dff5272924148219d7b11acc7028eab249c9ed91e0ebd86bb636027a15ce0d0"
+checksum = "1496de4dd19e486d7266437c67c9cf7d9fe8bbcefbb4a8e2e1ab369f5740dd1a"
 dependencies = [
  "libm",
  "serde",
@@ -1961,9 +1961,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.45.12"
+version = "0.45.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6948ab4a82078b1a523cbca4f326517f3b169de66fa4eb4e1ab7e977c142e32"
+checksum = "69aaa981249920c7a4bd36deeae4c4ccbe62469949e64927910500ff23d81fa9"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -1971,9 +1971,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.45.12"
+version = "0.45.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb1e241d0c39756c213bd9ca8122dbd1cc688283fa62f04cbed9d3342e7b1154"
+checksum = "7f5f2ac362540ed9f538a17048cce790ede5c954857b51088334573f82a7196d"
 dependencies = [
  "float8",
  "half",
