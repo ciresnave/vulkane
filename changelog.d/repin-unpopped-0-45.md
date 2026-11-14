@@ -1,0 +1,3 @@
+kind: Raised `unpopped` to 0.45.17 and `fishstringer-*` to 0.1.0 in the emit/parse crates
+---
+`vulkane-{hlsl,spirv,wgsl}-emit` and `vulkane-hlsl-parse` move from unpopped 0.43.2 to 0.45.17 (also `unpopped-vocab`, `unpopped-cpu-c`); `fishstringer-slang-emit`/`-parse`/`-kernels-source` move to 0.1.0, which is on unpopped 0.45.17, so the build has one unpopped version. No source changes. Verified: `cargo check --workspace --all-targets --locked`; emit/parse crate tests all pass under `gpu-run.ps1` (one device oracle test failed once when run without the GPU lock, and passed under it). The typed declines for the four patent-flagged statements are unchanged.
