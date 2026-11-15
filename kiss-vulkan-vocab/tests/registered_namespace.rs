@@ -350,21 +350,24 @@ fn reserved_spellings_do_not_parse_as_named_component_types() {
     }
 }
 
-/// The `x<n>` escape is part of the registered vocabulary and is what keeps an
-/// unknown component type honest rather than mis-spelled. It is a pattern, so
-/// it is checked separately from the literal list.
+/// V-7 (vocabulary 6): there is no `x<n>` escape. A tuple holding a component type the
+/// vocabulary does not name is omitted whole from the token (it under-claims), and a reader
+/// declines `x<n>` as an unknown token.
 #[test]
-fn the_unknown_escape_is_spelled_as_the_namespace_requires() {
+fn an_unnamed_component_type_is_omitted_whole_and_x_n_is_declined() {
     let token = token_for(ComponentType::Other(1_000_141_000));
     assert!(
-        token.contains("cm-16-16-16-x1000141000-x1000141000-x1000141000-x1000141000"),
-        "an unnamed component type must spell as `x<n>` carrying the raw value: {token}"
+        token.contains("cm-none"),
+        "a shape holding an unnamed component type must be omitted whole: {token}"
     );
-    assert_eq!(
-        VulkanTarget::parse(&token)
-            .expect("x<n> must parse")
-            .to_token(),
-        token
+    assert!(!token.contains("x1000141000"), "no x<n> may be spelled: {token}");
+    let forged = token.replace(
+        "cm-none",
+        "cm-16-16-16-x1000141000-x1000141000-x1000141000-x1000141000",
+    );
+    assert!(
+        VulkanTarget::parse(&forged).is_err(),
+        "a reader must decline x<n> as unknown: {forged}"
     );
 }
 

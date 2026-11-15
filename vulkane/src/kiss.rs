@@ -84,6 +84,12 @@ pub struct DeviceCapabilities {
     /// reports none, an RTX 4070 reports 16 — and empty is the honest answer
     /// there, not a failure.
     pub coopvec: Vec<CoopVecCombo>,
+    /// Raw `VkComponentTypeKHR` identifiers the device reported that vocabulary 6 does not
+    /// name, as `vulkan:component_type:<n>` strings (sorted, unique). Each tuple holding one
+    /// is omitted whole from every token (V-7: there is no `x<n>` escape), so the token
+    /// under-claims; this is the Announce `unnamed_types` record (KISS-ANNOUNCE-6.6-0011)
+    /// that keeps the omission visible. Empty when every reported type is named.
+    pub unnamed_types: Vec<String>,
 }
 
 /// A probe over a feature struct, paired with the vocabulary name it yields.
@@ -215,7 +221,7 @@ impl DeviceCapabilities {
                 // unrecognized value to `ComponentType::Other(n)`, which needs
                 // `n`; going through the checked accessor would collapse every
                 // unknown type to `None` and lose the number that distinguishes
-                // them. The token must stay honest about what the device said.
+                // them; the number is what `unnamed_types` reports.
                 a: component(p.a_type_raw() as u32),
                 b: component(p.b_type_raw() as u32),
                 c: component(p.c_type_raw() as u32),
@@ -251,6 +257,7 @@ impl DeviceCapabilities {
             .collect();
         coopvec.sort();
         coopvec.dedup();
+        let unnamed_types = kiss_vulkan_vocab::unnamed_types(&coop, &coopvec);
 
         Some(Self {
             default_subgroup: sg.subgroup_size,
@@ -261,6 +268,7 @@ impl DeviceCapabilities {
             arith,
             coop,
             coopvec,
+            unnamed_types,
         })
     }
 
@@ -345,8 +353,8 @@ impl DeviceCapabilities {
 /// `VkComponentTypeKHR` carries 16 values in the pinned `vk.xml` (Vulkan 1.4,
 /// header 348): eleven in the base KHR set, five added by extension. All
 /// sixteen are accounted for below, because an unmapped one is *invisible* —
-/// it becomes `Other(n)`, which is a perfectly valid token, so nothing errors
-/// and the device simply never matches a target naming that dtype.
+/// it becomes `Other(n)`, whose tuples vocabulary 6 omits from every token (V-7),
+/// so nothing errors and the device silently under-claims what it can do.
 ///
 /// - **0..=10 and `BFLOAT16_KHR`** — mapped.
 /// - **`SINT8_PACKED_NV` / `UINT8_PACKED_NV`** — mapped as of vocabulary
@@ -392,7 +400,8 @@ impl DeviceCapabilities {
 ///
 /// Values outside all of these become [`ComponentType::Other`] rather than an
 /// error: new Vulkan component types appear faster than a vocabulary revision
-/// can track them, and an honest round-trippable token beats a decline.
+/// can track them. Tuples holding one are omitted whole from the token and the raw
+/// identifier is reported in [`DeviceCapabilities::unnamed_types`].
 fn component(raw: u32) -> ComponentType {
     // EVERY arm names its enumerant. The earlier version took only the five
     // extension values from the generated binding and wrote the base ones as

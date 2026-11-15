@@ -193,9 +193,8 @@ fn emit_declarative(o: &mut String) {
     writeln!(o, "  \"declarative\": {{").unwrap();
     // ⚠️ The angle-bracket convention, stated because NOTHING said it.
     //
-    // Five values in this manifest carry `<...>` placeholders -- four here
-    // (`unnamed_component_escape`, `empty_set_spelling`, `digest_marker`,
-    // `unnamed_component_escape_order`) and the top-level `grammar`. A reader
+    // Some values in this manifest carry `<...>` placeholders -- here
+    // (`empty_set_spelling`, `digest_marker`) and the top-level `grammar`. A reader
     // had to infer that the brackets were not literal text.
     //
     // ⚠️ Found by baracuda rebuilding the digest from this manifest alone.
@@ -229,11 +228,15 @@ fn emit_declarative(o: &mut String) {
     writeln!(o, "    \"arith_names\": {},", str_array(&Arith::alphabet())).unwrap();
     let spellings: Vec<String> = named_component_types()
         .iter()
-        .map(|c| c.spelling())
+        .map(|c| c.spelling().expect("named_component_types lists only named types"))
         .collect();
     let refs: Vec<&str> = spellings.iter().map(String::as_str).collect();
     writeln!(o, "    \"component_types\": {},", str_array(&refs)).unwrap();
-    writeln!(o, "    \"unnamed_component_escape\": \"x<n>\",").unwrap();
+    writeln!(
+        o,
+        "    \"unnamed_component_type\": \"none: V-7, there is no escape for a component type this vocabulary does not name; a tuple holding one is omitted whole, and a reader declines an x-prefixed decimal as unknown\","
+    )
+    .unwrap();
     // ⚠️ A TEMPLATE, and it must stay one.
     //
     // This read `<prefix>-none`, which is WRONG against this manifest's own
@@ -296,13 +299,6 @@ fn emit_declarative(o: &mut String) {
         "    \"digest_hex\": \"lowercase, zero-padded to exactly 16 digits\","
     )
     .unwrap();
-    // Every sampled run is equal-width, so `x9` vs `x10` never discriminates
-    // numeric from lexicographic ordering. Stated for the same reason.
-    writeln!(
-        o,
-        "    \"unnamed_component_escape_order\": \"numeric on <n>, not lexicographic\","
-    )
-    .unwrap();
     // ⚠️ The construction of `vectors_digest`'s input, which §6.8-0017 requires
     // the NAMESPACE to pin. KISS pins the algorithm and constants and explicitly
     // does not define this input, because §6.8-0007's input is "the canonical
@@ -356,8 +352,8 @@ fn emit_declarative(o: &mut String) {
              spelled tuple emits the reverse order. Components then compare by \
              INDEX IN `component_types`, field by field in the order they are \
              spelled -- NOT by comparing the spelled strings, which disagrees: \
-             `u32` precedes `u8` as text and follows it in the array. Unnamed \
-             `x<n>` escapes sort after every named type, numerically on n. Any \
+             `u32` precedes `u8` as text and follows it in the array. There is no \
+             unnamed-type escape (V-7): such tuples are not in the token. Any \
              trailing flag (`-sat`, `-t`) is the LAST key rather than outside the \
              comparison, so the unflagged form orders before the flagged one. \
              Deduplication happens after sorting and before the length is measured."
@@ -602,37 +598,40 @@ fn integer_order_vector() -> String {
     )
 }
 
-/// Where an unnamed `x<n>` escape sorts against a NAMED type.
+/// V-7 (vocabulary 6): a tuple holding an unnamed component type is OMITTED WHOLE.
 ///
-/// ⚠️ Added because nothing exercised it. `tuple_sort_key` claims escapes
-/// sort after every named type, and that is true in the code -- `Other(u32)` is
-/// the last variant, so the derived ordering puts it last -- but ZERO vectors
-/// put a named type and an escape at the SAME position, so no reader could
-/// check the claim and no producer could be caught getting it wrong.
-///
-/// ⚠️ Stating an unexercised rule is how the previous sort-key defect shipped:
-/// the prose said `lexicographically` and the corpus sorted by ordinal, and
-/// every vector was correct so nothing could disagree with the sentence.
-fn escape_order_vector() -> String {
-    coopvec_vector(
-        "escape_order",
-        "A named component and an unnamed `x<n>` escape at the SAME tuple \
-         position, given escape-first. Pins that escapes sort AFTER every named \
-         type rather than by their spelling -- `f16` and `x5` compare as `f` \
-         before `x` by accident here, so a producer sorting spellings passes \
-         this vector; what it cannot pass is the `u8`/`u32` pair in the \
-         threshold vectors, and the two together pin ordinal order.",
-        &[
-            CoopVecCombo {
-                result: ComponentType::Other(5),
-                ..combo(1)
-            },
-            CoopVecCombo {
-                result: ComponentType::F16,
-                ..combo(1)
-            },
-        ],
-    )
+/// ⚠️ A vector pins the OUTPUT, not the algorithm: with no vector holding an unnamed type, a
+/// producer that kept the tuple (or spelled it `x<n>`) would match every other vector here.
+/// Each input below holds one named tuple and one with a raw identifier at a different
+/// position; the token carries only the named one.
+fn unnamed_omitted_vectors() -> Vec<String> {
+    let named = big_shape(1);
+    let unnamed_shape = CoopShape {
+        c: ComponentType::Other(1_000_491_002),
+        ..big_shape(2)
+    };
+    let cv_named = combo(1);
+    let cv_unnamed = CoopVecCombo {
+        bias_interpretation: ComponentType::Other(1_000_491_002),
+        ..combo(2)
+    };
+    vec![
+        coop_vector(
+            "unnamed_omitted_coop",
+            "A shape holding a raw component identifier the vocabulary does not name (given as `unnamed:<n>`) at its C position, beside a fully named shape. The token carries ONLY the named shape: the unnamed one is omitted whole, never truncated, never spelled `x<n>`.",
+            &[unnamed_shape, named],
+        ),
+        coopvec_vector(
+            "unnamed_omitted_coopvec",
+            "As `unnamed_omitted_coop`, for `<coopvec>`: the combination holding an unnamed identifier at its bias position is omitted whole.",
+            &[cv_unnamed, cv_named],
+        ),
+        coop_vector(
+            "unnamed_omitted_all",
+            "Every shape holds an unnamed identifier: the field is `cm-none`, the same bytes as a device with no cooperative matrices.",
+            &[unnamed_shape],
+        ),
+    ]
 }
 
 /// The `transpose` flag, which nothing pinned before.
@@ -777,10 +776,12 @@ fn flag_vectors() -> Vec<String> {
         dynamic_subgroup_vector(),
         saturating_vector(),
         tiebreak_vector(),
-        escape_order_vector(),
         integer_order_vector(),
         component_order_vector(),
     ]
+    .into_iter()
+    .chain(unnamed_omitted_vectors())
+    .collect()
 }
 
 /// The `order` and `dedup` vectors, for both length-conditional fields.
@@ -1022,21 +1023,22 @@ fn combo(i: u32) -> CoopVecCombo {
     CoopVecCombo {
         input: ComponentType::U32,
         input_interpretation: ComponentType::S8Packed,
-        matrix_interpretation: ComponentType::S8,
+        matrix_interpretation: named_component_types()[(i / 16) as usize % 16],
         bias_interpretation: ComponentType::S32,
-        result: ComponentType::Other(1000 + i),
+        result: named_component_types()[(i % 16) as usize],
         transpose: false,
     }
 }
 
-/// Narrow combination — `Other(n)` with a short `n` keeps the tuple shorter.
+/// Narrow combination — all-`u8` interpretations keep the tuple shorter; (bias, result) over the 16
+/// named types gives 256 distinct tuples, and the `u8` input keeps them apart from `combo`'s.
 fn small_combo(i: u32) -> CoopVecCombo {
     CoopVecCombo {
         input: ComponentType::U8,
         input_interpretation: ComponentType::U8,
         matrix_interpretation: ComponentType::U8,
-        bias_interpretation: ComponentType::U8,
-        result: ComponentType::Other(i),
+        bias_interpretation: named_component_types()[(i / 16) as usize % 16],
+        result: named_component_types()[(i % 16) as usize],
         transpose: false,
     }
 }
@@ -1141,16 +1143,28 @@ fn find_coopvec_at_and_across() -> Option<(Vec<CoopVecCombo>, Vec<CoopVecCombo>)
 // reproducible without this crate.
 // ---------------------------------------------------------------------------
 
+/// A component type as a vector INPUT: its spelling, or `unnamed:<n>` for a raw identifier this
+/// vocabulary does not name (V-7). Never an `x<n>` token -- that form is declined by a reader.
+fn input_spelling(c: ComponentType) -> String {
+    match c.spelling() {
+        Some(s) => s,
+        None => match c {
+            ComponentType::Other(n) => format!("unnamed:{n}"),
+            _ => unreachable!("only Other is unnamed"),
+        },
+    }
+}
+
 fn shape_json(s: &CoopShape) -> String {
     format!(
         "{{\"m\":{},\"n\":{},\"k\":{},\"a\":\"{}\",\"b\":\"{}\",\"c\":\"{}\",\"result\":\"{}\",\"saturating\":{}}}",
         s.m,
         s.n,
         s.k,
-        s.a.spelling(),
-        s.b.spelling(),
-        s.c.spelling(),
-        s.result.spelling(),
+        input_spelling(s.a),
+        input_spelling(s.b),
+        input_spelling(s.c),
+        input_spelling(s.result),
         s.saturating
     )
 }
@@ -1158,11 +1172,11 @@ fn shape_json(s: &CoopShape) -> String {
 fn combo_json(c: &CoopVecCombo) -> String {
     format!(
         "{{\"input\":\"{}\",\"input_interpretation\":\"{}\",\"matrix_interpretation\":\"{}\",\"bias_interpretation\":\"{}\",\"result\":\"{}\",\"transpose\":{}}}",
-        c.input.spelling(),
-        c.input_interpretation.spelling(),
-        c.matrix_interpretation.spelling(),
-        c.bias_interpretation.spelling(),
-        c.result.spelling(),
+        input_spelling(c.input),
+        input_spelling(c.input_interpretation),
+        input_spelling(c.matrix_interpretation),
+        input_spelling(c.bias_interpretation),
+        input_spelling(c.result),
         c.transpose
     )
 }
@@ -1444,7 +1458,7 @@ fn measured_coopvec_enumeration(combos: &[CoopVecCombo]) -> String {
 
 const COVERAGE_NOTE: &str = "What this manifest does and does not pin. The \
     DECLARATIVE half suffices to PARSE a `vulkan:` token — field count, \
-    separators, alphabets, component spellings, the unnamed escape, and the \
+    separators, alphabets, component spellings, the omission of unnamed component types, and the \
     digest marker. It does NOT suffice to PRODUCE one. Two of the five fields, \
     <coop> and <coopvec>, choose their encoding by a LENGTH-CONDITIONAL \
     switch: above 512 bytes the canonical enumeration is replaced by the \
