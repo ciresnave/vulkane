@@ -360,7 +360,10 @@ fn an_unnamed_component_type_is_omitted_whole_and_x_n_is_declined() {
         token.contains("cm-none"),
         "a shape holding an unnamed component type must be omitted whole: {token}"
     );
-    assert!(!token.contains("x1000141000"), "no x<n> may be spelled: {token}");
+    assert!(
+        !token.contains("x1000141000"),
+        "no x<n> may be spelled: {token}"
+    );
     let forged = token.replace(
         "cm-none",
         "cm-16-16-16-x1000141000-x1000141000-x1000141000-x1000141000",

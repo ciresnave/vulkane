@@ -1180,7 +1180,10 @@ fn the_composable_rules_produce_what_the_tokens_spell() {
             let is_escape = part.len() > 1
                 && part.starts_with('x')
                 && part[1..].bytes().all(|c| c.is_ascii_digit());
-            assert!(!is_escape, "token {tok:?} spells an x<n> escape ({part:?}); V-7 removed it");
+            assert!(
+                !is_escape,
+                "token {tok:?} spells an x<n> escape ({part:?}); V-7 removed it"
+            );
         }
     }
 }

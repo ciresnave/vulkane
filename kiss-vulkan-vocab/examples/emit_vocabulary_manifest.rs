@@ -228,7 +228,10 @@ fn emit_declarative(o: &mut String) {
     writeln!(o, "    \"arith_names\": {},", str_array(&Arith::alphabet())).unwrap();
     let spellings: Vec<String> = named_component_types()
         .iter()
-        .map(|c| c.spelling().expect("named_component_types lists only named types"))
+        .map(|c| {
+            c.spelling()
+                .expect("named_component_types lists only named types")
+        })
         .collect();
     let refs: Vec<&str> = spellings.iter().map(String::as_str).collect();
     writeln!(o, "    \"component_types\": {},", str_array(&refs)).unwrap();

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [kiss-vulkan-vocab 0.5.0] — vocabulary version 6 (BREAKING)
+
+`kiss-vulkan-vocab` 0.5.0 (0.4.9 is served on crates.io with different source): the `x<n>` escape is removed and `VOCABULARY_VERSION` is 6. `vulkane`'s optional dependency now requires `^0.5.0`. See the vocab-6 fragment for the full change.
+
 ## [vulkan_gen 0.5.2] — vulkan_gen version bump (row 9a source change)
 
 `vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped.

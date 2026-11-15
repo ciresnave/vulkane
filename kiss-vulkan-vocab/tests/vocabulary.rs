@@ -724,7 +724,10 @@ fn unnamed_component_types_are_omitted_whole_and_reported() {
     };
     let both = CoopMatrix::from_shapes(vec![unnamed, named]);
     let only_named = CoopMatrix::from_shapes(vec![named]);
-    assert_eq!(both, only_named, "the unnamed tuple must vanish, not truncate");
+    assert_eq!(
+        both, only_named,
+        "the unnamed tuple must vanish, not truncate"
+    );
     assert_eq!(
         CoopMatrix::from_shapes(vec![unnamed]),
         CoopMatrix::None,
@@ -732,7 +735,10 @@ fn unnamed_component_types_are_omitted_whole_and_reported() {
     );
     // A hand-built Shapes value cannot sneak an escape into a token either.
     let forced = CoopMatrix::Shapes(vec![named, unnamed]);
-    assert_eq!(forced.canonical_enumeration(), only_named.canonical_enumeration());
+    assert_eq!(
+        forced.canonical_enumeration(),
+        only_named.canonical_enumeration()
+    );
     assert_eq!(
         unnamed_types(&[unnamed, named], &[]),
         vec!["vulkan:component_type:1000491002".to_string()]
