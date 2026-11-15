@@ -3,25 +3,9 @@
 //!
 //! Parses vk.xml and writes intermediate JSON files for the code generator.
 
-use crate::parser::vk_types::*;
+pub use crate::parser::vk_types::VulkanSpecification;
 use std::fs;
 use std::path::Path;
-
-/// Complete Vulkan specification data
-#[derive(Debug, Default)]
-pub struct VulkanSpecification {
-    pub constants: Vec<VulkanConstant>,
-    pub enums: Vec<VulkanEnum>,
-    pub structs: Vec<VulkanStruct>,
-    pub types: Vec<VulkanType>,
-    pub extensions: Vec<VulkanExtension>,
-    pub functions: Vec<VulkanCommand>,
-    pub features: Vec<VulkanFeature>,
-    pub includes: Vec<VulkanInclude>,
-    pub macros: Vec<VulkanMacro>,
-    pub platforms: Vec<VulkanPlatform>,
-    pub tags: Vec<VulkanTag>,
-}
 
 /// Parse Vulkan XML specification and write intermediate JSON files to output directory.
 /// Uses the tree-based parser (roxmltree) for reliable nested element extraction.

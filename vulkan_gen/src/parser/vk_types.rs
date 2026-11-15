@@ -402,3 +402,19 @@ pub struct PlatformData {
 pub struct TagData {
     pub tags: Vec<VulkanTag>,
 }
+
+/// Complete Vulkan specification data
+#[derive(Debug, Default)]
+pub struct VulkanSpecification {
+    pub constants: Vec<VulkanConstant>,
+    pub enums: Vec<VulkanEnum>,
+    pub structs: Vec<VulkanStruct>,
+    pub types: Vec<VulkanType>,
+    pub extensions: Vec<VulkanExtension>,
+    pub functions: Vec<VulkanCommand>,
+    pub features: Vec<VulkanFeature>,
+    pub includes: Vec<VulkanInclude>,
+    pub macros: Vec<VulkanMacro>,
+    pub platforms: Vec<VulkanPlatform>,
+    pub tags: Vec<VulkanTag>,
+}

@@ -5,7 +5,6 @@
 //! nested XML elements (unlike the streaming event-bus approach).
 
 use crate::parser::vk_types::*;
-use crate::vulkan_spec_parser::VulkanSpecification;
 
 /// Extract the text content of a node, concatenating all descendant text
 /// (but not child element text). For mixed-content nodes like:
