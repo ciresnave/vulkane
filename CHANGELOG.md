@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 `vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped.
 
+## [0.24.1] — docs: decline mbarrier and bulk-copy statements by name (patent, board 434 C extended)
+
+The three emitter READMEs and ROADMAP row 8l record CireSnave's 2026-11-16 ruling on NVIDIA US11803380B2: `MbarInit`, `MbarArrive`, `MbarCompleteTx`, `MbarWait`, `CopyBulk` and `Tcgen05Commit` are declined for these non-NVIDIA targets (`WgmmaWait` on hold). Docs only: no code or version-bearing file changes; the by-name refusal and its tests wait on an `unpopped` release that has the variants (0.47.0 has none).
+
 ## [0.24.0] — **BREAKING**: repin unpopped to ~0.47.0 (sk8) and fishstringer to ~0.2.0; `unpopped::convert` is now the `unpopped-convert` crate
 
 `unpopped`, `unpopped-vocab`, `unpopped-cpu-c` 0.43.2 -> ~0.47.0 and `fishstringer-slang-emit`/`-slang-parse`/`-kernels-source` -> ~0.2.0 across the emitter crates. `unpopped`s `convert` feature moved to the `unpopped-convert` crate, so `vulkane-hlsl-emit` and `vulkane-hlsl-parse` depend on it and import `unpopped_convert::`. Verified: `cargo check --workspace --all-targets --all-features`; tests under gpu-run (see PR).
