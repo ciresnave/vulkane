@@ -269,8 +269,8 @@ mod tests {
 
     #[test]
     fn emitted_hlsl_relifts_through_the_hlsl_frontend() {
-        use unpopped::convert::lift_elementwise;
         use unpopped::ir::ScalarExpr;
+        use unpopped_convert::lift_elementwise;
         use vulkane_hlsl_parse::HLSL;
         let op = OpDef::elementwise("mul", 2, &[ElementKind::F32], input(0) * input(1));
         let k = generate(&op, &key(ElementKind::F32), &Hlsl);
