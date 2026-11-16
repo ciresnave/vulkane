@@ -1,6 +1,6 @@
 [package]
 name = "kiss-vulkan-vocab"
-version = "0.4.9"
+version = "0.5.0"
 edition = "2024"
 # 1.85 is edition 2024's own floor, not a choice -- cargo below it cannot
 # read this manifest at all. Minimal by construction: there is no lower

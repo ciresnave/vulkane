@@ -1050,10 +1050,8 @@ fn the_sort_key_names_the_flag_and_the_tokens_agree() {
 fn every_rule_shaped_value_is_on_the_checked_list() {
     const CHECKED: &[&str] = &[
         "grammar",
-        "unnamed_component_escape",
         "empty_set_spelling",
         "digest_marker",
-        "unnamed_component_escape_order",
         // EXECUTED rather than composed: it is prose describing an
         // algorithm, so the instrument is
         // `executing_the_stated_sort_rule_reproduces_the_token_order`,
@@ -1168,21 +1166,32 @@ fn the_composable_rules_produce_what_the_tokens_spell() {
         "only {digests} digests checked against the marker"
     );
 
-    // `unnamed_component_escape` — `x<n>` means a literal `x` then digits.
-    let escape = rule("unnamed_component_escape");
-    let head = escape.split('<').next().expect("escape literal");
-    assert_eq!(
-        head, "x",
-        "`unnamed_component_escape` is {escape:?}; its literal head is {head:?} \
-         and the tokens spell unnamed components with `x`"
+    // `unnamed_component_type` — V-7: no escape exists, so NO token in the corpus may spell a
+    // component as `x` + digits, and the rule must say the tuple is omitted whole.
+    let policy = rule("unnamed_component_type");
+    assert!(
+        policy.contains("omitted whole"),
+        "`unnamed_component_type` is {policy:?}; it must say such a tuple is omitted whole"
     );
+    for (at, _) in text.match_indices("\"token\": \"vulkan:") {
+        let tok = &text[at + "\"token\": \"".len()..];
+        let tok = &tok[..tok.find('"').expect("token end")];
+        for part in tok.split(['.', '-']) {
+            let is_escape = part.len() > 1
+                && part.starts_with('x')
+                && part[1..].bytes().all(|c| c.is_ascii_digit());
+            assert!(
+                !is_escape,
+                "token {tok:?} spells an x<n> escape ({part:?}); V-7 removed it"
+            );
+        }
+    }
 }
 
 /// Rank one tuple field the way `tuple_sort_key` says.
 ///
 /// M, N and K compare as INTEGERS; everything else compares as a component,
-/// by its index in `component_types`, with unnamed `x<n>` escapes after every
-/// named type. A component spelling never parses as a bare integer, so the two
+/// by its index in `component_types`. A component spelling never parses as a bare integer, so the two
 /// ranks never meet at the same position.
 fn field_rank(types: &[&str], f: &str) -> (u8, usize) {
     if let Ok(n) = f.parse::<usize>() {
@@ -1191,13 +1200,7 @@ fn field_rank(types: &[&str], f: &str) -> (u8, usize) {
     if let Some(i) = types.iter().position(|t| *t == f) {
         return (1, i);
     }
-    let n: usize = f
-        .strip_prefix('x')
-        .and_then(|d| d.parse().ok())
-        .unwrap_or_else(|| {
-            panic!("field {f:?} is not an integer, a named type, or an `x<n>` escape")
-        });
-    (1, types.len() + n)
+    panic!("field {f:?} is not an integer or a named type (V-7: there is no `x<n>` escape)")
 }
 
 /// Executing the stated sort rule must reproduce the order the tokens carry.

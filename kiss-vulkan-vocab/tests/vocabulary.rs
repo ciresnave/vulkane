@@ -493,6 +493,28 @@ fn every_spelled_token_reparses() {
 /// digest one combination earlier than another producer would emit a different
 /// token for the same target, and §6.8-0002 byte-exact matching reports that as
 /// a different cell rather than as an error.
+///
+/// Vocabulary 6 (V-7) removed the `x<n>` escape, so the varying field below cycles through the
+/// *named* component types: (result, matrix interpretation) gives 16 x 16 distinct tuples.
+const NAMED: [(ComponentType, &str); 16] = [
+    (ComponentType::F16, "f16"),
+    (ComponentType::F32, "f32"),
+    (ComponentType::F64, "f64"),
+    (ComponentType::BF16, "bf16"),
+    (ComponentType::S8, "i8"),
+    (ComponentType::S16, "i16"),
+    (ComponentType::S32, "i32"),
+    (ComponentType::S64, "i64"),
+    (ComponentType::U8, "u8"),
+    (ComponentType::U16, "u16"),
+    (ComponentType::U32, "u32"),
+    (ComponentType::U64, "u64"),
+    (ComponentType::F8E4M3FN, "f8e4m3fn"),
+    (ComponentType::F8E5M2, "f8e5m2"),
+    (ComponentType::S8Packed, "i8packed"),
+    (ComponentType::U8Packed, "u8packed"),
+];
+
 #[test]
 fn coopvec_digest_is_length_triggered_and_runs_over_the_canonical_enumeration() {
     // Grow a combination list until the encoding crosses the threshold.
@@ -502,11 +524,11 @@ fn coopvec_digest_is_length_triggered_and_runs_over_the_canonical_enumeration() 
         combos.push(CoopVecCombo {
             input: ComponentType::U32,
             input_interpretation: ComponentType::S8Packed,
-            matrix_interpretation: ComponentType::S8,
+            matrix_interpretation: NAMED[(i / 16) as usize % 16].0,
             bias_interpretation: ComponentType::S32,
-            // Vary a field so each combination is distinct and dedup cannot
+            // Vary fields so each combination is distinct and dedup cannot
             // silently shorten the list being measured.
-            result: ComponentType::Other(i),
+            result: NAMED[(i % 16) as usize].0,
             transpose: i % 2 == 0,
         });
         let cv = CoopVector::from_combos(combos.clone());
@@ -562,9 +584,9 @@ fn coopvec_digest_hashes_the_string_it_measured() {
         .map(|i| CoopVecCombo {
             input: ComponentType::U32,
             input_interpretation: ComponentType::U8Packed,
-            matrix_interpretation: ComponentType::U8,
+            matrix_interpretation: NAMED[(i / 16) as usize % 16].0,
             bias_interpretation: ComponentType::S32,
-            result: ComponentType::Other(i),
+            result: NAMED[(i % 16) as usize].0,
             transpose: false,
         })
         .collect();
@@ -591,12 +613,11 @@ fn coopvec_digest_hashes_the_string_it_measured() {
     let joined = sorted
         .iter()
         .map(|c| {
+            let spell = |ty: ComponentType| NAMED.iter().find(|(c, _)| *c == ty).unwrap().1;
             let mut t = format!(
-                "u32-u8packed-u8-i32-x{}",
-                match c.result {
-                    ComponentType::Other(n) => n,
-                    _ => unreachable!("fixture uses Other for the varying field"),
-                }
+                "u32-u8packed-{}-i32-{}",
+                spell(c.matrix_interpretation),
+                spell(c.result)
             );
             if c.transpose {
                 t.push_str("-t");
@@ -678,5 +699,55 @@ fn the_grammar_doc_matches_what_to_token_emits() {
         "`to_token` emits {emitted} fields but the field table documents {rows}. \
          A missing row is a field an outside implementer never learns to spell, \
          and §6.8-0002 gives no matching tolerance."
+    );
+}
+
+/// V-7 (vocabulary 6): a tuple with an unnamed component type is omitted whole, `x<n>` is
+/// declined, and the raw identifiers are reported for the Announce `unnamed_types` record.
+#[test]
+fn unnamed_component_types_are_omitted_whole_and_reported() {
+    use kiss_vulkan_vocab::unnamed_types;
+    assert_eq!(kiss_vulkan_vocab::VOCABULARY_VERSION, 6);
+    let named = CoopShape {
+        m: 16,
+        n: 16,
+        k: 16,
+        a: ComponentType::F16,
+        b: ComponentType::F16,
+        c: ComponentType::F32,
+        result: ComponentType::F32,
+        saturating: false,
+    };
+    let unnamed = CoopShape {
+        c: ComponentType::Other(1_000_491_002),
+        ..named
+    };
+    let both = CoopMatrix::from_shapes(vec![unnamed, named]);
+    let only_named = CoopMatrix::from_shapes(vec![named]);
+    assert_eq!(
+        both, only_named,
+        "the unnamed tuple must vanish, not truncate"
+    );
+    assert_eq!(
+        CoopMatrix::from_shapes(vec![unnamed]),
+        CoopMatrix::None,
+        "all tuples unnamed is the empty field"
+    );
+    // A hand-built Shapes value cannot sneak an escape into a token either.
+    let forced = CoopMatrix::Shapes(vec![named, unnamed]);
+    assert_eq!(
+        forced.canonical_enumeration(),
+        only_named.canonical_enumeration()
+    );
+    assert_eq!(
+        unnamed_types(&[unnamed, named], &[]),
+        vec!["vulkan:component_type:1000491002".to_string()]
+    );
+    assert!(unnamed_types(&[named], &[]).is_empty());
+    assert!(ComponentType::Other(5).spelling().is_none());
+    assert!(
+        VulkanTarget::parse("vulkan:sg32.ops-none.arith-none.cm-16-16-16-x5-x5-x5-x5.cv-none")
+            .is_err(),
+        "a reader declines x<n>"
     );
 }

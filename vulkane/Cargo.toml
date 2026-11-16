@@ -1,6 +1,6 @@
 [package]
 name = "vulkane"
-version = "0.22.10"
+version = "0.23.0"
 edition = "2024"
 # 1.88 has several independent drivers: let-chains, `slice::as_chunks`,
 # and libloading 0.9 declaring rust-version 1.88.0. Removing any one of
@@ -53,7 +53,7 @@ libloading = { workspace = true }
 # Optional: the `vulkan:` KISS-Classify §6.8 capability-set vocabulary, for
 # `vulkane::kiss`. Itself dependency-free and Vulkan-free by construction
 # (KISS-CLASSIFY-6.9-0003) — this crate supplies the device half.
-kiss-vulkan-vocab = { version = "0.4.1", path = "../kiss-vulkan-vocab", optional = true }
+kiss-vulkan-vocab = { version = "0.5.0", path = "../kiss-vulkan-vocab", optional = true }
 # Optional: GLSL/WGSL -> SPIR-V compilation via Naga (the wgpu shader translator).
 # Pulls in glsl-in, wgsl-in and spv-out features only — no other backends.
 naga = { version = "30", optional = true, default-features = false, features = ["glsl-in", "wgsl-in", "spv-out"] }
