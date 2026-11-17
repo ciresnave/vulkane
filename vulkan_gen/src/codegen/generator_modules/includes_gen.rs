@@ -19,6 +19,7 @@ impl Default for IncludeGenerator {
 }
 
 impl IncludeGenerator {
+    /// Create the include generator. It is a stateless unit struct, so this is the only way to build one.
     pub fn new() -> Self {
         Self
     }

@@ -353,6 +353,7 @@ fn emit_wrapper(cand: &Candidate) -> String {
     out
 }
 
+/// How many RAII handle wrappers `generate_safe_handles` generated and skipped, plus the handles it could not classify.
 pub struct SafeHandlesStats {
     pub generated: usize,
     pub skipped: usize,
@@ -367,6 +368,7 @@ pub struct SafeHandlesStats {
     pub unclassified: Vec<String>,
 }
 
+/// Generate RAII wrappers for the Vulkan handles that are neither hand-written nor listed as unwrappable, from `types.json` and `functions.json` in `intermediate_dir`, into the file `output_path`. Returns the generated/skipped counts and any unclassified handles.
 pub fn generate_safe_handles(
     intermediate_dir: &Path,
     output_path: &Path,

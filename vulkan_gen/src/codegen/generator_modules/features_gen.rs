@@ -19,6 +19,7 @@ impl Default for FeatureGenerator {
 }
 
 impl FeatureGenerator {
+    /// Create the feature (API version) generator. It is a stateless unit struct, so this is the only way to build one.
     pub fn new() -> Self {
         Self
     }

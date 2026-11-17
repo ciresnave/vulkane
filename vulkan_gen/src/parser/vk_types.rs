@@ -5,10 +5,15 @@
 //! the tree parser and serialized to intermediate JSON files for the
 //! code generator.
 
+// The fields of these types mirror vk.xml attributes one to one and the parser carries no per-field
+// registry text to document them from, so they are deliberately left undocumented (ROADMAP row 9a).
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 
 // ---- Constants ----
 
+/// One API constant: an `<enum>` entry of the `API Constants` block of vk.xml.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanConstant {
     pub name: String,
@@ -26,6 +31,7 @@ pub struct VulkanConstant {
 
 // ---- Enums ----
 
+/// One `<enums>` block of vk.xml: an enum or a bitmask, with its values.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanEnum {
     pub name: String,
@@ -41,6 +47,7 @@ pub struct VulkanEnum {
     pub source_line: Option<usize>,
 }
 
+/// One `<enum>` value inside an `<enums>` block, or one enum value an extension or feature adds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnumValue {
     pub name: String,
@@ -63,6 +70,7 @@ pub struct EnumValue {
 
 // ---- Structs and Unions ----
 
+/// One struct or union `<type>` of vk.xml, with its members.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanStruct {
     pub name: String,
@@ -81,6 +89,7 @@ pub struct VulkanStruct {
     pub source_line: Option<usize>,
 }
 
+/// One `<member>` of a struct or union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructMember {
     pub name: String,
@@ -104,6 +113,7 @@ pub struct StructMember {
 
 // ---- Commands (Functions) ----
 
+/// One `<command>` of vk.xml: its return type, parameters and the error and success codes it declares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanCommand {
     pub name: String,
@@ -126,6 +136,7 @@ pub struct VulkanCommand {
     pub source_line: Option<usize>,
 }
 
+/// One `<param>` of a command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandParam {
     pub name: String,
@@ -149,6 +160,7 @@ pub struct CommandParam {
 
 // ---- Types (handles, bitmasks, basetypes, funcpointers) ----
 
+/// One `<type>` of vk.xml that is not a struct or union (handle, bitmask, base type, function pointer, ...), distinguished by `category`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanType {
     pub name: String,
@@ -169,6 +181,7 @@ pub struct VulkanType {
 
 // ---- Extensions ----
 
+/// One `<extension>` of vk.xml, with its require and remove blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanExtension {
     pub name: String,
@@ -197,6 +210,7 @@ pub struct VulkanExtension {
     pub source_line: Option<usize>,
 }
 
+/// One `<require>` block of an extension: the items it adds, and the extension, feature or `depends` expression it is conditional on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionRequire {
     pub api: Option<String>,
@@ -209,6 +223,7 @@ pub struct ExtensionRequire {
     pub raw_content: String,
 }
 
+/// One `<remove>` block of an extension: the items it removes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionRemove {
     pub api: Option<String>,
@@ -218,6 +233,7 @@ pub struct ExtensionRemove {
     pub raw_content: String,
 }
 
+/// One item (a type, command, enum or constant) named by a `<require>` block; `item_type` says which.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequireItem {
     pub item_type: String,
@@ -236,6 +252,7 @@ pub struct RequireItem {
     pub raw_content: String,
 }
 
+/// One item named by a `<remove>` block; `item_type` says which.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoveItem {
     pub item_type: String,
@@ -247,6 +264,7 @@ pub struct RemoveItem {
 
 // ---- Features ----
 
+/// One core-version `<feature>` of vk.xml (for example Vulkan 1.1), with its require blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanFeature {
     pub api: String,
@@ -258,6 +276,7 @@ pub struct VulkanFeature {
     pub raw_content: String,
 }
 
+/// One `<require>` block of a core-version feature.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeatureRequire {
     pub api: Option<String>,
@@ -267,6 +286,7 @@ pub struct FeatureRequire {
     pub raw_content: String,
 }
 
+/// One item named by a core-version feature's `<require>` block; `item_type` says which.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeatureItem {
     pub item_type: String,
@@ -279,6 +299,7 @@ pub struct FeatureItem {
 
 // ---- Includes ----
 
+/// One `#include` that vk.xml records for the generated header.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanInclude {
     pub filename: String,
@@ -295,6 +316,7 @@ fn default_macro_type() -> String {
     "object_like".to_string()
 }
 
+/// One C macro that vk.xml records, with its definition and parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanMacro {
     pub name: String,
@@ -315,6 +337,7 @@ pub struct VulkanMacro {
 
 // ---- Platforms ----
 
+/// One `<platform>` of vk.xml: a platform name and the preprocessor guard (`protect`) for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanPlatform {
     pub name: String,
@@ -327,6 +350,7 @@ pub struct VulkanPlatform {
 
 // ---- Tags ----
 
+/// One vendor `<tag>` of vk.xml: an author tag such as `KHR` or `EXT`, and its contact.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VulkanTag {
     pub name: String,
@@ -342,62 +366,87 @@ pub struct VulkanTag {
 // ---- Compatibility aliases for codegen modules ----
 // These map the vulkan-types crate names to our canonical names
 
+/// Compatibility name for [`VulkanConstant`], used by the code-generation modules.
 pub type ConstantDefinition = VulkanConstant;
+/// Compatibility name for [`VulkanEnum`], used by the code-generation modules.
 pub type EnumDefinition = VulkanEnum;
+/// Compatibility name for [`VulkanStruct`], used by the code-generation modules.
 pub type StructDefinition = VulkanStruct;
+/// Compatibility name for [`VulkanType`], used by the code-generation modules.
 pub type TypeDefinition = VulkanType;
+/// Compatibility name for [`VulkanCommand`], used by the code-generation modules.
 pub type FunctionDefinition = VulkanCommand;
+/// Compatibility name for [`CommandParam`], used by the code-generation modules.
 pub type FunctionParameter = CommandParam;
+/// Compatibility name for [`VulkanExtension`], used by the code-generation modules.
 pub type ExtensionDefinition = VulkanExtension;
+/// Compatibility name for [`VulkanFeature`], used by the code-generation modules.
 pub type FeatureDefinition = VulkanFeature;
+/// Compatibility name for [`VulkanInclude`], used by the code-generation modules.
 pub type IncludeStatement = VulkanInclude;
+/// Compatibility name for [`VulkanMacro`], used by the code-generation modules.
 pub type MacroDefinition = VulkanMacro;
+/// Compatibility name for [`VulkanPlatform`], used by the code-generation modules.
 pub type PlatformDefinition = VulkanPlatform;
+/// Compatibility name for [`VulkanTag`], used by the code-generation modules.
 pub type TagDefinition = VulkanTag;
+/// Compatibility name for [`RequireItem`], used by the code-generation modules.
 pub type ExtensionRequireItem = RequireItem;
+/// Compatibility name for [`RemoveItem`], used by the code-generation modules.
 pub type ExtensionRemoveItem = RemoveItem;
 
 // Container types (used by type_integration for JSON deserialization)
+/// The on-disk shape of `constants.json`: the list of constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstantData {
     pub constants: Vec<VulkanConstant>,
 }
+/// The on-disk shape of `enums.json`: the list of enums.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumData {
     pub enums: Vec<VulkanEnum>,
 }
+/// The on-disk shape of `structs.json`: the list of structs and unions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructData {
     pub structs: Vec<VulkanStruct>,
 }
+/// The on-disk shape of `types.json`: the list of non-struct types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeData {
     pub types: Vec<VulkanType>,
 }
+/// The on-disk shape of `functions.json`: the list of commands.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionData {
     pub functions: Vec<VulkanCommand>,
 }
+/// The on-disk shape of `extensions.json`: the list of extensions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionData {
     pub extensions: Vec<VulkanExtension>,
 }
+/// The on-disk shape of `features.json`: the list of core-version features.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureData {
     pub features: Vec<VulkanFeature>,
 }
+/// The on-disk shape of `includes.json`: the list of includes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncludeData {
     pub includes: Vec<VulkanInclude>,
 }
+/// The on-disk shape of `macros.json`: the list of macros.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MacroData {
     pub macros: Vec<VulkanMacro>,
 }
+/// The on-disk shape of `platforms.json`: the list of platforms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformData {
     pub platforms: Vec<VulkanPlatform>,
 }
+/// The on-disk shape of `tags.json`: the list of vendor tags.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagData {
     pub tags: Vec<VulkanTag>,

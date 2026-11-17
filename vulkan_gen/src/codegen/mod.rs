@@ -129,4 +129,5 @@ pub enum CodegenError {
     GenerationFailed { message: String },
 }
 
+/// Result of a code-generation step: `Ok(T)` or a [`CodegenError`].
 pub type CodegenResult<T> = Result<T, CodegenError>;

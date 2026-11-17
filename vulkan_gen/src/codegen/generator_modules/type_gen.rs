@@ -37,6 +37,7 @@ impl Default for TypeGenerator {
 }
 
 impl TypeGenerator {
+    /// Create the type generator. It is a stateless unit struct, so this is the only way to build one.
     pub fn new() -> Self {
         Self
     }
