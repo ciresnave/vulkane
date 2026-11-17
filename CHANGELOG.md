@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 `vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped.
 
+## [0.24.2] — docs: document the vulkan_gen and vulkane::raw::version public items (ROADMAP row 9a)
+
+Documents the 72 undocumented public items of `vulkan_gen` (generator `new` functions, the `generate_*` entry points and their stats structs, logging, the `vk_types` data model and its aliases and JSON wrappers, the two top-level modules) and the 3 `vulkane::raw::version::Version` items coderipper MOD-001 listed. Doc comments only, plus one `#![allow(missing_docs)]` with a reason on `parser/vk_types.rs`; no behaviour or API change. The `vulkan_gen` public surface is kept by PM ruling (a narrowing would be breaking); the measurement (384 / 282 fields / 29 variants / 72 items) is in ROADMAP row 9a. Verified: `cargo doc -p vulkan_gen --no-deps` with `-D warnings`; the missing_docs lint now reports 312 (fields, variants, crate root) against 384.
+
 ## [0.24.1] — docs: decline mbarrier and bulk-copy statements by name (patent, board 434 C extended)
 
 The three emitter READMEs and ROADMAP row 8l record CireSnave's 2026-11-16 ruling on NVIDIA US11803380B2: `MbarInit`, `MbarArrive`, `MbarCompleteTx`, `MbarWait`, `CopyBulk` and `Tcgen05Commit` are declined for these non-NVIDIA targets, and so is `WgmmaWait` (NVIDIA US12204897B2, CireSnave's second 2026-11-16 ruling). Docs only: no code or version-bearing file changes; the by-name refusal and its tests wait on an `unpopped` release that has the variants (0.47.0 has none).
