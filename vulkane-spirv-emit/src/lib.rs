@@ -46,6 +46,7 @@
 //!   checked against each other on the same ops.
 
 mod ops;
+mod patent_decline;
 mod skeleton;
 
 use std::cell::RefCell;
@@ -85,6 +86,12 @@ fn dtype_ok(dt: ElementKind, _target: TargetId) -> DtypeSupport {
 impl Backend for SpirV {
     fn name(&self) -> &str {
         "spirv"
+    }
+    fn lower_kernel(
+        &self,
+        kernel: &unpopped::kernel::KernelFn,
+    ) -> Result<GeneratedKernel, LowerError> {
+        Err(patent_decline::refuse_kernel(self.name(), kernel))
     }
     fn provider(&self) -> &str {
         "vulkane"

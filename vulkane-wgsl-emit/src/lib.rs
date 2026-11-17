@@ -28,6 +28,7 @@
 //!
 //! Operands are bound `@group(0) @binding(0..N)` in declaration order: inputs, then the output.
 
+mod patent_decline;
 mod spell;
 
 use unpopped::backend::{
@@ -78,6 +79,12 @@ fn body_has_params(e: &ScalarExpr) -> bool {
 impl Backend for Wgsl {
     fn name(&self) -> &str {
         "wgsl"
+    }
+    fn lower_kernel(
+        &self,
+        kernel: &unpopped::kernel::KernelFn,
+    ) -> Result<GeneratedKernel, LowerError> {
+        Err(patent_decline::refuse_kernel(self.name(), kernel))
     }
     fn provider(&self) -> &str {
         "vulkane"
