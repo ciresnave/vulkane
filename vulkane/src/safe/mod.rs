@@ -151,8 +151,9 @@ pub use physical::{
     ConformanceVersion, CooperativeMatrixProperties, CooperativeVectorProperties, DeviceIdentity,
     DriverProperties, MemoryBudget, MemoryHeap, MemoryHeapFlags, MemoryType, PciBusInfo,
     PhysicalDevice, PhysicalDeviceGroup, PhysicalDeviceProperties, PhysicalDeviceType,
-    QueueFamilyProperties, QueueFlags, ShaderArithmeticFeatures, ShaderAtomicFeatures, ShaderIntegerDotProductProperties,
-    SubgroupFeatureFlags, SubgroupProperties, SubgroupSizeControl,
+    QueueFamilyProperties, QueueFlags, ShaderArithmeticFeatures, ShaderAtomicFeatures,
+    ShaderIntegerDotProductProperties, SubgroupFeatureFlags, SubgroupProperties,
+    SubgroupSizeControl,
 };
 pub use pipeline::{
     ComputePipeline, ComputePipelineOptions, PipelineCache, PipelineLayout, PushConstantRange,

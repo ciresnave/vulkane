@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [kiss-vulkan-vocab 0.6.0] — vocabulary version 7 (BREAKING)
+
+`kiss-vulkan-vocab` 0.6.0 (0.5.0 is the vocabulary-6 release): `VOCABULARY_VERSION` is 7 and the `<arith>` field gains three names, `a64` (`shaderBufferInt64Atomics` AND `shaderSharedInt64Atomics`), `af32` (`shaderBufferFloat32AtomicAdd`) and `af64` (`shaderBufferFloat64AtomicAdd`), per KISS#837 (`spec/namespaces/vulkan.md`, V-16, KISS 0.19.0). `vulkane`'s optional dependency now requires `^0.6.0`.
+
+**Breaking, and why:** all three feature bits predate the registry baseline (`VK_HEADER_VERSION` 348), so naming them changes the token of every device that has them. **Migration:** a device that spelled `arith-dot8-f16-i8` at version 6 spells `arith-a64-dot8-f16-i8` at version 7 if it has 64-bit atomics; a consumer that cached or matched a version 6 token for such a device must re-derive it, and one that asserts `VOCABULARY_VERSION` (KISS-CLASSIFY-6.8-0009) must move to 7. Measured on this repo's Windows GPU: its arith field went from `dot8-f16-f64-i16-i64-i8-st16-st8` to `a64-dot8-f16-f64-i16-i64-i8-st16-st8`. The committed §6.8-0008 manifest moves in exactly three lines (`vocabulary_version`, `generated_from`, `arith_names`); no vector or digest changed. Additive in the crate API (`Arith::ATOMIC64`, `ATOMIC_ADD_F32`, `ATOMIC_ADD_F64`).
+
 ## [kiss-vulkan-vocab 0.5.0] — vocabulary version 6 (BREAKING)
 
 `kiss-vulkan-vocab` 0.5.0 (0.4.9 is served on crates.io with different source): the `x<n>` escape is removed and `VOCABULARY_VERSION` is 6. `vulkane`'s optional dependency now requires `^0.5.0`. See the vocab-6 fragment for the full change.

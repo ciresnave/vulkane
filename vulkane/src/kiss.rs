@@ -54,7 +54,9 @@
 //! ```
 
 use crate::raw::bindings::{VkComponentTypeKHR, VkPhysicalDeviceFeatures};
-use crate::safe::{PhysicalDevice, ShaderArithmeticFeatures, ShaderAtomicFeatures, SubgroupFeatureFlags};
+use crate::safe::{
+    PhysicalDevice, ShaderArithmeticFeatures, ShaderAtomicFeatures, SubgroupFeatureFlags,
+};
 use kiss_vulkan_vocab::{
     Arith, ComponentType, CoopMatrix, CoopShape, CoopVecCombo, CoopVector, OpClasses, Subgroup,
     VulkanTarget,
