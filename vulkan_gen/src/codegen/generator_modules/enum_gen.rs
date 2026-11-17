@@ -20,6 +20,7 @@ impl Default for EnumGenerator {
 }
 
 impl EnumGenerator {
+    /// Create the enum generator. It is a stateless unit struct, so this is the only way to build one.
     pub fn new() -> Self {
         Self
     }
