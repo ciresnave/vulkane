@@ -7,13 +7,14 @@
 //! walk visits all seven names, so a name dropped from the table fails here.
 
 use unpopped::backend::{Backend, LowerError};
-use unpopped::exec::{AllocDecl, Extent, LaunchShape, MemorySpace};
-use unpopped::ir::ScalarExpr;
-use unpopped::kernel::{Block, BufferRole, KernelFn, Param, Place, Stmt};
+use unpopped::exec::{AllocDecl, Extent, LaunchShape, MemorySpace, Scope};
+use unpopped::ir::{ReduceOp, ScalarExpr};
+use unpopped::kernel::{Block, BufferRole, CollectiveKind, KernelFn, Param, Place, Stmt};
 use unpopped_vocab::ElementKind;
 use vulkane_spirv_emit::SpirV;
 
-const MARKER: &str = "declined: possible exposure, board 434 C extended";
+const MARKER_434C: &str = "declined: possible exposure, board 434 C";
+const MARKER_EXT: &str = "declined: possible exposure, board 434 C extended";
 
 /// A nesting shape: its label and how it wraps a statement.
 type Shape = (&'static str, Box<dyn Fn(Stmt) -> Vec<Stmt>>);
@@ -52,11 +53,37 @@ fn kernel(body: Vec<Stmt>) -> KernelFn {
     k
 }
 
-/// Every declined statement, with the name the refusal must carry.
-fn declined() -> Vec<(&'static str, Stmt)> {
+/// Every declined statement, with the name the refusal must carry and the ruling text it must carry.
+fn declined() -> Vec<(&'static str, &'static str, Stmt)> {
+    let ext = MARKER_EXT;
     vec![
         (
+            "CopyAsync",
+            MARKER_434C,
+            Stmt::CopyAsync {
+                dst: bar(),
+                src: bar(),
+                elems: 1,
+                valid: None,
+                cache: Default::default(),
+                l2_prefetch: None,
+            },
+        ),
+        ("AsyncCommit", MARKER_434C, Stmt::AsyncCommit),
+        ("AsyncWait", MARKER_434C, Stmt::AsyncWait { pending: 0 }),
+        (
+            "Collective",
+            MARKER_434C,
+            Stmt::Collective {
+                kind: CollectiveKind::Reduce(ReduceOp::Sum),
+                value: u32c(1),
+                result: 0,
+                scope: Scope::Subgroup,
+            },
+        ),
+        (
             "MbarInit",
+            ext,
             Stmt::MbarInit {
                 bar: bar(),
                 count: u32c(1),
@@ -64,6 +91,7 @@ fn declined() -> Vec<(&'static str, Stmt)> {
         ),
         (
             "MbarArrive",
+            ext,
             Stmt::MbarArrive {
                 bar: bar(),
                 tx: None,
@@ -71,6 +99,7 @@ fn declined() -> Vec<(&'static str, Stmt)> {
         ),
         (
             "MbarCompleteTx",
+            ext,
             Stmt::MbarCompleteTx {
                 bar: bar(),
                 bytes: u32c(4),
@@ -78,6 +107,7 @@ fn declined() -> Vec<(&'static str, Stmt)> {
         ),
         (
             "MbarWait",
+            ext,
             Stmt::MbarWait {
                 bar: bar(),
                 parity: u32c(0),
@@ -85,6 +115,7 @@ fn declined() -> Vec<(&'static str, Stmt)> {
         ),
         (
             "CopyBulk",
+            ext,
             Stmt::CopyBulk {
                 dst: bar(),
                 src: bar(),
@@ -92,8 +123,8 @@ fn declined() -> Vec<(&'static str, Stmt)> {
                 bar: bar(),
             },
         ),
-        ("Tcgen05Commit", Stmt::Tcgen05Commit { bar: bar() }),
-        ("WgmmaWait", Stmt::WgmmaWait { pending: 0 }),
+        ("Tcgen05Commit", ext, Stmt::Tcgen05Commit { bar: bar() }),
+        ("WgmmaWait", ext, Stmt::WgmmaWait { pending: 0 }),
     ]
 }
 
@@ -140,8 +171,12 @@ fn nest_while(s: Stmt) -> Stmt {
 
 #[test]
 fn each_declined_statement_is_refused_by_name_at_every_depth() {
-    assert_eq!(declined().len(), 7, "the declined list is seven statements");
-    for (name, _) in declined() {
+    assert_eq!(
+        declined().len(),
+        11,
+        "the declined list is eleven statements"
+    );
+    for (name, marker, _) in declined() {
         let shapes: Vec<Shape> = vec![
             ("top level", Box::new(|s| vec![s])),
             ("if then", Box::new(|s| vec![nest_if_then(s)])),
@@ -156,12 +191,16 @@ fn each_declined_statement_is_refused_by_name_at_every_depth() {
         for (where_, build) in shapes {
             let stmt = declined()
                 .into_iter()
-                .find(|(n, _)| *n == name)
-                .map(|(_, s)| s)
+                .find(|(n, _, _)| *n == name)
+                .map(|(_, _, s)| s)
                 .expect("the statement exists");
             let detail = refusal(build(stmt));
             assert!(
-                detail.contains(&format!("Stmt::{name}")) && detail.contains(MARKER),
+                marker == MARKER_EXT || !detail.contains("extended"),
+                "{name}: a board 434 C refusal must not claim the extension: {detail}"
+            );
+            assert!(
+                detail.contains(&format!("Stmt::{name}")) && detail.contains(marker),
                 "{name} at {where_}: the refusal must name it and carry the marker, got: {detail}"
             );
         }
@@ -173,9 +212,9 @@ fn a_kernel_without_a_declined_statement_is_refused_without_the_marker() {
     // The control: the same walk, no declined statement. It must not be mistaken for one.
     let detail = refusal(vec![nest_for(nest_if_then(Stmt::Return))]);
     assert!(
-        !detail.contains(MARKER) && !detail.contains("Stmt::"),
+        !detail.contains(MARKER_434C) && !detail.contains("Stmt::"),
         "an innocent kernel must not carry the declined marker: {detail}"
     );
     let empty = refusal(vec![]);
-    assert!(!empty.contains(MARKER), "{empty}");
+    assert!(!empty.contains(MARKER_434C), "{empty}");
 }
