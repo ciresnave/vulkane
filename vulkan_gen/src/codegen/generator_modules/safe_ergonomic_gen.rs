@@ -731,6 +731,7 @@ fn emit_file(target: Target, cmds: &[&VulkanCommand]) -> (String, usize, usize) 
     (out, emitted, skipped)
 }
 
+/// Generate the ergonomic safe-extension traits (`DeviceSafeExt`, `InstanceSafeExt`, ...) from `functions.json` in `intermediate_dir`, into `output_dir`; commands whose shape it does not recognise are skipped and counted in the returned stats.
 pub fn generate_safe_ergonomic(
     intermediate_dir: &Path,
     output_dir: &Path,

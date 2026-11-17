@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+/// Rust code generation from the intermediate JSON: the `CodeAssembler`, one generator module per vk.xml section, and the generators for the safe-layer companion files.
 pub mod codegen;
+/// Parsing of `vk.xml` into the data model in [`parser::vk_types`] and the intermediate JSON files the code generator reads.
 pub mod parser;
 pub mod vulkan_spec_parser;
 

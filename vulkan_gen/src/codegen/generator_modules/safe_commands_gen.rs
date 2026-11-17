@@ -37,6 +37,7 @@ use super::{GeneratorError, GeneratorResult};
 use crate::codegen::camel_to_snake;
 use crate::parser::vk_types::{CommandParam, VulkanCommand};
 
+/// How many methods `generate_safe_commands` emitted per target trait, and how many commands it skipped.
 pub struct SafeCommandsStats {
     pub device_methods: usize,
     pub instance_methods: usize,
@@ -446,6 +447,7 @@ fn emit_file(target: Target, cmds: &[&VulkanCommand]) -> (String, usize) {
     (out, emitted)
 }
 
+/// Generate the raw per-command extension traits (`DeviceExt`, `InstanceExt`, ...) from `functions.json` in `intermediate_dir`, into `output_dir`. Returns how many methods each trait got and how many commands were skipped.
 pub fn generate_safe_commands(
     intermediate_dir: &Path,
     output_dir: &Path,

@@ -662,6 +662,7 @@ pub struct TypeValidationReport {
 }
 
 impl TypeValidationReport {
+    /// An empty report for `type_name`: no definition location, usages, errors or warnings yet.
     pub fn new(type_name: &str) -> Self {
         Self {
             type_name: type_name.to_string(),
@@ -672,10 +673,12 @@ impl TypeValidationReport {
         }
     }
 
+    /// Whether validation found at least one error.
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
 
+    /// Whether validation found at least one warning.
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
     }

@@ -48,6 +48,7 @@ impl Default for StructGenerator {
 }
 
 impl StructGenerator {
+    /// Create the struct generator. It is a stateless unit struct, so this is the only way to build one.
     pub fn new() -> Self {
         Self
     }

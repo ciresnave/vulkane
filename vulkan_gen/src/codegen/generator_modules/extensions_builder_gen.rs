@@ -180,6 +180,7 @@ fn emit_file(
     out
 }
 
+/// Generate the `DeviceExtensions` and `InstanceExtensions` builder methods (one per device- or instance-level extension enabled for Vulkan) from `extensions.json` in `intermediate_dir`, into `output_dir`. Returns the per-kind method counts.
 pub fn generate_extensions_builders(
     intermediate_dir: &Path,
     output_dir: &Path,
