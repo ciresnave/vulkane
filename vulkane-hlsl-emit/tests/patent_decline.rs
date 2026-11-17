@@ -15,6 +15,9 @@ use vulkane_hlsl_emit::Hlsl;
 
 const MARKER: &str = "declined: possible exposure, board 434 C extended";
 
+/// A nesting shape: its label and how it wraps a statement.
+type Shape = (&'static str, Box<dyn Fn(Stmt) -> Vec<Stmt>>);
+
 fn u32c(v: u64) -> ScalarExpr {
     ScalarExpr::ConstInt(v as _, ElementKind::U32)
 }
@@ -139,7 +142,7 @@ fn nest_while(s: Stmt) -> Stmt {
 fn each_declined_statement_is_refused_by_name_at_every_depth() {
     assert_eq!(declined().len(), 7, "the declined list is seven statements");
     for (name, _) in declined() {
-        let shapes: Vec<(&str, Box<dyn Fn(Stmt) -> Vec<Stmt>>)> = vec![
+        let shapes: Vec<Shape> = vec![
             ("top level", Box::new(|s| vec![s])),
             ("if then", Box::new(|s| vec![nest_if_then(s)])),
             ("if else", Box::new(|s| vec![nest_if_else(s)])),
