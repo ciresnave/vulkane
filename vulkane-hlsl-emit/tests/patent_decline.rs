@@ -72,6 +72,16 @@ fn declined() -> Vec<(&'static str, &'static str, Stmt)> {
         ("AsyncCommit", MARKER_434C, Stmt::AsyncCommit),
         ("AsyncWait", MARKER_434C, Stmt::AsyncWait { pending: 0 }),
         (
+            "CollectiveTuple",
+            MARKER_434C,
+            Stmt::CollectiveTuple {
+                kind: CollectiveKind::ReduceWith { combine: 0 },
+                values: vec![u32c(1), u32c(2)],
+                results: vec![0, 1],
+                scope: Scope::Subgroup,
+            },
+        ),
+        (
             "Collective",
             MARKER_434C,
             Stmt::Collective {
@@ -173,8 +183,8 @@ fn nest_while(s: Stmt) -> Stmt {
 fn each_declined_statement_is_refused_by_name_at_every_depth() {
     assert_eq!(
         declined().len(),
-        11,
-        "the declined list is eleven statements"
+        12,
+        "the declined list is twelve statements"
     );
     for (name, marker, _) in declined() {
         let shapes: Vec<Shape> = vec![

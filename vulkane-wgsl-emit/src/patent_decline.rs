@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Statements this emitter refuses **by name** because lowering them to a hardware operation on non-NVIDIA
-//! hardware risks infringing NVIDIA's patents. Eleven names: the four of board 434 C (CireSnave 2026-11-13) and the
+//! hardware risks infringing NVIDIA's patents. Twelve names: the four of board 434 C plus `CollectiveTuple` (CireSnave 2026-11-13) and the
 //! seven of its extension (CireSnave 2026-11-16).
 //!
 //! - Board 434 C, *"emitters may lower AsyncWait/CopyAsync/AsyncCommit/Collective for NVIDIA devices ... and decline by
 //!   name for non-NVIDIA devices"* (CireSnave 2026-11-13, "434: C."): `CopyAsync`, `AsyncCommit`, `AsyncWait` (NVIDIA
 //!   US11294713B2 and US12118382B2, an API that blocks a thread's instructions around an asynchronous shared-memory
-//!   copy; `unpopped` `docs/PATENT-SWEEP.md` hit 22) and `Collective`.
+//!   copy; `unpopped` `docs/PATENT-SWEEP.md` hit 22) and `Collective`, and `CollectiveTuple`. `CollectiveTuple` is the tuple form of `Collective`: 434 C read as covering it; not named in the
+//!   ruling's list (pm-kernels 2026-11-17, PM no objection; rockfish, bonefish and fishstringer decline the family).
 //!
 //! CireSnave 2026-11-16, verbatim: *"For that patent, we add a note about the potential for infringement if
 //! non-Nvidia-specific emitters lower those operations to hardware ops and we ensure our projects' emitters for
@@ -46,6 +47,7 @@ fn find_stmt(stmt: &Stmt) -> Option<(&'static str, &'static str)> {
         Stmt::AsyncCommit => Some(("AsyncCommit", DECLINED_434C)),
         Stmt::AsyncWait { .. } => Some(("AsyncWait", DECLINED_434C)),
         Stmt::Collective { .. } => Some(("Collective", DECLINED_434C)),
+        Stmt::CollectiveTuple { .. } => Some(("CollectiveTuple", DECLINED_434C)),
         Stmt::MbarInit { .. } => Some(("MbarInit", ext)),
         Stmt::MbarArrive { .. } => Some(("MbarArrive", ext)),
         Stmt::MbarCompleteTx { .. } => Some(("MbarCompleteTx", ext)),
@@ -56,8 +58,7 @@ fn find_stmt(stmt: &Stmt) -> Option<(&'static str, &'static str)> {
         Stmt::If { then, els, .. } => find(then).or_else(|| find(els)),
         Stmt::For { body, .. } | Stmt::While { body, .. } => find(body),
         // Every other statement is not declined by name here; the kernel layer is not lowered by this emitter at all
-        // yet, so the default refusal applies. Listed explicitly, never `_`. (`CollectiveTuple`, the tuple form of
-        // `Collective`, is not in either ruling's list and is not named; the default refusal applies to it.)
+        // yet, so the default refusal applies. Listed explicitly, never `_`.
         Stmt::Let { .. }
         | Stmt::Load { .. }
         | Stmt::Assign { .. }
@@ -74,7 +75,6 @@ fn find_stmt(stmt: &Stmt) -> Option<(&'static str, &'static str)> {
         | Stmt::GridDepWait
         | Stmt::GridDepLaunchDependents
         | Stmt::Fence { .. }
-        | Stmt::CollectiveTuple { .. }
         | Stmt::Mma { .. }
         | Stmt::MatrixLoad { .. }
         | Stmt::MatrixStore { .. }
