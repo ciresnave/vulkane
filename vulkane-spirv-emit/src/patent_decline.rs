@@ -36,30 +36,70 @@ pub(crate) const DECLINED_434C_EXT: &str = "declined: possible exposure, board 4
 
 /// The name of the first declined statement in `block` and the ruling text it carries, looking inside `If`, `For`
 /// and `While` at any depth.
-fn find(block: &Block) -> Option<(&'static str, &'static str)> {
+fn find(block: &Block) -> Option<Declined> {
     block.0.iter().find_map(find_stmt)
 }
 
-fn find_stmt(stmt: &Stmt) -> Option<(&'static str, &'static str)> {
-    let ext = DECLINED_434C_EXT;
+/// A declined statement's name and the ruling text its refusal carries.
+type Declined = (&'static str, &'static str);
+
+fn find_stmt(stmt: &Stmt) -> Option<Declined> {
+    declined_434c(stmt)
+        .or_else(|| declined_extension(stmt))
+        .or_else(|| nested(stmt))
+}
+
+/// The five of board 434 C. The wildcard is fine here: exhaustiveness is enforced by [`nested`].
+fn declined_434c(stmt: &Stmt) -> Option<Declined> {
+    let name = match stmt {
+        Stmt::CopyAsync { .. } => "CopyAsync",
+        Stmt::AsyncCommit => "AsyncCommit",
+        Stmt::AsyncWait { .. } => "AsyncWait",
+        Stmt::Collective { .. } => "Collective",
+        Stmt::CollectiveTuple { .. } => "CollectiveTuple",
+        _ => return None,
+    };
+    Some((name, DECLINED_434C))
+}
+
+/// The seven of the 2026-11-16 extension.
+fn declined_extension(stmt: &Stmt) -> Option<Declined> {
+    let name = match stmt {
+        Stmt::MbarInit { .. } => "MbarInit",
+        Stmt::MbarArrive { .. } => "MbarArrive",
+        Stmt::MbarCompleteTx { .. } => "MbarCompleteTx",
+        Stmt::MbarWait { .. } => "MbarWait",
+        Stmt::CopyBulk { .. } => "CopyBulk",
+        Stmt::Tcgen05Commit { .. } => "Tcgen05Commit",
+        Stmt::WgmmaWait { .. } => "WgmmaWait",
+        _ => return None,
+    };
+    Some((name, DECLINED_434C_EXT))
+}
+
+/// Look inside `If`, `For` and `While`. **This match has no wildcard arm on purpose**: it names every [`Stmt`] variant,
+/// so a new statement in `unpopped` fails to compile here until someone decides which side of the declined list it is
+/// on. The declined ones are listed (and answered `None`: they were already found by the two functions above).
+fn nested(stmt: &Stmt) -> Option<Declined> {
     match stmt {
-        Stmt::CopyAsync { .. } => Some(("CopyAsync", DECLINED_434C)),
-        Stmt::AsyncCommit => Some(("AsyncCommit", DECLINED_434C)),
-        Stmt::AsyncWait { .. } => Some(("AsyncWait", DECLINED_434C)),
-        Stmt::Collective { .. } => Some(("Collective", DECLINED_434C)),
-        Stmt::CollectiveTuple { .. } => Some(("CollectiveTuple", DECLINED_434C)),
-        Stmt::MbarInit { .. } => Some(("MbarInit", ext)),
-        Stmt::MbarArrive { .. } => Some(("MbarArrive", ext)),
-        Stmt::MbarCompleteTx { .. } => Some(("MbarCompleteTx", ext)),
-        Stmt::MbarWait { .. } => Some(("MbarWait", ext)),
-        Stmt::CopyBulk { .. } => Some(("CopyBulk", ext)),
-        Stmt::Tcgen05Commit { .. } => Some(("Tcgen05Commit", ext)),
-        Stmt::WgmmaWait { .. } => Some(("WgmmaWait", ext)),
         Stmt::If { then, els, .. } => find(then).or_else(|| find(els)),
         Stmt::For { body, .. } | Stmt::While { body, .. } => find(body),
+        // The declined statements (found above, and none holds a block).
+        Stmt::CopyAsync { .. }
+        | Stmt::AsyncCommit
+        | Stmt::AsyncWait { .. }
+        | Stmt::Collective { .. }
+        | Stmt::CollectiveTuple { .. }
+        | Stmt::MbarInit { .. }
+        | Stmt::MbarArrive { .. }
+        | Stmt::MbarCompleteTx { .. }
+        | Stmt::MbarWait { .. }
+        | Stmt::CopyBulk { .. }
+        | Stmt::Tcgen05Commit { .. }
+        | Stmt::WgmmaWait { .. }
         // Every other statement is not declined by name here; the kernel layer is not lowered by this emitter at all
-        // yet, so the default refusal applies. Listed explicitly, never `_`.
-        Stmt::Let { .. }
+        // yet, so the default refusal applies.
+        | Stmt::Let { .. }
         | Stmt::Load { .. }
         | Stmt::Assign { .. }
         | Stmt::Store { .. }

@@ -327,22 +327,10 @@ fn v7_atomic_names_the_device_reports_are_spelled_in_the_token() {
         Ok(v) => v,
         Err(why) => return common::skipped(&why),
     };
+    let arith = arith_field(&caps);
     let Some(a) = physical.shader_atomic_features() else {
         // The device cannot say (below 1.2 without VK_KHR_shader_atomic_int64):
         // the deriver under-claims, so no atomic name may appear.
-        let token = caps
-            .target_for(
-                *caps
-                    .admissible_subgroups()
-                    .first()
-                    .expect("a subgroup choice"),
-            )
-            .to_token();
-        let arith = token
-            .split(".arith-")
-            .nth(1)
-            .and_then(|t| t.split('.').next())
-            .expect("arith field");
         assert!(
             !arith
                 .split('-')
@@ -351,19 +339,6 @@ fn v7_atomic_names_the_device_reports_are_spelled_in_the_token() {
         );
         return;
     };
-    let token = caps
-        .target_for(
-            *caps
-                .admissible_subgroups()
-                .first()
-                .expect("a subgroup choice"),
-        )
-        .to_token();
-    let arith = token
-        .split(".arith-")
-        .nth(1)
-        .and_then(|t| t.split('.').next())
-        .expect("every token carries an arith field");
     eprintln!("v7 atomics: {a:?}; arith field {arith:?}");
     for (expected, name) in [
         (a.buffer_int64 && a.shared_int64, "a64"),
@@ -379,4 +354,22 @@ fn v7_atomic_names_the_device_reports_are_spelled_in_the_token() {
             if spelled { "spells" } else { "does not spell" }
         );
     }
+}
+
+/// The `<arith>` field of the first admissible subgroup choice's token.
+fn arith_field(caps: &DeviceCapabilities) -> String {
+    let token = caps
+        .target_for(
+            *caps
+                .admissible_subgroups()
+                .first()
+                .expect("a subgroup choice"),
+        )
+        .to_token();
+    token
+        .split(".arith-")
+        .nth(1)
+        .and_then(|t| t.split('.').next())
+        .expect("every token carries an arith field")
+        .to_string()
 }

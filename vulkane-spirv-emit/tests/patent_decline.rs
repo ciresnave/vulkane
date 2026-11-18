@@ -53,9 +53,11 @@ fn kernel(body: Vec<Stmt>) -> KernelFn {
     k
 }
 
-/// Every declined statement, with the name the refusal must carry and the ruling text it must carry.
-fn declined() -> Vec<(&'static str, &'static str, Stmt)> {
-    let ext = MARKER_EXT;
+/// A declined statement: the name the refusal must carry, the ruling text it must carry, and the statement.
+type Case = (&'static str, &'static str, Stmt);
+
+/// The five of board 434 C.
+fn declined_434c() -> Vec<Case> {
     vec![
         (
             "CopyAsync",
@@ -91,6 +93,13 @@ fn declined() -> Vec<(&'static str, &'static str, Stmt)> {
                 scope: Scope::Subgroup,
             },
         ),
+    ]
+}
+
+/// The seven of the 2026-11-16 extension.
+fn declined_ext() -> Vec<Case> {
+    let ext = MARKER_EXT;
+    vec![
         (
             "MbarInit",
             ext,
@@ -136,6 +145,13 @@ fn declined() -> Vec<(&'static str, &'static str, Stmt)> {
         ("Tcgen05Commit", ext, Stmt::Tcgen05Commit { bar: bar() }),
         ("WgmmaWait", ext, Stmt::WgmmaWait { pending: 0 }),
     ]
+}
+
+/// Every declined statement.
+fn declined() -> Vec<Case> {
+    let mut all = declined_434c();
+    all.extend(declined_ext());
+    all
 }
 
 fn refusal(body: Vec<Stmt>) -> String {
