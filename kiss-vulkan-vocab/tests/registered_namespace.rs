@@ -48,10 +48,12 @@
 
 use kiss_vulkan_vocab::*;
 
-/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`) at
-/// **vocabulary version 5**, §2.3's table:
+/// Verbatim from `spec/namespaces/vulkan.md` (KISS, `origin/main`, KISS#837) at
+/// **vocabulary version 7**, §2.3's table:
 ///
-/// > `dot8` · `f16` · `f64` · `i16` · `i64` · `i8` · `st16` · `st8`
+/// > `a64` · `af32` · `af64` · `dot8` · `f16` · `f64` · `i16` · `i64` · `i8` · `st16` · `st8`
+///
+/// (`a64`, `af32`, `af64` are version 7, V-16; `i16`, `i64`, `f64` are version 5, V-15.)
 ///
 /// Transcribed in the document's own order, which is the canonical ascending
 /// lexicographic one the field is emitted in.
@@ -62,7 +64,9 @@ use kiss_vulkan_vocab::*;
 /// the crate and the annex could have disagreed about `<arith>` with nothing
 /// failing. Version 5 adds three names to that field, which made the hole worth
 /// closing in the change that would otherwise have widened it.
-const REGISTERED_ARITH_NAMES: &[&str] = &["dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8"];
+const REGISTERED_ARITH_NAMES: &[&str] = &[
+    "a64", "af32", "af64", "dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8",
+];
 
 /// Both directions plus completeness — the shape `#16` established for the
 /// component tables, applied to `<arith>`.

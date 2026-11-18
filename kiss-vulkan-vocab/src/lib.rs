@@ -101,7 +101,7 @@ pub const NAMESPACE: &str = "vulkan";
 /// A `u32` rather than anything wider or fractional, because KISS-Classify §6.8-0008 says so
 /// and says why: *"an integer — a gate that truncates a fractional value is not
 /// a gate."*
-pub const VOCABULARY_VERSION: u32 = 6;
+pub const VOCABULARY_VERSION: u32 = 7;
 
 /// Byte length at which the cooperative-matrix field switches from a full
 /// canonical enumeration to a digest.
@@ -463,12 +463,30 @@ impl Arith {
     pub const INT64: Self = Self(1 << 6);
     /// `shaderFloat64` — double-precision arithmetic in shaders.
     pub const FLOAT64: Self = Self(1 << 7);
+    /// 64-bit integer atomics on both buffer and shared memory: BOTH of
+    /// `shaderBufferInt64Atomics` and `shaderSharedInt64Atomics`
+    /// (`VkPhysicalDeviceShaderAtomicInt64Features`, core in Vulkan 1.2).
+    /// A conjunction, because a kernel that uses 64-bit atomics does not know
+    /// which memory its caller binds, so a device with only one of the two cannot
+    /// be promised the capability. Added at vocabulary version 7.
+    pub const ATOMIC64: Self = Self(1 << 8);
+    /// `shaderBufferFloat32AtomicAdd` (`VK_EXT_shader_atomic_float`): atomic
+    /// `f32` add on buffer memory. The add alone, not the exchange/load/store
+    /// `shaderBufferFloat32Atomics` bit, because add is the operation a
+    /// reduction lowers to. Added at vocabulary version 7.
+    pub const ATOMIC_ADD_F32: Self = Self(1 << 9);
+    /// `shaderBufferFloat64AtomicAdd` (`VK_EXT_shader_atomic_float`): atomic
+    /// `f64` add on buffer memory. Added at vocabulary version 7.
+    pub const ATOMIC_ADD_F64: Self = Self(1 << 10);
 
     /// Every name this set can spell, held in **lexicographic** order so the
     /// canonical spelling is "the selected names, sorted, joined by `-`" — a
     /// rule that can be stated normatively in one line and reproduced by any
     /// implementation without consulting a bit layout.
     const NAMES: &'static [(&'static str, u16)] = &[
+        ("a64", 1 << 8),
+        ("af32", 1 << 9),
+        ("af64", 1 << 10),
         ("dot8", 1 << 1),
         ("f16", 1 << 2),
         ("f64", 1 << 7),

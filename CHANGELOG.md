@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [kiss-vulkan-vocab 0.6.0] — vocabulary version 7 (BREAKING)
+
+`kiss-vulkan-vocab` 0.6.0 (0.5.0 is the vocabulary-6 release): `VOCABULARY_VERSION` is 7 and the `<arith>` field gains three names, `a64` (`shaderBufferInt64Atomics` AND `shaderSharedInt64Atomics`), `af32` (`shaderBufferFloat32AtomicAdd`) and `af64` (`shaderBufferFloat64AtomicAdd`), per KISS#837 (`spec/namespaces/vulkan.md`, V-16, KISS 0.19.0). `vulkane`'s optional dependency now requires `^0.6.0`.
+
+**Breaking, and why:** all three feature bits predate the registry baseline (`VK_HEADER_VERSION` 348), so naming them changes the token of every device that has them. **Migration:** a device that spelled `arith-dot8-f16-i8` at version 6 spells `arith-a64-dot8-f16-i8` at version 7 if it has 64-bit atomics; a consumer that cached or matched a version 6 token for such a device must re-derive it, and one that asserts `VOCABULARY_VERSION` (KISS-CLASSIFY-6.8-0009) must move to 7. Measured on this repo's Windows GPU: its arith field went from `dot8-f16-f64-i16-i64-i8-st16-st8` to `a64-dot8-f16-f64-i16-i64-i8-st16-st8`. The committed §6.8-0008 manifest moves in exactly three lines (`vocabulary_version`, `generated_from`, `arith_names`); no vector or digest changed. Additive in the crate API (`Arith::ATOMIC64`, `ATOMIC_ADD_F32`, `ATOMIC_ADD_F64`).
+
 ## [kiss-vulkan-vocab 0.5.0] — vocabulary version 6 (BREAKING)
 
 `kiss-vulkan-vocab` 0.5.0 (0.4.9 is served on crates.io with different source): the `x<n>` escape is removed and `VOCABULARY_VERSION` is 6. `vulkane`'s optional dependency now requires `^0.5.0`. See the vocab-6 fragment for the full change.
@@ -14,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [vulkan_gen 0.5.2] — vulkan_gen version bump (row 9a source change)
 
 `vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped.
+
+## [0.25.0] — **BREAKING**: vulkan vocabulary version 7 (`a64` `af32` `af64`, kiss-vulkan-vocab 0.6.0), repin to unpopped ~0.56.2 / fishstringer ~0.4.0, by-name patent declines
+
+Three changes in one PR (one PR per day, PM 2026-11-16).
+
+**1. Vocabulary 7.** Adds the atomic capability names `a64`, `af32` and `af64` to the `vulkan:` `<arith>` field (KISS#837, KISS 0.19.0): `vulkane::safe::PhysicalDevice::shader_atomic_features` / `ShaderAtomicFeatures` read `VkPhysicalDeviceShaderAtomicInt64Features` and `VK_EXT_shader_atomic_float` (chained only when the device lists the extension; a failed extension enumeration declines), and `vulkane::kiss::DeviceCapabilities` derives the names from them. Breaking for tokens: a device with 64-bit atomics now spells `a64`. `kiss-vulkan-vocab` moves to 0.6.0 on its own version line (CHANGELOG section above, with the migration); the manifest changes in three lines. ROADMAP row 8d-cap.
+
+**2. Repin.** `unpopped`, `unpopped-vocab`, `unpopped-cpu-c`, `unpopped-convert` `~0.47.0` -> `~0.56.2` and `fishstringer-*` `~0.2.0` -> `~0.4.0` (0.4.0 requires `unpopped ^0.56.1`; the `Backend` trait must be the same one on both sides), across the emit/parse crates and `vulkane`'s dev-dependency on `fishstringer-kernels-source`. Source compiled unchanged.
+
+**3. Patent declines by name, twelve statements (board 434 C and its extension; NVIDIA US11294713B2, US12118382B2, US11803380B2, US12204897B2).** `vulkane-spirv-emit`, `vulkane-hlsl-emit` and `vulkane-wgsl-emit` override `Backend::lower_kernel` and refuse `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective` and `CollectiveTuple` (board 434 C) and `MbarInit`, `MbarArrive`, `MbarCompleteTx`, `MbarWait`, `CopyBulk`, `Tcgen05Commit`, `WgmmaWait` (extension) by name with `LowerError::UnsupportedKernel`, at the top level and at any `If`/`For`/`While` depth, via an exhaustive `Stmt` match (no wildcard: a new statement fails to compile until classified). Every other kernel gets the same typed refusal as before. `tests/patent_decline.rs` in each crate pins all twelve names at six nesting shapes with a control; a mutation that drops one name fails it; `CollectiveTuple` is the tuple form of `Collective`: 434 C read as covering it; not named in the ruling's list. ROADMAP row 8l; the READMEs carry the builder warning.
+
+**4. Dependency-security gate.** Adds `deny.toml` and a `cargo deny` CI job (advisories, licences, bans, sources; FishStringer's template). The one advisory is RUSTSEC-2026-0192 (`ttf-parser`, unmaintained, dev-only via `winit`), ignored with its reason and a 30-day expiry (2026-12-18, PM ruling 2026-11-17). ROADMAP row 10.
 
 ## [0.24.2] — docs: document the vulkan_gen and vulkane::raw::version public items (ROADMAP row 9a)
 

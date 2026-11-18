@@ -27,6 +27,8 @@
 //! f16/bf16, no polyfilled ops. A decline from `Slang` is returned unchanged except that its text
 //! still says `slang backend`; the variant is what callers match on.
 
+mod patent_decline;
+
 use fishstringer_slang_emit::Slang;
 use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError};
 use unpopped::plan::KernelPlan;
@@ -89,6 +91,12 @@ fn retarget(k: &GeneratedKernel, dtype: ElementKind) -> GeneratedKernel {
 impl Backend for Hlsl {
     fn name(&self) -> &str {
         "hlsl"
+    }
+    fn lower_kernel(
+        &self,
+        kernel: &unpopped::kernel::KernelFn,
+    ) -> Result<GeneratedKernel, LowerError> {
+        Err(patent_decline::refuse_kernel(self.name(), kernel))
     }
     fn provider(&self) -> &str {
         "vulkane"

@@ -314,3 +314,62 @@ fn v5_arith_names_the_device_reports_are_spelled_in_the_token() {
         );
     }
 }
+
+/// Vocabulary version 7, Direction A for the atomic names: the device's atomic
+/// capability bits and the derived `<arith>` field agree, name by name.
+///
+/// `a64` is a conjunction (buffer AND shared), so a device with only one of the two
+/// must NOT spell it; that is the half of the rule a plain "bit set means spelled"
+/// loop would miss. Whole parts, not substrings (`af64` contains `a64` as no part).
+#[test]
+fn v7_atomic_names_the_device_reports_are_spelled_in_the_token() {
+    let (_i, physical, caps) = match caps() {
+        Ok(v) => v,
+        Err(why) => return common::skipped(&why),
+    };
+    let arith = arith_field(&caps);
+    let Some(a) = physical.shader_atomic_features() else {
+        // The device cannot say (below 1.2 without VK_KHR_shader_atomic_int64):
+        // the deriver under-claims, so no atomic name may appear.
+        assert!(
+            !arith
+                .split('-')
+                .any(|p| ["a64", "af32", "af64"].contains(&p)),
+            "the device declined the atomic query but arith {arith:?} spells an atomic name"
+        );
+        return;
+    };
+    eprintln!("v7 atomics: {a:?}; arith field {arith:?}");
+    for (expected, name) in [
+        (a.buffer_int64 && a.shared_int64, "a64"),
+        (a.buffer_float32_add, "af32"),
+        (a.buffer_float64_add, "af64"),
+    ] {
+        let spelled = arith.split('-').any(|p| p == name);
+        assert_eq!(
+            expected,
+            spelled,
+            "atomic capabilities {a:?} say {name:?} should be {} but arith {arith:?} {} it",
+            if expected { "present" } else { "absent" },
+            if spelled { "spells" } else { "does not spell" }
+        );
+    }
+}
+
+/// The `<arith>` field of the first admissible subgroup choice's token.
+fn arith_field(caps: &DeviceCapabilities) -> String {
+    let token = caps
+        .target_for(
+            *caps
+                .admissible_subgroups()
+                .first()
+                .expect("a subgroup choice"),
+        )
+        .to_token();
+    token
+        .split(".arith-")
+        .nth(1)
+        .and_then(|t| t.split('.').next())
+        .expect("every token carries an arith field")
+        .to_string()
+}

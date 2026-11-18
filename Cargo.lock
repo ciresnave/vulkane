@@ -426,15 +426,15 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fishstringer-kernels-source"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34e13cdbb9f0d65b08fbb3a0d216d0791dd6bc39cc41de3ec2389da5ab287ddc"
+checksum = "7f5902afe74b0dc55434232ac6af9a38d754795d6be4eb43ae55073daa1ee55d"
 
 [[package]]
 name = "fishstringer-slang-emit"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e962f007ed764665ca956dea991c94036f7fdbbf15215cd3b8749c4b432edcec"
+checksum = "567b71e04f808e8858d8da37195f2cedf94b0bd93eb1ba8da844a324fb3ef8ba"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -442,9 +442,9 @@ dependencies = [
 
 [[package]]
 name = "fishstringer-slang-parse"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bbb99c5e1465927c639f44b025364850c272ed2dfeb7a8879381b1dbb142fe4"
+checksum = "a3b5a9febf5d786aa80fa42b1b88511905394f011ace9525cf240219848b22d0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "kiss-vulkan-vocab"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "lalrpop-util"
@@ -1980,9 +1980,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unpopped"
-version = "0.47.0"
+version = "0.56.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64d03be5158fd6e39b8cf9a353bda6d9b5c186614348a0fdd9207b9358af7397"
+checksum = "264610e1d4948d3cfbf70e4da7fa6801e2283d676820735996bbf39afced2374"
 dependencies = [
  "libm",
  "serde",
@@ -1992,9 +1992,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-convert"
-version = "0.47.0"
+version = "0.56.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b589d95332d1e8c165fbf33e4bb48c9b8731feff4cce705dd523ffeac20adf0"
+checksum = "3aad2dc81e0dda4cec8c77ab2968a651226d5c03b135a79618936c86097d529e"
 dependencies = [
  "tree-sitter",
  "unpopped",
@@ -2003,9 +2003,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.47.0"
+version = "0.56.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae6b5642aa8d380ae558aa40342543df16ccb6c4dc85ca990d9a1c33c0879ecb"
+checksum = "09a5460c9431d755f532c48f4e9f50c5b745b436c9c0494767c5f1dc5175c637"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -2013,9 +2013,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.47.0"
+version = "0.56.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a25cf53ea3814093711ab8a540447029e88c65f9858b61f550ea28f3290dd82e"
+checksum = "e8614b6d55e6641c5abf919c39474b3e403179307c88920d32e6944f49ef86e6"
 dependencies = [
  "float8",
  "half",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "fishstringer-kernels-source",
  "kiss-vulkan-vocab",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-emit"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "fishstringer-slang-emit",
  "tempfile",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-hlsl-parse"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hlsl",
@@ -2125,25 +2125,25 @@ dependencies = [
 
 [[package]]
 name = "vulkane-kernels-source"
-version = "0.24.2"
+version = "0.25.0"
 
 [[package]]
 name = "vulkane-slang-emit"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "fishstringer-slang-emit",
 ]
 
 [[package]]
 name = "vulkane-slang-parse"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "fishstringer-slang-parse",
 ]
 
 [[package]]
 name = "vulkane-spirv-emit"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "fishstringer-slang-emit",
  "rspirv",
@@ -2157,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-spirv-parse"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "rspirv",
  "thiserror 2.0.21",
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-wgsl-emit"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "naga",
  "tempfile",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "vulkane-wgsl-parse"
-version = "0.24.2"
+version = "0.25.0"
 dependencies = [
  "naga",
  "wgsl-parse",
@@ -2690,9 +2690,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+checksum = "85ccff8a4805aba1eaa4cd4afcd49f7557dd2cf5fd79ffc37f8959466effc5aa"
 
 [[package]]
 name = "zlib-rs"

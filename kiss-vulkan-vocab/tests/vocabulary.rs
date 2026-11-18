@@ -707,7 +707,7 @@ fn the_grammar_doc_matches_what_to_token_emits() {
 #[test]
 fn unnamed_component_types_are_omitted_whole_and_reported() {
     use kiss_vulkan_vocab::unnamed_types;
-    assert_eq!(kiss_vulkan_vocab::VOCABULARY_VERSION, 6);
+    assert_eq!(kiss_vulkan_vocab::VOCABULARY_VERSION, 7);
     let named = CoopShape {
         m: 16,
         n: 16,

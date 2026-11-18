@@ -1,6 +1,6 @@
 [package]
 name         = "vulkane-slang-emit"
-version      = "0.24.2"
+version      = "0.25.0"
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
@@ -14,7 +14,7 @@ readme       = "README.md"
 include      = ["src/**", "README.md", "LICENSE-*"]
 
 [dependencies]
-fishstringer-slang-emit = "~0.2.0"
+fishstringer-slang-emit = "~0.4.0"
 
 [features]
 convert = ["fishstringer-slang-emit/convert"]

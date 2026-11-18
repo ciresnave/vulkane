@@ -812,6 +812,56 @@ impl PhysicalDevice {
         })
     }
 
+    /// Query the shader atomic capabilities a reduction or histogram kernel is
+    /// specialised on: 64-bit integer atomics (`VkPhysicalDeviceShaderAtomicInt64Features`,
+    /// Vulkan 1.2 core) and the atomic `f32`/`f64` *add* bits of
+    /// `VK_EXT_shader_atomic_float`.
+    ///
+    /// Returns `None` when `vkGetPhysicalDeviceFeatures2` is unavailable, when the
+    /// device's extension list cannot be read, or when the
+    /// [`effective_api_version`](Self::effective_api_version) is below 1.2 and the
+    /// device does not advertise `VK_KHR_shader_atomic_int64`: a decline rather
+    /// than an all-`false` struct the driver never wrote. A device that does answer
+    /// but lacks `VK_EXT_shader_atomic_float` reports the two float-add bits as
+    /// `false`, and the extension's struct is never chained then (chaining a struct
+    /// of an extension the device does not have is invalid).
+    pub fn shader_atomic_features(&self) -> Option<ShaderAtomicFeatures> {
+        let get2 = self.instance.dispatch.vkGetPhysicalDeviceFeatures2?;
+
+        let api = self.effective_api_version();
+        let core_1_2 = api.major() > 1 || api.minor() >= 2;
+        // `.ok()?`, not `unwrap_or_default()`: a failed enumeration must decline,
+        // not read as "no extensions" and so as "no float atomics".
+        let exts = self.enumerate_extension_properties().ok()?;
+        let has = |name: &str| exts.iter().any(|e| e.name() == name);
+        if !core_1_2 && !has("VK_KHR_shader_atomic_int64") {
+            return None;
+        }
+        let float_ext = has("VK_EXT_shader_atomic_float");
+
+        let mut chain = crate::safe::PNextChain::new();
+        chain.push(VkPhysicalDeviceShaderAtomicInt64Features::new_pnext());
+        if float_ext {
+            chain.push(VkPhysicalDeviceShaderAtomicFloatFeaturesEXT::new_pnext());
+        }
+        let mut features2 = VkPhysicalDeviceFeatures2 {
+            sType: VkStructureType::STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            pNext: chain.head_mut(),
+            ..Default::default()
+        };
+        // Safety: handle valid; features2 + chain live for the call.
+        unsafe { get2(self.handle, &mut features2) };
+
+        let i64a = chain.get::<VkPhysicalDeviceShaderAtomicInt64Features>()?;
+        let fl = chain.get::<VkPhysicalDeviceShaderAtomicFloatFeaturesEXT>();
+        Some(ShaderAtomicFeatures {
+            buffer_int64: i64a.shaderBufferInt64Atomics != 0,
+            shared_int64: i64a.shaderSharedInt64Atomics != 0,
+            buffer_float32_add: fl.is_some_and(|f| f.shaderBufferFloat32AtomicAdd != 0),
+            buffer_float64_add: fl.is_some_and(|f| f.shaderBufferFloat64AtomicAdd != 0),
+        })
+    }
+
     /// Query shader integer-dot-product acceleration properties
     /// (`VK_KHR_shader_integer_dot_product`, core in Vulkan 1.3).
     ///
@@ -1428,6 +1478,21 @@ pub struct ShaderArithmeticFeatures {
     pub storage_buffer_16bit: bool,
     /// `storageBuffer8BitAccess` — likewise for 8-bit types.
     pub storage_buffer_8bit: bool,
+}
+
+/// Shader atomic capabilities a reduction or histogram kernel is specialised on.
+///
+/// Returned by [`PhysicalDevice::shader_atomic_features`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShaderAtomicFeatures {
+    /// `shaderBufferInt64Atomics` — 64-bit integer atomics on buffer memory.
+    pub buffer_int64: bool,
+    /// `shaderSharedInt64Atomics` — 64-bit integer atomics on shared memory.
+    pub shared_int64: bool,
+    /// `shaderBufferFloat32AtomicAdd` (`VK_EXT_shader_atomic_float`).
+    pub buffer_float32_add: bool,
+    /// `shaderBufferFloat64AtomicAdd` (`VK_EXT_shader_atomic_float`).
+    pub buffer_float64_add: bool,
 }
 
 /// Driver identity — which ICD is behind this physical device, and what

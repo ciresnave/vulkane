@@ -1,0 +1,4 @@
+# Crates that bump their own version (the stamp covers only the project-line crates). Not counted as a version bump by tools/check-fragment.py.
+kiss-vulkan-vocab/Cargo.toml
+vulkan_gen/Cargo.toml
+vulkane_derive/Cargo.toml

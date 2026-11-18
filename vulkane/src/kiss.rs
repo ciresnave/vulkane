@@ -54,7 +54,9 @@
 //! ```
 
 use crate::raw::bindings::{VkComponentTypeKHR, VkPhysicalDeviceFeatures};
-use crate::safe::{PhysicalDevice, ShaderArithmeticFeatures, SubgroupFeatureFlags};
+use crate::safe::{
+    PhysicalDevice, ShaderArithmeticFeatures, ShaderAtomicFeatures, SubgroupFeatureFlags,
+};
 use kiss_vulkan_vocab::{
     Arith, ComponentType, CoopMatrix, CoopShape, CoopVecCombo, CoopVector, OpClasses, Subgroup,
     VulkanTarget,
@@ -143,6 +145,16 @@ const ARITH_FROM_CORE_FEATURES: ArithProbes<VkPhysicalDeviceFeatures> = &[
     (|f| f.shaderFloat64 != 0, Arith::FLOAT64),
 ];
 
+/// Arithmetic names produced from atomic-capability bits (vocabulary version 7):
+/// `VkPhysicalDeviceShaderAtomicInt64Features` (core 1.2) and the optional
+/// `VK_EXT_shader_atomic_float`, which the probe reports `false` for when absent.
+/// `a64` is the conjunction of the buffer and the shared bit.
+const ARITH_FROM_ATOMIC_FEATURES: ArithProbes<ShaderAtomicFeatures> = &[
+    (|f| f.buffer_int64 && f.shared_int64, Arith::ATOMIC64),
+    (|f| f.buffer_float32_add, Arith::ATOMIC_ADD_F32),
+    (|f| f.buffer_float64_add, Arith::ATOMIC_ADD_F64),
+];
+
 /// The one arithmetic name produced from a disjunction rather than a single bit:
 /// any of six `integerDotProduct*` accelerations satisfies it. Held separately
 /// because its probe takes a different struct and is not a field read.
@@ -185,6 +197,16 @@ impl DeviceCapabilities {
             .is_some_and(|d| d.has_any_int8_acceleration())
         {
             arith |= ARITH_FROM_DOT_PRODUCT;
+        }
+
+        // Vocabulary version 7: the atomic names. `None` (the device cannot say)
+        // leaves them unset, the same under-claim as the optional structs above.
+        if let Some(f) = physical.shader_atomic_features() {
+            for (probe, name) in ARITH_FROM_ATOMIC_FEATURES {
+                if probe(&f) {
+                    arith |= *name;
+                }
+            }
         }
 
         // Vocabulary version 5. These three are core `VkPhysicalDeviceFeatures`
@@ -689,6 +711,9 @@ mod derivability {
             a |= *name;
         }
         for (_, name) in ARITH_FROM_CORE_FEATURES {
+            a |= *name;
+        }
+        for (_, name) in ARITH_FROM_ATOMIC_FEATURES {
             a |= *name;
         }
         a
