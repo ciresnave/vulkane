@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Tests for `Backend::lower_kernel` (ROADMAP rows 8a and 8b, first slice): a producer/consumer
+//! through workgroup memory, with and without the barrier, and the typed declines.
+
+use unpopped::backend::{Backend, GeneratedKernel, LowerError};
+use unpopped::exec::{AllocDecl, ExecId, Extent, LaunchShape, MemorySpace, Scope};
+use unpopped::ir::ScalarExpr as E;
+use unpopped::kernel::{
+    BarrierKind, Block, BufferRole, KernelFn, LocalDecl, MemoryOrder, Param, Place, Stmt,
+};
+use unpopped_vocab::ElementKind::{F32, U32};
+
+use crate::SpirV;
+use crate::tests::assert_valid;
+
+const N: u32 = 64;
+
+fn tid() -> E {
+    E::Exec(ExecId::ThreadIdx(0))
+}
+
+fn c(v: i64) -> E {
+    E::ConstInt(v, U32)
+}
+
+fn sub(a: E, b: E) -> E {
+    E::Sub(Box::new(a), Box::new(b))
+}
+
+/// Each thread writes `in[t]` to `tile[t]`, then reads `tile[N-1-t]` into `out[t]`: the block
+/// reversed through shared memory, which is only right when every write is visible first.
+fn reverse(with_barrier: bool) -> KernelFn {
+    let mut body = vec![
+        Stmt::Let {
+            local: 0,
+            init: tid(),
+        },
+        Stmt::Load {
+            local: 1,
+            place: Place::Logical {
+                buffer: 0,
+                coords: vec![E::Local(0)],
+            },
+        },
+        Stmt::Store {
+            place: Place::Alloc {
+                alloc: 0,
+                index: E::Local(0),
+            },
+            value: E::Local(1),
+        },
+    ];
+    if with_barrier {
+        body.push(Stmt::Barrier {
+            scope: Scope::Block,
+            kind: BarrierKind::Full,
+        });
+    }
+    body.extend([
+        Stmt::Let {
+            local: 2,
+            init: sub(c(i64::from(N) - 1), E::Local(0)),
+        },
+        Stmt::Load {
+            local: 3,
+            place: Place::Alloc {
+                alloc: 0,
+                index: E::Local(2),
+            },
+        },
+        Stmt::Store {
+            place: Place::Logical {
+                buffer: 1,
+                coords: vec![E::Local(0)],
+            },
+            value: E::Local(3),
+        },
+    ]);
+    let mut k = KernelFn::new(
+        "reverse",
+        U32,
+        vec![
+            Param::buffer("input", U32, BufferRole::Read, None),
+            Param::buffer("output", U32, BufferRole::Write, None),
+        ],
+        vec![LocalDecl::scalar(U32); 4],
+        Block(body),
+    );
+    k.launch = Some(LaunchShape::new([N, 1, 1], [1, 1, 1]));
+    k.allocs = vec![AllocDecl::new(
+        "tile",
+        MemorySpace::Shared,
+        U32,
+        Extent::Static(N),
+    )];
+    k
+}
+
+fn lower(k: &KernelFn) -> Result<GeneratedKernel, LowerError> {
+    SpirV.lower_kernel(k)
+}
+
+fn count(src: &str, needle: &str) -> usize {
+    src.lines().filter(|l| l.contains(needle)).count()
+}
+
+#[test]
+fn the_reverse_kernel_validates_and_has_the_workgroup_shape() {
+    let g = lower(&reverse(true)).expect("lowers");
+    assert_valid(&g);
+    assert_eq!(count(&g.source, "OpControlBarrier"), 1, "{}", g.source);
+    assert!(g.source.contains("Workgroup"), "{}", g.source);
+    assert!(
+        g.source.contains(&format!("LocalSize {N} 1 1")),
+        "{}",
+        g.source
+    );
+    // A `Read` buffer is `NonWritable`, the `Write` one is not.
+    assert_eq!(count(&g.source, "NonWritable"), 1, "{}", g.source);
+}
+
+/// Control: the instruction check sees the barrier, so its absence in the other module is a
+/// real absence (the same query finds the one in the barriered module).
+#[test]
+fn dropping_the_barrier_drops_exactly_the_control_barrier() {
+    let with = lower(&reverse(true)).expect("lowers");
+    let without = lower(&reverse(false)).expect("lowers");
+    assert_valid(&without);
+    assert_eq!(count(&with.source, "OpControlBarrier"), 1);
+    assert_eq!(count(&without.source, "OpControlBarrier"), 0);
+    assert_ne!(with.words(), without.words());
+}
+
+#[test]
+fn the_barrier_orders_workgroup_and_buffer_memory_at_workgroup_scope() {
+    let g = lower(&reverse(true)).expect("lowers");
+    let line = g
+        .source
+        .lines()
+        .find(|l| l.contains("OpControlBarrier"))
+        .unwrap();
+    let ids: Vec<&str> = line
+        .split_whitespace()
+        .filter(|w| w.starts_with('%'))
+        .collect();
+    let konst = |id: &str| -> u32 {
+        let def = g
+            .source
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("{id} = ")))
+            .unwrap();
+        def.split_whitespace().last().unwrap().parse().unwrap()
+    };
+    assert_eq!(konst(ids[0]), 2, "execution scope Workgroup");
+    assert_eq!(konst(ids[1]), 2, "memory scope Workgroup");
+    // AcquireRelease (0x8) | UniformMemory (0x40) | WorkgroupMemory (0x100)
+    assert_eq!(konst(ids[2]), 0x148, "semantics");
+}
+
+#[test]
+fn a_fence_validates_and_seqcst_collapses_to_acquire_release() {
+    for (order, bits) in [
+        (MemoryOrder::Acquire, 0x2 | 0x140),
+        (MemoryOrder::Release, 0x4 | 0x140),
+        (MemoryOrder::AcqRel, 0x8 | 0x140),
+        (MemoryOrder::SeqCst, 0x8 | 0x140),
+    ] {
+        let mut k = reverse(true);
+        k.body.0.insert(
+            3,
+            Stmt::Fence {
+                scope: Scope::Block,
+                order,
+            },
+        );
+        let g = lower(&k).expect("lowers");
+        assert_valid(&g);
+        let line = g
+            .source
+            .lines()
+            .find(|l| l.contains("OpMemoryBarrier"))
+            .unwrap();
+        let sem = line.split_whitespace().last().unwrap();
+        let def = g
+            .source
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("{sem} = ")))
+            .unwrap();
+        assert_eq!(
+            def.split_whitespace()
+                .last()
+                .unwrap()
+                .parse::<u32>()
+                .unwrap(),
+            bits,
+            "{order:?}"
+        );
+    }
+}
+
+fn declined(k: &KernelFn, needle: &str) {
+    match lower(k) {
+        Err(LowerError::UnsupportedKernel { detail }) => {
+            assert!(detail.contains(needle), "wanted `{needle}` in `{detail}`");
+        }
+        other => panic!("wanted an UnsupportedKernel naming `{needle}`, got {other:?}"),
+    }
+}
+
+#[test]
+fn what_this_slice_does_not_lower_is_a_typed_decline_naming_it() {
+    let mut f = reverse(true);
+    f.compute = F32;
+    declined(&f, "integer kernels only");
+
+    let mut d = reverse(true);
+    d.params.push(Param::scalar("n", U32, 4));
+    d.locals.push(LocalDecl::scalar(U32));
+    d.allocs[0].extent = Extent::Param(4);
+    declined(&d, "dynamic extent");
+
+    let mut dev = reverse(true);
+    dev.body.0.insert(
+        3,
+        Stmt::Barrier {
+            scope: Scope::Device,
+            kind: BarrierKind::Full,
+        },
+    );
+    declined(&dev, "Barrier");
+
+    let mut named = reverse(true);
+    named.body.0.insert(
+        3,
+        Stmt::Barrier {
+            scope: Scope::Block,
+            kind: BarrierKind::Named { id: 1, count: N },
+        },
+    );
+    declined(&named, "Barrier");
+
+    let mut ctl = reverse(true);
+    ctl.body.0.push(Stmt::Return);
+    declined(&ctl, "Return");
+}
