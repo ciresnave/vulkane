@@ -70,8 +70,8 @@ pub(crate) fn reverse(n: u32, with_barrier: bool, dynamic: bool) -> KernelFn {
     }
     body.extend(consume(n));
     let params = vec![
-        Param::buffer("input", U32, BufferRole::Read, None),
-        Param::buffer("output", U32, BufferRole::Write, None),
+        Param::buffer("input", U32, BufferRole::Read, Some(1)),
+        Param::buffer("output", U32, BufferRole::Write, Some(1)),
     ];
     let mut k = KernelFn::new(
         "reverse",

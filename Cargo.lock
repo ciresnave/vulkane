@@ -432,9 +432,9 @@ checksum = "7f5902afe74b0dc55434232ac6af9a38d754795d6be4eb43ae55073daa1ee55d"
 
 [[package]]
 name = "fishstringer-slang-emit"
-version = "0.4.0"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "567b71e04f808e8858d8da37195f2cedf94b0bd93eb1ba8da844a324fb3ef8ba"
+checksum = "c6878796a5b59cc15191d40b9c563a0b05b351400e18864debf05a0f8dccdafc"
 dependencies = [
  "unpopped",
  "unpopped-vocab",

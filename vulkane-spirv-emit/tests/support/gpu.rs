@@ -9,8 +9,9 @@
 use vulkane::safe::{
     AccessFlags, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
     DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
-    DescriptorSetLayoutBinding, DescriptorType, DeviceMemory, Fence, MemoryPropertyFlags,
-    PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags, SpecializationConstants,
+    DescriptorSetLayoutBinding, DescriptorType, DeviceFeatures, DeviceMemory, Fence,
+    MemoryPropertyFlags, PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags,
+    SpecializationConstants,
 };
 use vulkane_spirv_emit::WORKGROUP_SIZE;
 
@@ -23,15 +24,9 @@ fn host_buffer(
     device: &vulkane::safe::Device,
     physical: &vulkane::safe::PhysicalDevice,
     size: u64,
+    usage: BufferUsage,
 ) -> (Buffer, DeviceMemory) {
-    let buffer = Buffer::new(
-        device,
-        BufferCreateInfo {
-            size,
-            usage: BufferUsage::STORAGE_BUFFER,
-        },
-    )
-    .unwrap();
+    let buffer = Buffer::new(device, BufferCreateInfo { size, usage }).unwrap();
     let req = buffer.memory_requirements();
     let mt = physical
         .find_memory_type(
@@ -61,7 +56,14 @@ pub(crate) struct Gpu {
 
 impl Gpu {
     /// Instance, first compute device and queue; `None` once the skip is declared.
+    #[allow(dead_code)] // test binaries that need features use `open_with`
     pub(crate) fn open(tag: &str) -> Option<Gpu> {
+        Self::open_with(tag, None)
+    }
+
+    /// [`Gpu::open`] on a device created with `features` (and the label a refusal reports).
+    #[allow(dead_code)]
+    pub(crate) fn open_with(tag: &str, features: Option<(&DeviceFeatures, &str)>) -> Option<Gpu> {
         let (inst, devices) = match common::instance_and_devices(tag, ApiVersion::V1_1) {
             Ok(x) => x,
             Err(cause) => {
@@ -76,7 +78,7 @@ impl Gpu {
                 return None;
             }
         };
-        let device = match common::create_device_on(&physical, qf, None) {
+        let device = match common::create_device_on(&physical, qf, features) {
             Ok(d) => d,
             Err(cause) => {
                 common::skip(cause);
@@ -94,33 +96,43 @@ impl Gpu {
     }
 
     /// One storage-buffer binding per buffer, in order, each covering `bytes`.
+    /// With `uniform` (a buffer and its size), one more binding after them, a uniform buffer.
     fn bind(
         &self,
         bufs: &[&Buffer],
         bytes: u64,
+        uniform: Option<(&Buffer, u64)>,
     ) -> (DescriptorSetLayout, DescriptorPool, DescriptorSet) {
         let device = &self.device;
         let count = bufs.len() as u32;
-        let binding = |binding| DescriptorSetLayoutBinding {
+        let binding = |binding, descriptor_type| DescriptorSetLayoutBinding {
             binding,
-            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_type,
             descriptor_count: 1,
             stage_flags: ShaderStageFlags::COMPUTE,
         };
-        let bindings: Vec<_> = (0..count).map(binding).collect();
+        let mut bindings: Vec<_> = (0..count)
+            .map(|b| binding(b, DescriptorType::STORAGE_BUFFER))
+            .collect();
+        let mut sizes = vec![DescriptorPoolSize {
+            descriptor_type: DescriptorType::STORAGE_BUFFER,
+            descriptor_count: count,
+        }];
+        if uniform.is_some() {
+            bindings.push(binding(count, DescriptorType::UNIFORM_BUFFER));
+            sizes.push(DescriptorPoolSize {
+                descriptor_type: DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+            });
+        }
         let set_layout = DescriptorSetLayout::new(device, &bindings).unwrap();
-        let pool = DescriptorPool::new(
-            device,
-            1,
-            &[DescriptorPoolSize {
-                descriptor_type: DescriptorType::STORAGE_BUFFER,
-                descriptor_count: count,
-            }],
-        )
-        .unwrap();
+        let pool = DescriptorPool::new(device, 1, &sizes).unwrap();
         let dset = pool.allocate(&set_layout).unwrap();
         for (i, buf) in bufs.iter().enumerate() {
             dset.write_buffer(i as u32, DescriptorType::STORAGE_BUFFER, buf, 0, bytes);
+        }
+        if let Some((buf, size)) = uniform {
+            dset.write_buffer(count, DescriptorType::UNIFORM_BUFFER, buf, 0, size);
         }
         (set_layout, pool, dset)
     }
@@ -161,12 +173,37 @@ impl Gpu {
     }
 
     /// [`Gpu::run`] with specialization constants baked into the pipeline.
+    #[allow(dead_code)]
     pub(crate) fn run_spec(
         &self,
         name: &str,
         words: &[u32],
         inputs: &[&[u32]],
         spec: Option<&SpecializationConstants>,
+    ) -> Vec<u32> {
+        self.run_full(name, words, inputs, spec, None)
+    }
+
+    /// [`Gpu::run`] with a uniform buffer holding `params` bound after the output (the Slang and
+    /// HLSL kernel path's params block: strides and bases of the buffer views).
+    #[allow(dead_code)]
+    pub(crate) fn run_params(
+        &self,
+        name: &str,
+        words: &[u32],
+        inputs: &[&[u32]],
+        params: &[u8],
+    ) -> Vec<u32> {
+        self.run_full(name, words, inputs, None, Some(params))
+    }
+
+    fn run_full(
+        &self,
+        name: &str,
+        words: &[u32],
+        inputs: &[&[u32]],
+        spec: Option<&SpecializationConstants>,
+        params: Option<&[u8]>,
     ) -> Vec<u32> {
         let n = inputs[0].len();
         assert!(inputs.iter().all(|i| i.len() == n), "ragged inputs");
@@ -177,16 +214,31 @@ impl Gpu {
 
         let mut held = Vec::new();
         for data in inputs {
-            let (buf, mut mem) = host_buffer(device, &self.physical, bytes);
+            let (buf, mut mem) =
+                host_buffer(device, &self.physical, bytes, BufferUsage::STORAGE_BUFFER);
             write_words(&mut mem, data);
             held.push((buf, mem));
         }
-        let (o_buf, mut o_mem) = host_buffer(device, &self.physical, bytes);
+        let (o_buf, mut o_mem) =
+            host_buffer(device, &self.physical, bytes, BufferUsage::STORAGE_BUFFER);
         write_words(&mut o_mem, &vec![SENTINEL; padded]);
 
         let mut bufs: Vec<&Buffer> = held.iter().map(|(b, _)| b).collect();
         bufs.push(&o_buf);
-        let (set_layout, _pool, dset) = self.bind(&bufs, bytes);
+        let pbuf = params.map(|p| {
+            let (buf, mut mem) = host_buffer(
+                device,
+                &self.physical,
+                p.len() as u64,
+                BufferUsage::UNIFORM_BUFFER,
+            );
+            let mut m = mem.map().unwrap();
+            m.as_slice_mut()[..p.len()].copy_from_slice(p);
+            drop(m);
+            (buf, mem, p.len() as u64)
+        });
+        let uniform = pbuf.as_ref().map(|(b, _, n)| (b, *n));
+        let (set_layout, _pool, dset) = self.bind(&bufs, bytes, uniform);
 
         let layout = PipelineLayout::new(device, &[&set_layout]).unwrap();
         let shader = ShaderModule::from_spirv(device, words).unwrap();

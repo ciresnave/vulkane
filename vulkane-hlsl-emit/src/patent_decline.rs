@@ -128,6 +128,11 @@ fn nested(stmt: &Stmt) -> Option<Declined> {
     }
 }
 
+/// Whether the kernel holds a statement refused by name.
+pub(crate) fn is_declined(kernel: &KernelFn) -> bool {
+    find(&kernel.body).is_some()
+}
+
 /// `Backend::lower_kernel` for an emitter that does not lower kernel-layer kernels yet: the typed refusal
 /// [`LowerError::UnsupportedKernel`], and when the kernel holds a declined statement the refusal NAMES it.
 pub(crate) fn refuse_kernel(backend: &str, kernel: &KernelFn) -> LowerError {
