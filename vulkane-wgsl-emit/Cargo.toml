@@ -16,6 +16,7 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 [dependencies]
 unpopped       = "~0.56.2"
 unpopped-vocab = "~0.56.2"
+vulkane-kernel-text = { path = "../vulkane-kernel-text", version = "0.25" }
 
 [dev-dependencies]
 # The validity oracle (ROADMAP 3d W4): every emitted module must validate in naga. One WGSL compiler only: Tint is not

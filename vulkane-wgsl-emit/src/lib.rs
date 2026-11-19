@@ -28,7 +28,7 @@
 //!
 //! Operands are bound `@group(0) @binding(0..N)` in declaration order: inputs, then the output.
 
-mod patent_decline;
+mod kernel_dialect;
 mod spell;
 
 use unpopped::backend::{
@@ -84,7 +84,7 @@ impl Backend for Wgsl {
         &self,
         kernel: &unpopped::kernel::KernelFn,
     ) -> Result<GeneratedKernel, LowerError> {
-        Err(patent_decline::refuse_kernel(self.name(), kernel))
+        vulkane_kernel_text::lower_kernel(&kernel_dialect::WgslKernel, kernel)
     }
     fn provider(&self) -> &str {
         "vulkane"

@@ -2193,6 +2193,7 @@ dependencies = [
  "unpopped-cpu-c",
  "unpopped-vocab",
  "vulkane",
+ "vulkane-kernel-text",
  "vulkane-spirv-emit",
 ]
 

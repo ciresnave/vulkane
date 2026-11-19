@@ -744,7 +744,7 @@ jobs:
       - name: Install Lavapipe (runner provisioning)
         run: |
           sudo apt-get update
-          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools glslang-tools spirv-tools
           vulkaninfo --summary
       - name: Unpack pinned dxc (not yet on PATH)
         shell: bash
@@ -779,6 +779,17 @@ jobs:
           VULKANE_REQUIRE_DEVICE: "1"
           VULKANE_REQUIRE_DXC: "1"
         run: cargo test -p vulkane-hlsl-emit --locked -- --nocapture
+      # ROADMAP 8a/8b/8g: the kernel-layer text emitters. GLSL is compiled by glslangValidator (runner apt
+      # glslang-tools) and validated by spirv-val, WGSL by naga; each reverses a block through shared memory
+      # and runs a break/continue/return kernel on Lavapipe. A missing device or tool is a failure here.
+      - name: Test the GLSL and WGSL kernel emitters and the SPIR-V kernel device tests
+        env:
+          VULKANE_REQUIRE_DEVICE: "1"
+          VULKANE_REQUIRE_GLSLANG: "1"
+          VULKANE_REQUIRE_SPIRV_VAL: "1"
+        run: |
+          cargo test -p vulkane-kernel-text -p vulkane-glsl-emit -p vulkane-wgsl-emit --locked -- --nocapture
+          cargo test -p vulkane-spirv-emit --locked --test kernel_barrier_live --test kernel_flow_live -- --nocapture
 
   format:
     name: rustfmt
