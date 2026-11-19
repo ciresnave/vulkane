@@ -121,12 +121,11 @@ fn uses_subgroup(block: &unpopped::kernel::Block) -> bool {
     })
 }
 
-/// Run every check; see the crate docs for the scope.
-pub(crate) fn check(d: &dyn Dialect, kernel: &KernelFn) -> Result<Scope, LowerError> {
-    check_kernel(kernel).map_err(|e| LowerError::UnsupportedKernel {
-        detail: format!("check_kernel refused kernel `{}`: {e:?}", kernel.name),
-    })?;
-    let signed = dtype(d, kernel)?;
+/// The launch shape: present, with a static grid.
+fn launch<'k>(
+    d: &dyn Dialect,
+    kernel: &'k KernelFn,
+) -> Result<&'k unpopped::exec::LaunchShape, LowerError> {
     let Some(launch) = kernel.launch.as_ref() else {
         return Err(refuse(
             d.name(),
@@ -141,15 +140,33 @@ pub(crate) fn check(d: &dyn Dialect, kernel: &KernelFn) -> Result<Scope, LowerEr
             "a parameter-dependent grid is not lowered",
         ));
     }
-    for (i, l) in kernel.locals.iter().enumerate() {
-        if l.lanes != 1 || l.elem != kernel.compute {
-            return Err(refuse(
-                d.name(),
-                kernel,
-                format!("local {i} is not a scalar of the compute dtype"),
-            ));
-        }
+    Ok(launch)
+}
+
+/// Every local must be a scalar of the compute dtype.
+fn locals(d: &dyn Dialect, kernel: &KernelFn) -> Result<(), LowerError> {
+    match kernel
+        .locals
+        .iter()
+        .position(|l| l.lanes != 1 || l.elem != kernel.compute)
+    {
+        Some(i) => Err(refuse(
+            d.name(),
+            kernel,
+            format!("local {i} is not a scalar of the compute dtype"),
+        )),
+        None => Ok(()),
     }
+}
+
+/// Run every check; see the crate docs for the scope.
+pub(crate) fn check(d: &dyn Dialect, kernel: &KernelFn) -> Result<Scope, LowerError> {
+    check_kernel(kernel).map_err(|e| LowerError::UnsupportedKernel {
+        detail: format!("check_kernel refused kernel `{}`: {e:?}", kernel.name),
+    })?;
+    let signed = dtype(d, kernel)?;
+    let launch = launch(d, kernel)?;
+    locals(d, kernel)?;
     let buffers = (0..kernel.params.len())
         .map(|i| buffer(d, kernel, i))
         .collect::<Result<_, _>>()?;

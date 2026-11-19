@@ -5,6 +5,29 @@ use unpopped::exec::{ExecId, Scope};
 use unpopped::ir::{ArithOp, BinaryOp};
 use unpopped::kernel::{BufferRole, MemoryOrder};
 
+/// The comparisons both dialects spell with the same operator text; each gives `1` or `0` in the dtype.
+pub const COMPARISONS: &[(BinaryOp, &str)] = &[
+    (BinaryOp::CmpEq, "=="),
+    (BinaryOp::CmpNe, "!="),
+    (BinaryOp::CmpLt, "<"),
+    (BinaryOp::CmpLe, "<="),
+    (BinaryOp::CmpGt, ">"),
+    (BinaryOp::CmpGe, ">="),
+];
+
+/// The bitwise operators both dialects spell with the same operator text.
+pub const BIT_OPS: &[(BinaryOp, &str)] = &[
+    (BinaryOp::BitAnd, "&"),
+    (BinaryOp::BitOr, "|"),
+    (BinaryOp::BitXor, "^"),
+];
+
+/// The operator text `op` has in `table`, if any.
+#[must_use]
+pub fn operator(table: &[(BinaryOp, &'static str)], op: BinaryOp) -> Option<&'static str> {
+    table.iter().find(|(o, _)| *o == op).map(|(_, s)| *s)
+}
+
 /// A buffer or shared array the prologue declares.
 #[derive(Clone, Debug)]
 pub struct Decl {

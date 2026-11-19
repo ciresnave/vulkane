@@ -6,7 +6,7 @@ use std::fmt::Write;
 use unpopped::exec::{ExecId, Scope};
 use unpopped::ir::BinaryOp;
 use unpopped::kernel::{BufferRole, MemoryOrder};
-use vulkane_kernel_text::{Dialect, Layout};
+use vulkane_kernel_text::{BIT_OPS, COMPARISONS, Dialect, Layout, operator};
 
 /// The GLSL dialect of [`vulkane_kernel_text::lower_kernel`].
 #[derive(Copy, Clone, Debug, Default)]
@@ -104,23 +104,19 @@ impl Dialect for Glsl {
     }
 
     fn binary(&self, op: BinaryOp, a: &str, b: &str, signed: bool) -> Option<String> {
-        let (one, zero) = (self.lit(1, signed), self.lit(0, signed));
-        let cmp = |sym: &str| Some(format!("({a} {sym} {b} ? {one} : {zero})"));
-        let mask = self.lit(31, signed);
-        match op {
-            BinaryOp::CmpEq => cmp("=="),
-            BinaryOp::CmpNe => cmp("!="),
-            BinaryOp::CmpLt => cmp("<"),
-            BinaryOp::CmpLe => cmp("<="),
-            BinaryOp::CmpGt => cmp(">"),
-            BinaryOp::CmpGe => cmp(">="),
-            BinaryOp::BitAnd => Some(format!("({a} & {b})")),
-            BinaryOp::BitOr => Some(format!("({a} | {b})")),
-            BinaryOp::BitXor => Some(format!("({a} ^ {b})")),
-            BinaryOp::Shl => Some(format!("({a} << ({b} & {mask}))")),
-            BinaryOp::Shr => Some(format!("({a} >> ({b} & {mask}))")),
-            _ => None,
+        if let Some(sym) = operator(COMPARISONS, op) {
+            let (one, zero) = (self.lit(1, signed), self.lit(0, signed));
+            return Some(format!("({a} {sym} {b} ? {one} : {zero})"));
         }
+        if let Some(sym) = operator(BIT_OPS, op) {
+            return Some(format!("({a} {sym} {b})"));
+        }
+        let sym = match op {
+            BinaryOp::Shl => "<<",
+            BinaryOp::Shr => ">>",
+            _ => return None,
+        };
+        Some(format!("({a} {sym} ({b} & {}))", self.lit(31, signed)))
     }
 
     fn select(&self, cond: &str, a: &str, b: &str, signed: bool) -> String {

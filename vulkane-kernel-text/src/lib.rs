@@ -33,7 +33,7 @@ mod scope;
 mod stmt;
 
 pub use decline::{DECLINED_434C, DECLINED_434C_EXT, declined_by_name};
-pub use dialect::{Decl, Dialect, Layout};
+pub use dialect::{BIT_OPS, COMPARISONS, Decl, Dialect, Layout, operator};
 
 use unpopped::backend::{GeneratedKernel, LowerError};
 use unpopped::kernel::KernelFn;
