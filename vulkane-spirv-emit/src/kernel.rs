@@ -7,15 +7,19 @@
 //! - **Integer kernels only**: `compute` is `I32` or `U32`, and every buffer, shared array and
 //!   local has that element type. A float kernel is a typed decline (the thread ids are integers,
 //!   and a float kernel needs casts this slice does not spell).
-//! - **Parameters**: `Buffer` only, one storage buffer per parameter at set 0, binding = the
-//!   parameter's index; a `Read` buffer is decorated `NonWritable`. `Scalar` and `Struct`
-//!   parameters, multi-coordinate places and peer/multicast places are declined.
+//! - **Parameters**: `Buffer`, one storage buffer per parameter at set 0, binding = the
+//!   parameter's index (a `Read` buffer is decorated `NonWritable`), and the extent scalar above.
+//!   Other `Scalar` parameters, `Struct` parameters, multi-coordinate places and peer/multicast
+//!   places are declined.
 //! - **Launch**: the kernel must name a [`LaunchShape`](unpopped::exec::LaunchShape); its `block`
 //!   is the `LocalSize`, `BlockDim`/`GridDim` are constants from it. `grid_dims` that depend on a
 //!   parameter are declined.
-//! - **Workgroup memory** (row 8a): `MemorySpace::Shared` arrays of `Extent::Static` become
-//!   `OpVariable Workgroup` of array type. A dynamic extent (`Extent::Param`) is a typed decline:
-//!   SPIR-V has no per-dispatch extent (it needs a specialization constant, fixed per pipeline).
+//! - **Workgroup memory** (row 8a): `MemorySpace::Shared` arrays become `OpVariable Workgroup` of
+//!   array type. A dynamic extent (`Extent::Param`) names a scalar parameter of the compute dtype,
+//!   which is lowered as an `OpSpecConstant` (default 1) whose `SpecId` is **the parameter's index**;
+//!   the array length is that constant and the parameter's local takes its value at entry. **The
+//!   extent is therefore fixed per pipeline, not per dispatch**: the host sets it when it creates the
+//!   pipeline. A scalar parameter that does not size a shared array is a typed decline.
 //! - **Statements**: `Let`, `Load`, `Assign`, `Store`, `Barrier`, `Fence` and the structured control
 //!   flow of row 8g (`If`, `For`, `While`, `Break`, `Continue`, `Return`; see the `flow` module). Atomics,
 //!   collectives and everything else is declined naming the statement.
