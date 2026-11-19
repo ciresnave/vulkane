@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The shared text walker for Vulkane's kernel emitters (ROADMAP rows 8a, 8b and 8g for GLSL and WGSL).
 //!
-//! [`lower_kernel`] takes an Unpopped kernel-layer [`KernelFn`](unpopped::kernel::KernelFn) and a
+//! [`lower_kernel`] takes an Unpopped kernel-layer [`KernelFn`] and a
 //! [`Dialect`] and writes shader source. The walk (scope checks, statements, control flow, the
 //! structure of a `For`) is written once; a dialect supplies only the spellings that differ between
 //! GLSL and WGSL: declarations, the entry point, literals, operators, barriers.

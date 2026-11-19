@@ -2,7 +2,7 @@
 //! IR to GLSL compute-shader lowering for [Unpopped](https://crates.io/crates/unpopped).
 //!
 //! Vulkane owns GLSL in the CireSnave ecosystem. [`Glsl`] lowers a kernel-layer
-//! [`KernelFn`](unpopped::kernel::KernelFn) to GLSL 4.50 through the shared walker in
+//! [`KernelFn`] to GLSL 4.50 through the shared walker in
 //! `vulkane-kernel-text` (ROADMAP rows 8a, 8b, 8g); this crate supplies only the GLSL spellings (the
 //! [`Dialect`](vulkane_kernel_text::Dialect)).
 //!
