@@ -1,0 +1,32 @@
+[package]
+name         = "vulkane-kernel-text"
+version      = "0.25.1"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The shared text walker for Vulkane's kernel emitters: lowers an Unpopped kernel-layer KernelFn to C-like shader source through a per-language Dialect (GLSL, WGSL). Vulkane owns the text targets."
+keywords     = ["kernel", "codegen", "compiler", "glsl", "wgsl"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*"]
+
+[dependencies]
+unpopped       = "~0.56.2"
+unpopped-vocab = "~0.56.2"
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"

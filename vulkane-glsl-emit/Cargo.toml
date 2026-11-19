@@ -1,0 +1,39 @@
+[package]
+name         = "vulkane-glsl-emit"
+version      = "0.25.1"
+edition      = "2024"
+rust-version = "1.85"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "The GLSL compute-shader emitter for Unpopped: kernel-layer IR to GLSL 4.50 source (std430 buffers, shared arrays, barrier(), structured control flow) over the shared vulkane-kernel-text walker. Vulkane owns GLSL."
+keywords     = ["kernel", "codegen", "compiler", "glsl", "shader"]
+categories   = ["compilers", "development-tools", "graphics"]
+repository   = "https://github.com/ciresnave/vulkane"
+homepage     = "https://github.com/ciresnave/vulkane"
+readme       = "README.md"
+include      = ["src/**", "README.md", "LICENSE-*"]
+
+[dependencies]
+unpopped       = "~0.56.2"
+unpopped-vocab = "~0.56.2"
+vulkane-kernel-text = { path = "../vulkane-kernel-text", version = "0.25" }
+
+[dev-dependencies]
+# The live-device test opens a device through the safe wrapper (and its shared `tests/common`).
+vulkane = { path = "../vulkane" }
+vulkane-spirv-emit = { path = "../vulkane-spirv-emit" }
+tempfile = { workspace = true }
+
+[lints.rust]
+missing_docs                  = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links  = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all                = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity    = "allow"

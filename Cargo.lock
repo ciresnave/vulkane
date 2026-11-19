@@ -2098,6 +2098,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vulkane-glsl-emit"
+version = "0.25.1"
+dependencies = [
+ "tempfile",
+ "unpopped",
+ "unpopped-vocab",
+ "vulkane",
+ "vulkane-kernel-text",
+ "vulkane-spirv-emit",
+]
+
+[[package]]
 name = "vulkane-hlsl-emit"
 version = "0.25.1"
 dependencies = [
@@ -2120,6 +2132,14 @@ dependencies = [
  "tree-sitter-hlsl",
  "unpopped",
  "unpopped-convert",
+ "unpopped-vocab",
+]
+
+[[package]]
+name = "vulkane-kernel-text"
+version = "0.25.1"
+dependencies = [
+ "unpopped",
  "unpopped-vocab",
 ]
 

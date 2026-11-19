@@ -13,6 +13,8 @@
     "vulkane-spirv-parse",
     "vulkane-wgsl-parse",
     "vulkane-wgsl-emit",
+    "vulkane-kernel-text",
+    "vulkane-glsl-emit",
   ]
   resolver = "2"
 
