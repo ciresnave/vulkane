@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [vulkan_gen 0.5.2] — vulkan_gen version bump (row 9a source change)
 
-`vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped.
+`vulkan_gen` 0.5.2: the row 9a module-cycle fix changes its source, and 0.5.1 is already served on crates.io with different source, so the version-divergence gate requires an unpublished version. No other crate version was bumped. The same 0.5.2 (still unpublished) also carries the `vk.xml` 368 generator fix: a mutable `void*` parameter is no longer turned into a by-value `-> c_void` safe method (`vkGetLatencyTimingsLegacyNV`, new in 368).
 
 ## [0.25.1] — `vulkane-spirv-emit`: `Backend::lower_kernel` first slice (workgroup memory, barriers, fences, structured control flow)
 

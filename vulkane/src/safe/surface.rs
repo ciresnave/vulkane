@@ -241,7 +241,7 @@ impl Surface {
 
         let info = VkMetalSurfaceCreateInfoEXT {
             sType: VkStructureType::STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-            pLayer: metal_layer as *const _,
+            pLayer: metal_layer.cast_mut().cast(),
             ..Default::default()
         };
 

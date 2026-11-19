@@ -407,7 +407,9 @@ fn classify_roles(params: &[CommandParam]) -> Vec<ParamRole> {
                 rust_ty: rust_type_name(&p.type_name),
                 name: escape_param_name(&p.name),
             };
-        } else if is_mut_ptr(p) {
+        } else if is_mut_ptr(p) && p.type_name != "void" {
+            // A `void*` is opaque memory, not a typed value: returning it by value would be `-> c_void`
+            // (vk.xml 368's `vkGetLatencyTimingsLegacyNV`), which rustc rejects as a C `void` return.
             roles[i] = ParamRole::MutPtr {
                 rust_ty: rust_type_name(&p.type_name),
                 name: escape_param_name(&p.name),
