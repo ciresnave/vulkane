@@ -16,8 +16,9 @@
 //! - **Workgroup memory** (row 8a): `MemorySpace::Shared` arrays of `Extent::Static` become
 //!   `OpVariable Workgroup` of array type. A dynamic extent (`Extent::Param`) is a typed decline:
 //!   SPIR-V has no per-dispatch extent (it needs a specialization constant, fixed per pipeline).
-//! - **Statements**: `Let`, `Load`, `Assign`, `Store`, `Barrier` and `Fence`. Control flow (row 8g),
-//!   atomics, collectives and everything else is declined naming the statement.
+//! - **Statements**: `Let`, `Load`, `Assign`, `Store`, `Barrier`, `Fence` and the structured control
+//!   flow of row 8g (`If`, `For`, `While`, `Break`, `Continue`, `Return`; see the `flow` module). Atomics,
+//!   collectives and everything else is declined naming the statement.
 //!
 //! ## Barriers and fences (row 8b)
 //!
@@ -30,8 +31,10 @@
 //! their SPIR-V semantics, and **`SeqCst` collapses to `AcquireRelease`** (Vulkan's SPIR-V
 //! environment has no sequentially consistent barrier). The `Device` fence scope is `Device`.
 //!
-//! Because this slice has no control flow, a barrier is never under divergent control; the
-//! uniformity analysis of row 8g is owed when `If`/`For` land.
+//! A barrier under thread-divergent control is refused by `check_kernel` (`BarrierDivergent`), which
+//! runs first, so it is a typed decline carrying the checker's answer and is never silently moved.
+
+mod flow;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -84,6 +87,8 @@ struct Kc<'k> {
     locals: Vec<Word>,
     block: [u32; 3],
     grid: [u32; 3],
+    /// `(merge, continue)` labels of the enclosing loops, innermost last.
+    loops: RefCell<Vec<(Word, Word)>>,
 }
 
 /// The checks that decide whether this slice can lower `kernel`, before any id is allocated.
@@ -369,6 +374,12 @@ impl Kc<'_> {
                 kind: BarrierKind::Full,
             } => self.barrier(SpvScope::Subgroup),
             Stmt::Fence { scope, order } => self.fence(*scope, *order),
+            Stmt::If { .. }
+            | Stmt::For { .. }
+            | Stmt::While { .. }
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Return => self.flow(s),
             other => Err(refuse(
                 self.kernel,
                 format!(
@@ -509,6 +520,7 @@ fn begin_body<'k>(
         locals,
         block,
         grid,
+        loops: RefCell::new(Vec::new()),
     };
     Ok((kc, main))
 }
@@ -517,12 +529,12 @@ fn begin_body<'k>(
 pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     let (fam, block, grid) = check_scope(kernel)?;
     let (kc, main) = begin_body(kernel, declare(kernel, fam), block, grid)?;
-    for s in &kernel.body.0 {
-        kc.stmt(s)?;
-    }
+    let ended = kc.block(&kernel.body)?;
     let (local_id, group_id) = (kc.local_id, kc.group_id);
     let mut e = kc.em.into_inner();
-    lo(e.b.ret())?;
+    if !ended {
+        lo(e.b.ret())?;
+    }
     lo(e.b.end_function())?;
     e.b.entry_point(
         ExecutionModel::GLCompute,

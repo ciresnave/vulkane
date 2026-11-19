@@ -239,7 +239,58 @@ fn what_this_slice_does_not_lower_is_a_typed_decline_naming_it() {
     );
     declined(&named, "Barrier");
 
-    let mut ctl = reverse(true);
-    ctl.body.0.push(Stmt::Return);
-    declined(&ctl, "Return");
+    let mut grid_dep = reverse(true);
+    grid_dep.body.0.push(Stmt::GridDepWait);
+    declined(&grid_dep, "GridDepWait");
+}
+
+#[path = "../tests/support/flow_kernel.rs"]
+mod flow_kernel;
+use flow_kernel::{bin, flow_kernel};
+
+#[test]
+fn nested_loops_with_break_continue_and_early_return_validate() {
+    let g = lower(&flow_kernel()).expect("lowers");
+    assert_valid(&g);
+    assert_eq!(count(&g.source, "OpLoopMerge"), 2, "{}", g.source);
+    assert_eq!(count(&g.source, "OpSelectionMerge"), 3, "{}", g.source);
+    assert_eq!(count(&g.source, "OpReturn"), 2, "{}", g.source);
+}
+
+/// Control: the validator sees a structural fault. Swapping the merge and continue operands of the
+/// first `OpLoopMerge` makes a module `spirv-val` must reject, while the intact one is accepted.
+#[test]
+fn a_seeded_invalid_merge_is_rejected_by_the_validator() {
+    let g = lower(&flow_kernel()).expect("lowers");
+    assert_valid(&g);
+    let mut words = g.words().expect("words").to_vec();
+    let at = (5..words.len())
+        .find(|&n| words[n] & 0xFFFF == 246 && words[n] >> 16 == 4)
+        .expect("an OpLoopMerge");
+    words.swap(at + 1, at + 2);
+    if let Some((ok, err)) = crate::tests::validate(&words) {
+        assert!(
+            !ok,
+            "spirv-val accepted a loop whose merge and continue are swapped"
+        );
+        assert!(!err.is_empty());
+    }
+}
+
+#[test]
+fn a_barrier_under_thread_divergent_control_is_a_decline_with_the_checkers_answer() {
+    use unpopped::ir::BinaryOp::CmpEq;
+    let mut k = reverse(true);
+    k.body.0.insert(
+        3,
+        Stmt::If {
+            cond: bin(CmpEq, tid(), c(0)),
+            then: Block(vec![Stmt::Barrier {
+                scope: Scope::Block,
+                kind: BarrierKind::Full,
+            }]),
+            els: Block(vec![]),
+        },
+    );
+    declined(&k, "BarrierDivergent");
 }
