@@ -11,6 +11,7 @@ components = [
   "vulkane-kernels-source",
   "vulkane-hlsl-parse", "vulkane-spirv-parse", "vulkane-slang-parse", "vulkane-wgsl-parse",
   "vulkane-hlsl-emit", "vulkane-spirv-emit", "vulkane-slang-emit", "vulkane-wgsl-emit",
+  "vulkane-glsl-emit", "vulkane-kernel-text",
 ]
 
 [[architecture.layer]]
