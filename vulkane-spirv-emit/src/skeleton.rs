@@ -25,7 +25,7 @@ pub(crate) struct Skeleton {
 }
 
 /// A builder with the version, capabilities and memory model a `fam` kernel needs.
-fn header(fam: Family) -> Builder {
+pub(crate) fn header(fam: Family) -> Builder {
     let mut b = Builder::new();
     b.set_version(1, 3);
     b.capability(Capability::Shader);
@@ -41,7 +41,7 @@ fn header(fam: Family) -> Builder {
 }
 
 /// The element type for `fam`.
-fn element_type(b: &mut Builder, fam: Family, u32_t: Word) -> Word {
+pub(crate) fn element_type(b: &mut Builder, fam: Family, u32_t: Word) -> Word {
     match fam {
         Family::F32 => b.type_float(32, None),
         Family::F64 => b.type_float(64, None),

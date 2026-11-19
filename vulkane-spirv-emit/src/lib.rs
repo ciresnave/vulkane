@@ -45,6 +45,7 @@
 //!   `Acosh`, `Atanh`, `Copysign`, `Nextafter`, `Fma`, `Cast`, `Bitcast`, so the emitters can be
 //!   checked against each other on the same ops.
 
+mod kernel;
 mod ops;
 mod patent_decline;
 mod skeleton;
@@ -55,10 +56,15 @@ use std::collections::HashMap;
 use rspirv::binary::{Assemble, Disassemble};
 use rspirv::dr::Builder;
 use rspirv::spirv::{ExecutionMode, ExecutionModel, FunctionControl, Word};
-use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, lower_dag};
+use unpopped::backend::{
+    Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, LoweringBuilder, Spelling,
+    lower_dag,
+};
 use unpopped::cfamily::dtype_tag;
+use unpopped::exec::ExecId;
 use unpopped::ir::{DagNode, ExprDag, NodeId, ScalarExpr};
 use unpopped::plan::{KernelPlan, Schedule};
+use unpopped::types::Ty;
 use unpopped_vocab::{ElementKind, TargetId};
 
 use ops::{Em, Family, lo};
@@ -91,7 +97,10 @@ impl Backend for SpirV {
         &self,
         kernel: &unpopped::kernel::KernelFn,
     ) -> Result<GeneratedKernel, LowerError> {
-        Err(patent_decline::refuse_kernel(self.name(), kernel))
+        if patent_decline::is_declined(kernel) {
+            return Err(patent_decline::refuse_kernel(self.name(), kernel));
+        }
+        kernel::lower(kernel)
     }
     fn provider(&self) -> &str {
         "vulkane"
@@ -170,8 +179,33 @@ fn check_shape(plan: &KernelPlan<'_>) -> Result<(), LowerError> {
     Ok(())
 }
 
-/// Lower `body` through `lower_dag` with the SPIR-V spellers; returns the result id.
-fn lower_body(em: &RefCell<Em>, body: &ScalarExpr) -> Result<Word, LowerError> {
+/// The kernel-layer seams `lower_body` adds for a `KernelFn` expression: locals and execution ids.
+pub(crate) struct KernelSeams<'a> {
+    pub(crate) local: &'a dyn Fn(u32) -> Result<Spelling, LowerError>,
+    pub(crate) exec: &'a dyn Fn(ExecId) -> Result<Spelling, LowerError>,
+    pub(crate) tys: &'a [Ty],
+    pub(crate) dtype: ElementKind,
+}
+
+/// `lowering` with the kernel-layer seams: locals, execution ids, local types, the compute dtype.
+fn with_kernel_seams<'a>(
+    lowering: LoweringBuilder<'a>,
+    k: &KernelSeams<'a>,
+) -> LoweringBuilder<'a> {
+    lowering
+        .local(k.local)
+        .exec(k.exec)
+        .local_types(k.tys)
+        .compute_dtype(k.dtype)
+}
+
+/// Lower `body` through `lower_dag` with the SPIR-V spellers; returns the result id. `kernel` is
+/// `Some` for a kernel-layer expression (locals, execution ids) and `None` for a plan body.
+pub(crate) fn lower_body(
+    em: &RefCell<Em>,
+    body: &ScalarExpr,
+    kernel: Option<&KernelSeams<'_>>,
+) -> Result<Word, LowerError> {
     let acc = |k: u8| em.borrow_mut().load_input(k);
     let unary = |op, x: String| {
         let mut e = em.borrow_mut();
@@ -202,22 +236,19 @@ fn lower_body(em: &RefCell<Em>, body: &ScalarExpr) -> Result<Word, LowerError> {
         e.temps.insert(name.to_string(), w);
         String::new()
     };
-    let (prelude, root) = lower_dag(
-        &ExprDag::from_expr(body),
-        "spirv",
-        &Lowering::builder(&acc, &unary, &binary)
-            .arith(&arith)
-            .select(&select)
-            .constant(&constant)
-            .const_int(&const_int)
-            .temp(&temp)
-            .build(),
-    )?;
-    // The `temp` seam above returns no text, so a prelude of empty lines is expected.
-    debug_assert!(
-        prelude.iter().all(String::is_empty),
-        "spirv emits no prelude text"
-    );
+    let lowering = Lowering::builder(&acc, &unary, &binary)
+        .arith(&arith)
+        .select(&select)
+        .constant(&constant)
+        .const_int(&const_int)
+        .temp(&temp);
+    let lowering = match kernel {
+        Some(k) => with_kernel_seams(lowering, k),
+        None => lowering,
+    };
+    let (prelude, root) = lower_dag(&ExprDag::from_expr(body), "spirv", &lowering.build())?;
+    // The `temp` seam returns no text, so a prelude of empty lines is expected.
+    debug_assert!(prelude.iter().all(String::is_empty), "no prelude text");
     Ok(em.borrow().resolve(&root))
 }
 
@@ -247,7 +278,7 @@ fn emit_scalar(plan: &KernelPlan<'_>) -> Result<GeneratedKernel, LowerError> {
         index,
         temps: HashMap::new(),
     });
-    let root = lower_body(&em, plan.body)?;
+    let root = lower_body(&em, plan.body, None)?;
     let mut e = em.into_inner();
     e.store_and_return(output, root)?;
 
@@ -270,3 +301,6 @@ fn declare_entry(b: &mut Builder, fam: Family, main: Word, gid: Word, name: &str
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod kernel_tests;

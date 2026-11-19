@@ -10,7 +10,7 @@ use vulkane::safe::{
     AccessFlags, ApiVersion, Buffer, BufferCreateInfo, BufferUsage, CommandPool, ComputePipeline,
     DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorType, DeviceMemory, Fence, MemoryPropertyFlags,
-    PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags,
+    PipelineLayout, PipelineStage, ShaderModule, ShaderStageFlags, SpecializationConstants,
 };
 use vulkane_spirv_emit::WORKGROUP_SIZE;
 
@@ -155,7 +155,19 @@ impl Gpu {
 
     /// Run `words` (entry point `name`) over `inputs` (equal length, 32-bit cells) and return the
     /// output cells, one per input element.
+    #[allow(dead_code)] // each test binary includes this file and uses one of `run`, `run_spec`
     pub(crate) fn run(&self, name: &str, words: &[u32], inputs: &[&[u32]]) -> Vec<u32> {
+        self.run_spec(name, words, inputs, None)
+    }
+
+    /// [`Gpu::run`] with specialization constants baked into the pipeline.
+    pub(crate) fn run_spec(
+        &self,
+        name: &str,
+        words: &[u32],
+        inputs: &[&[u32]],
+        spec: Option<&SpecializationConstants>,
+    ) -> Vec<u32> {
         let n = inputs[0].len();
         assert!(inputs.iter().all(|i| i.len() == n), "ragged inputs");
         let groups = n.div_ceil(WORKGROUP_SIZE as usize);
@@ -178,7 +190,11 @@ impl Gpu {
 
         let layout = PipelineLayout::new(device, &[&set_layout]).unwrap();
         let shader = ShaderModule::from_spirv(device, words).unwrap();
-        let pipeline = ComputePipeline::new(device, &layout, &shader, name).unwrap();
+        let pipeline = match spec {
+            Some(s) => ComputePipeline::with_specialization(device, &layout, &shader, name, s),
+            None => ComputePipeline::new(device, &layout, &shader, name),
+        }
+        .unwrap();
         self.dispatch(&pipeline, &layout, &dset, groups as u32);
 
         let m = o_mem.map().unwrap();

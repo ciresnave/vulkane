@@ -29,7 +29,7 @@ fn binary_key(dt: ElementKind) -> unpopped_vocab::StructureKey {
 }
 
 /// `Some((accepted, stderr))`, or `None` when `spirv-val` is unavailable and not required.
-fn validate(words: &[u32]) -> Option<(bool, String)> {
+pub(crate) fn validate(words: &[u32]) -> Option<(bool, String)> {
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     let out = Command::new("spirv-val")
         .args(["--target-env", TARGET_ENV, "-"])
@@ -58,7 +58,7 @@ fn validate(words: &[u32]) -> Option<(bool, String)> {
     }
 }
 
-fn assert_valid(k: &GeneratedKernel) {
+pub(crate) fn assert_valid(k: &GeneratedKernel) {
     let words = k.words().expect("the SPIR-V backend supplies words");
     if let Some((ok, err)) = validate(words) {
         assert!(
