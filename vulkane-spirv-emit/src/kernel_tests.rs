@@ -214,10 +214,14 @@ fn what_this_slice_does_not_lower_is_a_typed_decline_naming_it() {
     declined(&f, "integer kernels only");
 
     let mut d = reverse(true);
-    d.params.push(Param::scalar("n", U32, 4));
     d.locals.push(LocalDecl::scalar(U32));
     d.allocs[0].extent = Extent::Param(4);
-    declined(&d, "dynamic extent");
+    declined(&d, "check_kernel refused");
+
+    let mut s = reverse(true);
+    s.params.push(Param::scalar("n", U32, 4));
+    s.locals.push(LocalDecl::scalar(U32));
+    declined(&s, "is not lowered");
 
     let mut dev = reverse(true);
     dev.body.0.insert(
@@ -293,4 +297,40 @@ fn a_barrier_under_thread_divergent_control_is_a_decline_with_the_checkers_answe
         },
     );
     declined(&k, "BarrierDivergent");
+}
+
+/// `reverse` with the shared array sized by a scalar parameter (local 4).
+fn reverse_dynamic() -> KernelFn {
+    let mut k = reverse(true);
+    k.params.push(Param::scalar("n", U32, 4));
+    k.locals.push(LocalDecl::scalar(U32));
+    k.allocs[0].extent = Extent::Param(4);
+    k
+}
+
+#[test]
+fn a_dynamic_extent_is_a_specialization_constant_sized_array() {
+    let g = lower(&reverse_dynamic()).expect("lowers");
+    assert_valid(&g);
+    assert_eq!(count(&g.source, "OpSpecConstant"), 1, "{}", g.source);
+    // The scalar parameter is parameter 2: its SpecId is 2.
+    assert!(g.source.contains("SpecId 2"), "{}", g.source);
+    let spec = g
+        .source
+        .lines()
+        .find(|l| l.contains("OpSpecConstant"))
+        .and_then(|l| l.split_whitespace().next())
+        .expect("a spec constant id");
+    let array = g
+        .source
+        .lines()
+        .find(|l| l.contains("OpTypeArray"))
+        .expect("an array type");
+    assert!(
+        array.trim_end().ends_with(spec),
+        "the array length is the spec constant: {array}"
+    );
+    // The static kernel has no spec constant at all (the control for the query above).
+    let fixed = lower(&reverse(true)).expect("lowers");
+    assert_eq!(count(&fixed.source, "OpSpecConstant"), 0);
 }

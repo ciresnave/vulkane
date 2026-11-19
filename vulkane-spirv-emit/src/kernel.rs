@@ -34,27 +34,27 @@
 //! A barrier under thread-divergent control is refused by `check_kernel` (`BarrierDivergent`), which
 //! runs first, so it is a typed decline carrying the checker's answer and is never silently moved.
 
+mod check;
+mod declare;
 mod flow;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 
 use rspirv::binary::{Assemble, Disassemble};
-use rspirv::dr::Operand;
 use rspirv::spirv::{
-    BuiltIn, Decoration, ExecutionMode, ExecutionModel, FunctionControl, MemorySemantics,
-    Scope as SpvScope, StorageClass, Word,
+    ExecutionMode, ExecutionModel, FunctionControl, MemorySemantics, Scope as SpvScope,
+    StorageClass, Word,
 };
 use unpopped::backend::{Decline, DeclinedOp, GeneratedKernel, LowerError, Spelling};
-use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
-use unpopped::kernel::{
-    BarrierKind, BufferRole, KernelFn, MemoryOrder, ParamKind, Place, Stmt, check_kernel,
-};
+use unpopped::exec::{ExecId, Scope};
+use unpopped::kernel::{BarrierKind, KernelFn, MemoryOrder, Place, Stmt};
 use unpopped::types::Ty;
 
-use crate::ops::{Em, Family, lo};
-use crate::skeleton::{element_type, header};
+use crate::ops::{Em, lo};
 use crate::{KernelSeams, lower_body};
+use check::check_scope;
+use declare::{Module, declare};
 
 /// A typed refusal of the kernel layer: `UnsupportedKernel` carrying `what`.
 fn refuse(kernel: &KernelFn, what: impl std::fmt::Display) -> LowerError {
@@ -89,119 +89,6 @@ struct Kc<'k> {
     grid: [u32; 3],
     /// `(merge, continue)` labels of the enclosing loops, innermost last.
     loops: RefCell<Vec<(Word, Word)>>,
-}
-
-/// The checks that decide whether this slice can lower `kernel`, before any id is allocated.
-fn check_scope(kernel: &KernelFn) -> Result<(Family, [u32; 3], [u32; 3]), LowerError> {
-    check_kernel(kernel).map_err(|e| LowerError::UnsupportedKernel {
-        detail: format!("check_kernel refused kernel `{}`: {e:?}", kernel.name),
-    })?;
-    let fam = match Family::of(kernel.compute) {
-        Some(f @ (Family::I32 | Family::U32)) => f,
-        _ => {
-            return Err(refuse(
-                kernel,
-                format!(
-                    "v1 lowers integer kernels only; compute dtype is {:?}",
-                    kernel.compute
-                ),
-            ));
-        }
-    };
-    let Some(launch) = kernel.launch.as_ref() else {
-        return Err(refuse(
-            kernel,
-            "a kernel without a launch shape has no workgroup size",
-        ));
-    };
-    if launch.grid_dims.is_some() {
-        return Err(refuse(kernel, "a parameter-dependent grid is not lowered"));
-    }
-    check_allocs(kernel, fam)?;
-    check_params_and_locals(kernel, fam)?;
-    Ok((fam, launch.block, launch.grid))
-}
-
-/// Every allocation must be a static shared array of the compute dtype.
-fn check_allocs(kernel: &KernelFn, fam: Family) -> Result<(), LowerError> {
-    for a in &kernel.allocs {
-        match (a.space, a.extent) {
-            (MemorySpace::Shared, Extent::Static(_)) if Family::of(a.elem) == Some(fam) => {}
-            (MemorySpace::Shared, Extent::Param(_)) => {
-                return Err(refuse(
-                    kernel,
-                    format!(
-                        "allocation `{}` has a dynamic extent: SPIR-V needs a specialization constant, fixed per pipeline (row 8a, not yet lowered)",
-                        a.name
-                    ),
-                ));
-            }
-            _ => {
-                return Err(refuse(
-                    kernel,
-                    format!(
-                        "allocation `{}` is not a static shared array of the compute dtype",
-                        a.name
-                    ),
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Every parameter must be a buffer of the compute dtype, every local a scalar of it.
-fn check_params_and_locals(kernel: &KernelFn, fam: Family) -> Result<(), LowerError> {
-    for p in &kernel.params {
-        match &p.kind {
-            ParamKind::Buffer { elem, .. } if Family::of(*elem) == Some(fam) => {}
-            ParamKind::Buffer { elem, .. } => {
-                return Err(refuse(
-                    kernel,
-                    format!(
-                        "buffer `{}` has element {elem:?}, not the compute dtype",
-                        p.name
-                    ),
-                ));
-            }
-            _ => {
-                return Err(refuse(
-                    kernel,
-                    format!("parameter `{}` is not a buffer", p.name),
-                ));
-            }
-        }
-    }
-    for (i, l) in kernel.locals.iter().enumerate() {
-        if l.lanes != 1 || Family::of(l.elem) != Some(fam) {
-            return Err(refuse(
-                kernel,
-                format!("local {i} is not a scalar of the compute dtype"),
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// An `Input` builtin variable of `vec3` type.
-fn builtin_var(b: &mut rspirv::dr::Builder, vec3: Word, which: BuiltIn) -> Word {
-    let ptr = b.type_pointer(None, StorageClass::Input, vec3);
-    let v = b.variable(ptr, None, StorageClass::Input, None);
-    b.decorate(v, Decoration::BuiltIn, [Operand::BuiltIn(which)]);
-    v
-}
-
-/// The storage-buffer variable of a parameter at binding `binding`.
-fn buffer_var(b: &mut rspirv::dr::Builder, ptr: Word, binding: u32, role: BufferRole) -> Word {
-    let v = b.variable(ptr, None, StorageClass::StorageBuffer, None);
-    b.decorate(v, Decoration::DescriptorSet, [Operand::LiteralBit32(0)]);
-    b.decorate(v, Decoration::Binding, [Operand::LiteralBit32(binding)]);
-    // On the variable, not the block member: rspirv shares one block type across the buffers, and
-    // the roles differ per buffer.
-    if role == BufferRole::Read {
-        b.decorate(v, Decoration::NonWritable, []);
-    }
-    v
 }
 
 impl Kc<'_> {
@@ -391,93 +278,6 @@ impl Kc<'_> {
     }
 }
 
-/// The module-level ids the function body refers to.
-struct Module {
-    b: rspirv::dr::Builder,
-    fam: Family,
-    glsl: Word,
-    void: Word,
-    fn_ty: Word,
-    boolean: Word,
-    u32_t: Word,
-    t: Word,
-    vec3: Word,
-    local_id: Word,
-    group_id: Word,
-    bufs: Vec<Word>,
-    allocs: Vec<Word>,
-}
-
-/// The storage buffers (one per parameter) and the workgroup arrays (one per allocation).
-fn declare_storage(
-    b: &mut rspirv::dr::Builder,
-    kernel: &KernelFn,
-    fam: Family,
-    u32_t: Word,
-    t: Word,
-) -> (Vec<Word>, Vec<Word>) {
-    // One run-time array and one block type (rspirv shares them), each decorated exactly once.
-    let rt = b.type_runtime_array(t);
-    b.decorate(
-        rt,
-        Decoration::ArrayStride,
-        [Operand::LiteralBit32(fam.bytes())],
-    );
-    let blk = b.type_struct([rt]);
-    b.decorate(blk, Decoration::Block, []);
-    b.member_decorate(blk, 0, Decoration::Offset, [Operand::LiteralBit32(0)]);
-    let buf_ptr = b.type_pointer(None, StorageClass::StorageBuffer, blk);
-    let mut bufs = Vec::new();
-    for (i, p) in kernel.params.iter().enumerate() {
-        let ParamKind::Buffer { role, .. } = &p.kind else {
-            unreachable!("check_scope admits buffers only")
-        };
-        let binding = u32::try_from(i).expect("binding fits u32");
-        bufs.push(buffer_var(b, buf_ptr, binding, *role));
-    }
-    let mut allocs = Vec::new();
-    for a in &kernel.allocs {
-        let Extent::Static(n) = a.extent else {
-            unreachable!("check_scope admits static extents only")
-        };
-        let len = b.constant_bit32(u32_t, n);
-        let arr = b.type_array(t, len);
-        let ptr = b.type_pointer(None, StorageClass::Workgroup, arr);
-        allocs.push(b.variable(ptr, None, StorageClass::Workgroup, None));
-    }
-    (bufs, allocs)
-}
-
-/// Declare types, builtins, buffers and workgroup arrays for `kernel`.
-fn declare(kernel: &KernelFn, fam: Family) -> Module {
-    let mut b = header(fam);
-    let glsl = b.ext_inst_import("GLSL.std.450");
-    let void = b.type_void();
-    let fn_ty = b.type_function(void, []);
-    let boolean = b.type_bool();
-    let u32_t = b.type_int(32, 0);
-    let t = element_type(&mut b, fam, u32_t);
-    let vec3 = b.type_vector(u32_t, 3);
-    let local_id = builtin_var(&mut b, vec3, BuiltIn::LocalInvocationId);
-    let group_id = builtin_var(&mut b, vec3, BuiltIn::WorkgroupId);
-    let (bufs, allocs) = declare_storage(&mut b, kernel, fam, u32_t, t);
-    Module {
-        b,
-        fam,
-        glsl,
-        void,
-        fn_ty,
-        boolean,
-        u32_t,
-        t,
-        vec3,
-        local_id,
-        group_id,
-        bufs,
-        allocs,
-    }
-}
-
 /// Open the entry function and declare one function-scope variable per local, then build the
 /// statement emitter over the module.
 fn begin_body<'k>(
@@ -496,6 +296,16 @@ fn begin_body<'k>(
         .iter()
         .map(|_| m.b.variable(fn_ptr, None, StorageClass::Function, None))
         .collect();
+    // A scalar parameter is a specialization constant: its local takes that value at entry.
+    for &(local, spec) in &m.specs {
+        let v = if m.t == m.u32_t {
+            spec
+        } else {
+            lo(m.b.bitcast(m.t, None, spec))?
+        };
+        let var = locals[usize::try_from(local).expect("local id fits usize")];
+        lo(m.b.store(var, v, None, []))?;
+    }
     let em = RefCell::new(Em {
         b: m.b,
         fam: m.fam,
