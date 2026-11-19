@@ -3,11 +3,9 @@
 //! through workgroup memory, with and without the barrier, and the typed declines.
 
 use unpopped::backend::{Backend, GeneratedKernel, LowerError};
-use unpopped::exec::{AllocDecl, ExecId, Extent, LaunchShape, MemorySpace, Scope};
+use unpopped::exec::{ExecId, Extent, Scope};
 use unpopped::ir::ScalarExpr as E;
-use unpopped::kernel::{
-    BarrierKind, Block, BufferRole, KernelFn, LocalDecl, MemoryOrder, Param, Place, Stmt,
-};
+use unpopped::kernel::{BarrierKind, Block, KernelFn, LocalDecl, MemoryOrder, Param, Stmt};
 use unpopped_vocab::ElementKind::{F32, U32};
 
 use crate::SpirV;
@@ -15,85 +13,20 @@ use crate::tests::assert_valid;
 
 const N: u32 = 64;
 
+#[path = "../tests/support/reverse_kernel.rs"]
+mod reverse_kernel;
+
+/// The block-reverse kernel over `N` threads with a static shared array.
+fn reverse(with_barrier: bool) -> KernelFn {
+    reverse_kernel::reverse(N, with_barrier, false)
+}
+
 fn tid() -> E {
     E::Exec(ExecId::ThreadIdx(0))
 }
 
 fn c(v: i64) -> E {
     E::ConstInt(v, U32)
-}
-
-fn sub(a: E, b: E) -> E {
-    E::Sub(Box::new(a), Box::new(b))
-}
-
-/// Each thread writes `in[t]` to `tile[t]`, then reads `tile[N-1-t]` into `out[t]`: the block
-/// reversed through shared memory, which is only right when every write is visible first.
-fn reverse(with_barrier: bool) -> KernelFn {
-    let mut body = vec![
-        Stmt::Let {
-            local: 0,
-            init: tid(),
-        },
-        Stmt::Load {
-            local: 1,
-            place: Place::Logical {
-                buffer: 0,
-                coords: vec![E::Local(0)],
-            },
-        },
-        Stmt::Store {
-            place: Place::Alloc {
-                alloc: 0,
-                index: E::Local(0),
-            },
-            value: E::Local(1),
-        },
-    ];
-    if with_barrier {
-        body.push(Stmt::Barrier {
-            scope: Scope::Block,
-            kind: BarrierKind::Full,
-        });
-    }
-    body.extend([
-        Stmt::Let {
-            local: 2,
-            init: sub(c(i64::from(N) - 1), E::Local(0)),
-        },
-        Stmt::Load {
-            local: 3,
-            place: Place::Alloc {
-                alloc: 0,
-                index: E::Local(2),
-            },
-        },
-        Stmt::Store {
-            place: Place::Logical {
-                buffer: 1,
-                coords: vec![E::Local(0)],
-            },
-            value: E::Local(3),
-        },
-    ]);
-    let mut k = KernelFn::new(
-        "reverse",
-        U32,
-        vec![
-            Param::buffer("input", U32, BufferRole::Read, None),
-            Param::buffer("output", U32, BufferRole::Write, None),
-        ],
-        vec![LocalDecl::scalar(U32); 4],
-        Block(body),
-    );
-    k.launch = Some(LaunchShape::new([N, 1, 1], [1, 1, 1]));
-    k.allocs = vec![AllocDecl::new(
-        "tile",
-        MemorySpace::Shared,
-        U32,
-        Extent::Static(N),
-    )];
-    k
 }
 
 fn lower(k: &KernelFn) -> Result<GeneratedKernel, LowerError> {

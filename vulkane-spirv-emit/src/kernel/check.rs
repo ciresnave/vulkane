@@ -3,7 +3,7 @@
 
 use unpopped::backend::LowerError;
 use unpopped::exec::{Extent, MemorySpace};
-use unpopped::kernel::{KernelFn, ParamKind, check_kernel};
+use unpopped::kernel::{KernelFn, Param, ParamKind, check_kernel};
 
 use super::refuse;
 use crate::ops::Family;
@@ -78,36 +78,44 @@ pub(super) fn check_allocs(kernel: &KernelFn, fam: Family) -> Result<(), LowerEr
     Ok(())
 }
 
+/// Whether some shared allocation takes its extent from the scalar parameter declaring `local`.
+fn sizes_array(kernel: &KernelFn, local: u32) -> bool {
+    kernel
+        .allocs
+        .iter()
+        .any(|a| a.extent == Extent::Param(local))
+}
+
+/// One parameter: a buffer of the compute dtype, or an extent scalar of it.
+fn check_param(kernel: &KernelFn, p: &Param, fam: Family) -> Result<(), LowerError> {
+    match &p.kind {
+        ParamKind::Buffer { elem, .. } if Family::of(*elem) == Some(fam) => Ok(()),
+        ParamKind::Buffer { elem, .. } => Err(refuse(
+            kernel,
+            format!(
+                "buffer `{}` has element {elem:?}, not the compute dtype",
+                p.name
+            ),
+        )),
+        ParamKind::Scalar { local, .. }
+            if sizes_array(kernel, *local) && extent_param(kernel, *local, fam).is_some() =>
+        {
+            Ok(())
+        }
+        _ => Err(refuse(
+            kernel,
+            format!(
+                "parameter `{}` is not lowered: only a buffer, or a scalar of the compute dtype that sizes a shared array (a specialization constant), is",
+                p.name
+            ),
+        )),
+    }
+}
+
 /// Every parameter must be a buffer of the compute dtype or an extent scalar, every local a scalar of the dtype.
 pub(super) fn check_params_and_locals(kernel: &KernelFn, fam: Family) -> Result<(), LowerError> {
     for p in &kernel.params {
-        match &p.kind {
-            ParamKind::Buffer { elem, .. } if Family::of(*elem) == Some(fam) => {}
-            ParamKind::Buffer { elem, .. } => {
-                return Err(refuse(
-                    kernel,
-                    format!(
-                        "buffer `{}` has element {elem:?}, not the compute dtype",
-                        p.name
-                    ),
-                ));
-            }
-            ParamKind::Scalar { local, .. }
-                if kernel
-                    .allocs
-                    .iter()
-                    .any(|a| a.extent == Extent::Param(*local))
-                    && extent_param(kernel, *local, fam).is_some() => {}
-            _ => {
-                return Err(refuse(
-                    kernel,
-                    format!(
-                        "parameter `{}` is not lowered: only a buffer, or a scalar of the compute dtype that sizes a shared array (a specialization constant), is",
-                        p.name
-                    ),
-                ));
-            }
-        }
+        check_param(kernel, p, fam)?;
     }
     for (i, l) in kernel.locals.iter().enumerate() {
         if l.lanes != 1 || Family::of(l.elem) != Some(fam) {

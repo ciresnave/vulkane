@@ -241,6 +241,29 @@ impl Kc<'_> {
 
     fn stmt(&self, s: &Stmt) -> Result<(), LowerError> {
         match s {
+            Stmt::Let { .. } | Stmt::Assign { .. } | Stmt::Load { .. } | Stmt::Store { .. } => {
+                self.data(s)
+            }
+            Stmt::Barrier { .. } | Stmt::Fence { .. } => self.sync(s),
+            Stmt::If { .. }
+            | Stmt::For { .. }
+            | Stmt::While { .. }
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Return => self.flow(s),
+            other => Err(refuse(
+                self.kernel,
+                format!(
+                    "`Stmt::{}` is not lowered (v1: Let, Load, Assign, Store, block/subgroup Barrier, Fence, control flow)",
+                    stmt_name(other)
+                ),
+            )),
+        }
+    }
+
+    /// `Let`, `Assign`, `Load` and `Store`.
+    fn data(&self, s: &Stmt) -> Result<(), LowerError> {
+        match s {
             Stmt::Let { local, init: value } | Stmt::Assign { local, value } => {
                 let v = self.expr(value)?;
                 self.store_local(*local, v)
@@ -256,6 +279,13 @@ impl Kc<'_> {
                 let v = self.expr(value)?;
                 lo(self.em.borrow_mut().b.store(ptr, v, None, []))
             }
+            _ => unreachable!("`stmt` routes only data statements here"),
+        }
+    }
+
+    /// `Barrier` (block or subgroup, full) and `Fence`.
+    fn sync(&self, s: &Stmt) -> Result<(), LowerError> {
+        match s {
             Stmt::Barrier {
                 scope: Scope::Block,
                 kind: BarrierKind::Full,
@@ -265,21 +295,29 @@ impl Kc<'_> {
                 kind: BarrierKind::Full,
             } => self.barrier(SpvScope::Subgroup),
             Stmt::Fence { scope, order } => self.fence(*scope, *order),
-            Stmt::If { .. }
-            | Stmt::For { .. }
-            | Stmt::While { .. }
-            | Stmt::Break
-            | Stmt::Continue
-            | Stmt::Return => self.flow(s),
             other => Err(refuse(
                 self.kernel,
                 format!(
-                    "`Stmt::{}` is not lowered (v1: Let, Load, Assign, Store, block/subgroup Barrier, Fence)",
+                    "`Stmt::{}` at this scope or kind is not lowered (v1: full Barrier at block or subgroup scope)",
                     stmt_name(other)
                 ),
             )),
         }
     }
+}
+
+/// A scalar parameter is a specialization constant: its local takes that value at entry.
+fn init_spec_locals(m: &mut Module, locals: &[Word]) -> Result<(), LowerError> {
+    for &(local, spec) in &m.specs {
+        let v = if m.t == m.u32_t {
+            spec
+        } else {
+            lo(m.b.bitcast(m.t, None, spec))?
+        };
+        let var = locals[usize::try_from(local).expect("local id fits usize")];
+        lo(m.b.store(var, v, None, []))?;
+    }
+    Ok(())
 }
 
 /// Open the entry function and declare one function-scope variable per local, then build the
@@ -300,16 +338,7 @@ fn begin_body<'k>(
         .iter()
         .map(|_| m.b.variable(fn_ptr, None, StorageClass::Function, None))
         .collect();
-    // A scalar parameter is a specialization constant: its local takes that value at entry.
-    for &(local, spec) in &m.specs {
-        let v = if m.t == m.u32_t {
-            spec
-        } else {
-            lo(m.b.bitcast(m.t, None, spec))?
-        };
-        let var = locals[usize::try_from(local).expect("local id fits usize")];
-        lo(m.b.store(var, v, None, []))?;
-    }
+    init_spec_locals(&mut m, &locals)?;
     let em = RefCell::new(Em {
         b: m.b,
         fam: m.fam,

@@ -57,7 +57,8 @@ use rspirv::binary::{Assemble, Disassemble};
 use rspirv::dr::Builder;
 use rspirv::spirv::{ExecutionMode, ExecutionModel, FunctionControl, Word};
 use unpopped::backend::{
-    Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, Spelling, lower_dag,
+    Backend, DtypeSupport, GeneratedKernel, LowerError, Lowering, LoweringBuilder, Spelling,
+    lower_dag,
 };
 use unpopped::cfamily::dtype_tag;
 use unpopped::exec::ExecId;
@@ -186,6 +187,18 @@ pub(crate) struct KernelSeams<'a> {
     pub(crate) dtype: ElementKind,
 }
 
+/// `lowering` with the kernel-layer seams: locals, execution ids, local types, the compute dtype.
+fn with_kernel_seams<'a>(
+    lowering: LoweringBuilder<'a>,
+    k: &KernelSeams<'a>,
+) -> LoweringBuilder<'a> {
+    lowering
+        .local(k.local)
+        .exec(k.exec)
+        .local_types(k.tys)
+        .compute_dtype(k.dtype)
+}
+
 /// Lower `body` through `lower_dag` with the SPIR-V spellers; returns the result id. `kernel` is
 /// `Some` for a kernel-layer expression (locals, execution ids) and `None` for a plan body.
 pub(crate) fn lower_body(
@@ -223,25 +236,19 @@ pub(crate) fn lower_body(
         e.temps.insert(name.to_string(), w);
         String::new()
     };
-    let mut lowering = Lowering::builder(&acc, &unary, &binary)
+    let lowering = Lowering::builder(&acc, &unary, &binary)
         .arith(&arith)
         .select(&select)
         .constant(&constant)
         .const_int(&const_int)
         .temp(&temp);
-    if let Some(k) = kernel {
-        lowering = lowering
-            .local(k.local)
-            .exec(k.exec)
-            .local_types(k.tys)
-            .compute_dtype(k.dtype);
-    }
+    let lowering = match kernel {
+        Some(k) => with_kernel_seams(lowering, k),
+        None => lowering,
+    };
     let (prelude, root) = lower_dag(&ExprDag::from_expr(body), "spirv", &lowering.build())?;
-    // The `temp` seam above returns no text, so a prelude of empty lines is expected.
-    debug_assert!(
-        prelude.iter().all(String::is_empty),
-        "spirv emits no prelude text"
-    );
+    // The `temp` seam returns no text, so a prelude of empty lines is expected.
+    debug_assert!(prelude.iter().all(String::is_empty), "no prelude text");
     Ok(em.borrow().resolve(&root))
 }
 
