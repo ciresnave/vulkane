@@ -52,6 +52,7 @@ use rspirv::spirv::{
 };
 use unpopped::backend::{Decline, DeclinedOp, GeneratedKernel, LowerError, Spelling};
 use unpopped::exec::{ExecId, Scope};
+use unpopped::ir::ScalarExpr;
 use unpopped::kernel::{BarrierKind, KernelFn, MemoryOrder, Place, Stmt};
 use unpopped::types::Ty;
 
@@ -265,22 +266,30 @@ impl Kc<'_> {
     fn data(&self, s: &Stmt) -> Result<(), LowerError> {
         match s {
             Stmt::Let { local, init: value } | Stmt::Assign { local, value } => {
-                let v = self.expr(value)?;
-                self.store_local(*local, v)
+                self.assign(*local, value)
             }
-            Stmt::Load { local, place } => {
-                let ptr = self.pointer(place)?;
-                let t = self.t();
-                let v = lo(self.em.borrow_mut().b.load(t, None, ptr, None, []))?;
-                self.store_local(*local, v)
-            }
-            Stmt::Store { place, value } => {
-                let ptr = self.pointer(place)?;
-                let v = self.expr(value)?;
-                lo(self.em.borrow_mut().b.store(ptr, v, None, []))
-            }
+            Stmt::Load { local, place } => self.load_stmt(*local, place),
+            Stmt::Store { place, value } => self.store_stmt(place, value),
             _ => unreachable!("`stmt` routes only data statements here"),
         }
+    }
+
+    fn assign(&self, local: u32, value: &ScalarExpr) -> Result<(), LowerError> {
+        let v = self.expr(value)?;
+        self.store_local(local, v)
+    }
+
+    fn load_stmt(&self, local: u32, place: &Place) -> Result<(), LowerError> {
+        let ptr = self.pointer(place)?;
+        let t = self.t();
+        let v = lo(self.em.borrow_mut().b.load(t, None, ptr, None, []))?;
+        self.store_local(local, v)
+    }
+
+    fn store_stmt(&self, place: &Place, value: &ScalarExpr) -> Result<(), LowerError> {
+        let ptr = self.pointer(place)?;
+        let v = self.expr(value)?;
+        lo(self.em.borrow_mut().b.store(ptr, v, None, []))
     }
 
     /// `Barrier` (block or subgroup, full) and `Fence`.

@@ -220,6 +220,15 @@ impl Kc<'_> {
             .branch_conditional(c, body_l, merge, []))?;
         self.begin(body_l)?;
         self.loop_body(body, merge, cont)?;
+        self.close_loop(head, [header, cont, merge])
+    }
+
+    /// The continue block (advance a counter, branch back) and the merge block.
+    fn close_loop(
+        &self,
+        head: &Head<'_>,
+        [header, cont, merge]: [Word; 3],
+    ) -> Result<(), LowerError> {
         self.begin(cont)?;
         if let Head::Counted(local, _, step) = head {
             self.advance(*local, *step)?;
